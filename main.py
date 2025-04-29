@@ -6,7 +6,9 @@ import time
 import asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
+from keep_alive import keep_alive
 
+keep_alive()
 # Set up logging first
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
