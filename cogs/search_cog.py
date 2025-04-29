@@ -577,7 +577,7 @@ class SearchCog(commands.Cog):
         await self.send_paginated_results(ctx_or_interaction, pages)
     
     # Weather Commands
-    @commands.command(name="weather")
+    @commands.command(name="weather", aliases=["wx"])
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def weather(self, ctx, *, location: str):
         """Check the current weather for a location"""
@@ -601,12 +601,17 @@ class SearchCog(commands.Cog):
         """Core weather search functionality for both command types"""
         is_interaction = isinstance(ctx_or_interaction, discord.Interaction)
         
-        # Use the fixed variable name
+        # Check if API key is configured
         if not self.openweather_api_key:
+            error_embed = discord.Embed(
+                title="⚠️ Weather Service Unavailable",
+                description="The weather search feature is not configured. Please set up the OpenWeather API key.",
+                color=0xFF5733  # Warning color
+            )
             if is_interaction:
-                await ctx_or_interaction.followup.send("⚠️ Weather search is not configured. Please set up API keys.")
+                await ctx_or_interaction.followup.send(embed=error_embed)
             else:
-                await ctx_or_interaction.send("⚠️ Weather search is not configured. Please set up API keys.")
+                await ctx_or_interaction.send(embed=error_embed)
             return
         
         # URL encode the location
@@ -615,95 +620,89 @@ class SearchCog(commands.Cog):
         # Construct the API URL
         url = f"http://api.openweathermap.org/data/2.5/weather?q={encoded_location}&appid={self.openweather_api_key}&units=metric"
         
-        # Make the request
-        result = await self.make_request(url)
-        
-        if "error" in result:
-            if is_interaction:
-                await ctx_or_interaction.followup.send(f"❌ Error: {result['error']}")
-            else:
-                await ctx_or_interaction.send(f"❌ Error: {result['error']}")
-            return
-        
-        # Check if the request was successful
-        if result.get("cod") != 200:
-            if is_interaction:
-                await ctx_or_interaction.followup.send(f"❌ Error: {result.get('message', 'Unknown error')}")
-            else:
-                await ctx_or_interaction.send(f"❌ Error: {result.get('message', 'Unknown error')}")
-            return
-        
-        # Extract weather information
-        city_name = result["name"]
-        country = result["sys"]["country"]
-        
-        temp = result["main"]["temp"]
-        temp_feels = result["main"]["feels_like"]
-        humidity = result["main"]["humidity"]
-        wind_speed = result["wind"]["speed"]
-        pressure = result["main"]["pressure"]
-        
-        weather_main = result["weather"][0]["main"]
-        weather_description = result["weather"][0]["description"].capitalize()
-        weather_icon = result["weather"][0]["icon"]
-        
-        # Get sunrise and sunset times
-        sunrise = datetime.datetime.fromtimestamp(result["sys"]["sunrise"])
-        sunset = datetime.datetime.fromtimestamp(result["sys"]["sunset"])
-        
-        # Get the corresponding weather emoji
-        weather_emojis = {
-            "Clear": "☀️",
-            "Clouds": "☁️",
-            "Rain": "🌧️",
-            "Drizzle": "🌦️",
-            "Thunderstorm": "⛈️",
-            "Snow": "❄️",
-            "Mist": "🌫️",
-            "Fog": "🌫️",
-            "Haze": "🌫️",
-            "Dust": "🌫️",
-            "Smoke": "🌫️",
-            "Tornado": "🌪️"
-        }
-        
-        weather_emoji = weather_emojis.get(weather_main, "🌡️")
-        
-        # Create the embed
-        embed = discord.Embed(
-            title=f"Weather for {city_name}, {country}",
-            description=f"{weather_emoji} **{weather_description}**",
-            color=0x3a9efa,
-            timestamp=datetime.datetime.now()
-        )
-        
-        # Add weather info fields
-        embed.add_field(name="Temperature", value=f"🌡️ {temp}°C (Feels like: {temp_feels}°C)", inline=False)
-        embed.add_field(name="Humidity", value=f"💧 {humidity}%", inline=True)
-        embed.add_field(name="Wind Speed", value=f"💨 {wind_speed} m/s", inline=True)
-        embed.add_field(name="Pressure", value=f"📊 {pressure} hPa", inline=True)
-        embed.add_field(name="Sunrise", value=f"🌅 {sunrise.strftime('%H:%M')}", inline=True)
-        embed.add_field(name="Sunset", value=f"🌇 {sunset.strftime('%H:%M')}", inline=True)
-        
-        # Add weather icon
-        embed.set_thumbnail(url=f"http://openweathermap.org/img/wn/{weather_icon}@2x.png")
-        
-        # Add footer
-        embed.set_footer(text="Powered by OpenWeatherMap")
-        
-        if is_interaction:
-            await ctx_or_interaction.followup.send(embed=embed)
-        else:
-            await ctx_or_interaction.send(embed=embed)
-    
-    # News Search Commands
-    @commands.command(name="news")
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def news(self, ctx, *, query: str):
-        """Search for news articles on a specific topic"""
-        await self._news_search(ctx, query)
-    
-    @search_group.command(name="news", description="Search for news articles on a topic")
-    async def slash_news(self, interaction: discord.Interaction, query: str):
-        """Slash command for news search"""
-        on_cd, retry_after = self.is_on_
+        try:
+            # Make the request
+            result = await self.make_request(url)
+            
+            # Handle API errors
+            if "error" in result:
+                error_embed = discord.Embed(
+                    title="❌ Weather Search Error",
+                    description=f"Error fetching weather data: {result['error']}",
+                    color=0xFF0000  # Red color for errors
+                )
+                if is_interaction:
+                    await ctx_or_interaction.followup.send(embed=error_embed)
+                else:
+                    await ctx_or_interaction.send(embed=error_embed)
+                return
+            
+            # Check if the request was successful
+            if result.get("cod") != 200:
+                error_message = result.get('message', 'Unknown error')
+                error_embed = discord.Embed(
+                    title="❌ Weather Search Error",
+                    description=f"Error from weather service: {error_message}",
+                    color=0xFF0000
+                )
+                error_embed.add_field(
+                    name="Troubleshooting",
+                    value=f"• Check if '{location}' is a valid location\n• Try with city name and country code (e.g., 'London, UK')\n• Check if the OpenWeather service is currently available",
+                    inline=False
+                )
+                if is_interaction:
+                    await ctx_or_interaction.followup.send(embed=error_embed)
+                else:
+                    await ctx_or_interaction.send(embed=error_embed)
+                return
+            
+            # Extract weather information
+            city_name = result["name"]
+            country = result["sys"]["country"]
+            
+            temp = result["main"]["temp"]
+            temp_feels = result["main"]["feels_like"]
+            humidity = result["main"]["humidity"]
+            wind_speed = result["wind"]["speed"]
+            pressure = result["main"]["pressure"]
+            
+            weather_main = result["weather"][0]["main"]
+            weather_description = result["weather"][0]["description"].capitalize()
+            weather_icon = result["weather"][0]["icon"]
+            
+            # Get sunrise and sunset times
+            sunrise = datetime.datetime.fromtimestamp(result["sys"]["sunrise"])
+            sunset = datetime.datetime.fromtimestamp(result["sys"]["sunset"])
+            
+            # Get the corresponding weather emoji
+            weather_emojis = {
+                "Clear": "☀️",
+                "Clouds": "☁️",
+                "Rain": "🌧️",
+                "Drizzle": "🌦️",
+                "Thunderstorm": "⛈️",
+                "Snow": "❄️",
+                "Mist": "🌫️",
+                "Fog": "🌫️",
+                "Haze": "🌫️",
+                "Dust": "🌫️",
+                "Smoke": "🌫️",
+                "Tornado": "🌪️"
+            }
+            
+            weather_emoji = weather_emojis.get(weather_main, "🌡️")
+            
+            # Create the embed
+            embed = discord.Embed(
+                title=f"Weather for {city_name}, {country}",
+                description=f"{weather_emoji} **{weather_description}**",
+                color=0x3a9efa,
+                timestamp=datetime.datetime.now()
+            )
+            
+            # Add weather info fields
+            embed.add_field(name="Temperature", value=f"🌡️ {temp}°C (Feels like: {temp_feels}°C)", inline=False)
+            embed.add_field(name="Humidity", value=f"💧 {humidity}%", inline=True)
+            embed.add_field(name="Wind Speed", value=f"💨 {wind_speed} m/s", inline=True)
+            embed.add_field(name="Pressure", value=f"📊 {pressure} hPa", inline=True)
+            embed.add_field(name="Sunrise", value=f"🌅 {sunrise.strftime('%H:%M')}", inline=True)
