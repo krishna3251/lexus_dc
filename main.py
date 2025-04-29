@@ -106,7 +106,7 @@ async def ping_command(ctx):
     """Check the bot's latency"""
     latency = round(bot.latency * 1000)
     await ctx.send(f"🏓 Pong! Latency: {latency}ms")
-
+os.makedirs("logs", exist_ok=True)
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
