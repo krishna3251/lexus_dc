@@ -9,8 +9,11 @@ def home():
 
 @app.route('/status')
 def status():
-    return {"status": "Bot is online!", "message": "Discord bot is running smoothly."}
+    return {
+        "status": "✅ Bot is online!",
+        "message": "Discord bot is running smoothly."
+    }
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Use assigned port or default to 5000
+    port = int(os.environ.get("PORT", 5000))  # Use Render-assigned port or fallback
     app.run(host='0.0.0.0', port=port)
