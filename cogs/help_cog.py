@@ -183,7 +183,7 @@ class HelpView(discord.ui.View):
     @discord.ui.button(label="◀️ MAIN MENU", style=discord.ButtonStyle.primary, custom_id="main_menu", row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="🌐 NEXUS COMMAND INTERFACE",
+            title="🌐 LEXUS COMMAND INTERFACE",
             description="Welcome to the interactive help system.\nSelect a module from the dropdown menu to explore commands.",
             color=COLORS["primary"]
         )
