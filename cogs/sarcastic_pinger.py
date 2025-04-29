@@ -185,8 +185,10 @@ class SarcasticPinger(commands.Cog):
                     # Choose a random member
                     member = random.choice(eligible_members)
                     
-                    # Choose a random ping message
-                    message = random.choice(self.ping_messages).format(member=member.mention)
+                    # Choose a random message template and format it with the member mention
+                    message_template = random.choice(self.ping_messages)
+                    # Remove {member} placeholder since we'll mention them outside the embed
+                    message_content = message_template.replace("{member}", "")
                     
                     # Choose a random GIF
                     gif_url = random.choice(self.gif_urls)
@@ -194,7 +196,7 @@ class SarcasticPinger(commands.Cog):
                     # Create a futuristic embed
                     embed = discord.Embed(
                         title="⚡ RANDOM MEMBER DETECTED ⚡",
-                        description=message,
+                        description=message_content,
                         color=0x00FFFF,  # Cyan for futuristic look
                         timestamp=now
                     )
@@ -212,7 +214,8 @@ class SarcasticPinger(commands.Cog):
                     embed.set_footer(text=f"SYSTEM: Auto-Ping v3.0 | NEXT SEQUENCE: T+6h")
                     
                     try:
-                        await channel.send(embed=embed)
+                        # The member mention is now outside the embed in the message content
+                        await channel.send(content=member.mention, embed=embed)
                     except discord.HTTPException as e:
                         print(f"Error sending ping in guild {guild.id}: {e}")
                 
@@ -660,8 +663,10 @@ class SarcasticPinger(commands.Cog):
         # Choose a random member
         member = random.choice(eligible_members)
         
-        # Choose a random ping message
-        message = random.choice(self.ping_messages).format(member=member.mention)
+        # Choose a random message template
+        message_template = random.choice(self.ping_messages)
+        # Remove {member} placeholder since we'll mention them outside the embed
+        message_content = message_template.replace("{member}", "")
         
         # Choose a random GIF
         gif_url = random.choice(self.gif_urls)
@@ -669,7 +674,7 @@ class SarcasticPinger(commands.Cog):
         # Create a test embed with futuristic styling
         embed = discord.Embed(
             title="⚡ TEST PING SEQUENCE INITIATED ⚡",
-            description=message,
+            description=message_content,
             color=0x00FFFF,  # Cyan for futuristic look
             timestamp=datetime.datetime.utcnow()
         )
@@ -698,7 +703,8 @@ class SarcasticPinger(commands.Cog):
         # Add futuristic footer
         embed.set_footer(text=f"TEST REQUEST: {ctx.author.name} | TIMESTAMP: {datetime.datetime.utcnow().strftime('%H:%M:%S')}")
         
-        await ctx.send(embed=embed)
+        # Send the user mention outside the embed to trigger a notification
+        await ctx.send(content=member.mention, embed=embed)
 
 async def setup(bot):
     await bot.add_cog(SarcasticPinger(bot))
