@@ -42,6 +42,7 @@ class Bot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=PREFIX, intents=intents, help_command=None)
         self.start_time = time.time()
+        self.processing_commands = set()  # Track commands being processed
         logging.info("Bot initialization started")
 
     async def setup_hook(self):
@@ -59,8 +60,21 @@ class Bot(commands.Bot):
                     logging.info(f"Loaded extension: {filename}")
                 except Exception as e:
                     logging.error(f"Failed to load extension {filename}: {e}")
+    
+    async def process_commands(self, message):
+        # Check if this message is already being processed to prevent double responses
+        if message.id in self.processing_commands:
+            return
+            
+        # Add message to processing set
+        self.processing_commands.add(message.id)
         
-        # Don't sync commands here - will do it in on_ready
+        # Process the command
+        try:
+            await super().process_commands(message)
+        finally:
+            # Remove from processing set after handling
+            self.processing_commands.discard(message.id)
 
     def uptime(self):
         return int(time.time() - self.start_time)
@@ -102,6 +116,12 @@ async def uptime_command(ctx):
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed)
+
+@bot.command(name="ping")
+async def ping_command(ctx):
+    """Check the bot's latency"""
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 Pong! Latency: {latency}ms")
 
 @bot.event
 async def on_command_error(ctx, error):
