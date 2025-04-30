@@ -231,7 +231,7 @@ class Help(commands.Cog):
     @app_commands.command(name="help", description="📜 Opens the advanced help interface with interactive modules")
     async def help_slash(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🌐 NEXUS COMMAND INTERFACE",
+            title="🌐 LEXUS COMMAND INTERFACE",
             description="Welcome to the interactive help system.\nSelect a module from the dropdown menu to explore commands.",
             color=COLORS["primary"]
         )
