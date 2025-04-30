@@ -1,56 +1,150 @@
 import discord
 from discord.ext import commands
 import datetime
+import random
+import asyncio
+from typing import Dict, List
 
 class ServerInfo(commands.Cog):
+    """Cyberpunk-themed server information commands"""
+    
     def __init__(self, bot):
         self.bot = bot
-
-    @commands.command(name="serverinfo", help="Displays detailed server information in an elegant embed.")
+        # Cyberpunk-themed color palette
+        self.cyber_colors = [
+            0x00FFFF,  # Neon cyan
+            0xFF00FF,  # Neon magenta
+            0xFF3366,  # Hot pink
+            0x33CCFF,  # Electric blue
+            0x00FF99,  # Neon green
+            0xFFFF00,  # Neon yellow
+        ]
+        
+    async def get_random_cyber_color(self):
+        """Return a random cyberpunk color"""
+        return random.choice(self.cyber_colors)
+        
+    @commands.command(name="netdata", aliases=["serverinfo"], help="Displays cyberpunk-themed server information.")
     async def serverinfo(self, ctx):
+        """Display detailed server information with cyberpunk styling"""
         guild = ctx.guild
 
         if not guild:
-            return await ctx.send("Could not retrieve server information.")
+            return await ctx.send("⚠️ **CRITICAL ERROR** ⚠️\nServer data corruption detected. Unable to retrieve network information.")
 
-        owner = guild.owner
+        # Create a typing effect for immersion
+        async with ctx.typing():
+            await asyncio.sleep(1)
+
+        # Get server owner with error handling
+        owner = guild.owner or "UNKNOWN"
+        
+        # Calculate server age with proper timezone handling
         created_at = guild.created_at
-        time_elapsed = (datetime.datetime.now(datetime.timezone.utc) - created_at).days  # ✅ Fixed timezone issue
-
+        time_elapsed = (discord.utils.utcnow() - created_at).days
+        
+        # Calculate bot and human counts
         bot_count = len([m for m in guild.members if m.bot])
         human_count = guild.member_count - bot_count
-
-        roles = [role.name for role in guild.roles if role.name != "@everyone"]
-        role_display = ", ".join(roles[:15]) + ("..." if len(roles) > 15 else "")
+        
+        # Calculate online/offline counts
+        online_count = len([m for m in guild.members if m.status != discord.Status.offline])
+        offline_count = guild.member_count - online_count
+        
+        # Get channel statistics
+        text_channels = len(guild.text_channels)
+        voice_channels = len(guild.voice_channels)
+        categories = len(guild.categories)
+        forums = len([c for c in guild.channels if isinstance(c, discord.ForumChannel)])
+        
+        # Get emoji statistics
+        static_emojis = len([e for e in guild.emojis if not e.animated])
+        animated_emojis = len([e for e in guild.emojis if e.animated])
+        
+        # Role information with better formatting
+        roles = [role for role in guild.roles if role.name != "@everyone"]
+        roles.sort(key=lambda x: x.position, reverse=True)  # Sort by position
+        role_display = ", ".join([role.name for role in roles[:10]]) + ("..." if len(roles) > 10 else "")
 
         embed = discord.Embed(
-            title="🖥️ SERVER INFORMATION 🖥️",
-            description=f"Details about **{guild.name}**",
-            color=discord.Color.blue()
+            title="⚡ NETWORK::METADATA_SCAN ⚡",
+            description=f"**NETWORK ID: {guild.name}**",
+            color=await self.get_random_cyber_color()
         )
 
         if guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
+            
+        if guild.banner:
+            embed.set_image(url=guild.banner.url)
 
-        embed.add_field(name="🏷️ Server Name", value=f"```{guild.name}```", inline=True)
-        embed.add_field(name="👑 Owner", value=f"```{owner}```", inline=True)
-        embed.add_field(name="🆔 Server ID", value=f"```{guild.id}```", inline=True)
+        # Core server information
+        embed.add_field(
+            name="NETWORK IDENTITY",
+            value=f"```ini\n[NAME] {guild.name}\n[ID] {guild.id}\n[OWNER] {owner}\n[REGION] {guild.preferred_locale}```",
+            inline=False
+        )
 
-        embed.add_field(name="📅 Created On", value=f"```{created_at.strftime('%m/%d/%Y %H:%M')} ({time_elapsed} days ago)```", inline=False)
+        # Server age and verification
+        embed.add_field(
+            name="NETWORK METRICS",
+            value=f"```fix\nCREATION_DATE: {created_at.strftime('%Y-%m-%d %H:%M')}\nUPTIME: {time_elapsed} days\nVERIF_LEVEL: {guild.verification_level.name}```",
+            inline=False
+        )
 
-        embed.add_field(name="👥 Members", value=f"```👤 Humans: {human_count} | 🤖 Bots: {bot_count}```", inline=True)
-        embed.add_field(name="🚀 Boosts", value=f"```Level {guild.premium_tier} | Boosts: {guild.premium_subscription_count}```", inline=True)
+        # Population metrics
+        embed.add_field(
+            name="POPULATION",
+            value=f"```yaml\nTOTAL: {guild.member_count}\nHUMANS: {human_count}\nBOTS: {bot_count}\nONLINE: {online_count}\nOFFLINE: {offline_count}```",
+            inline=True
+        )
 
-        embed.add_field(name="📂 Categories & Channels", value=f"```📁 {len(guild.categories)} | 💬 {len(guild.text_channels)} | 🎤 {len(guild.voice_channels)}```", inline=True)
+        # Server structure metrics  
+        embed.add_field(
+            name="STRUCTURE",
+            value=f"```yaml\nCATEGORIES: {categories}\nTEXT_CHANNELS: {text_channels}\nVOICE_CHANNELS: {voice_channels}\nFORUM_CHANNELS: {forums}```",
+            inline=True
+        )
 
-        embed.add_field(name="🎭 Emojis & Stickers", value=f"```😀 {len([e for e in guild.emojis if not e.animated])} | 🎞️ {len([e for e in guild.emojis if e.animated])} | 🏷️ {len(guild.stickers)}```", inline=True)
+        # Nitro boost information
+        embed.add_field(
+            name="NETWORK ENHANCEMENTS",
+            value=f"```arm\nBOOST_LEVEL: {guild.premium_tier}\nBOOST_COUNT: {guild.premium_subscription_count}\nFILE_LIMIT: {round(guild.filesize_limit / 1048576)} MB\nEMOJI_LIMIT: {guild.emoji_limit}\n```",
+            inline=False
+        )
 
-        embed.add_field(name=f"🔖 Roles [{len(guild.roles)}]", value=f"```{role_display}```", inline=False)
+        # Content statistics
+        embed.add_field(
+            name="CONTENT METRICS",
+            value=f"```cpp\nSTATIC_EMOJIS: {static_emojis}/{guild.emoji_limit}\nANIMATED_EMOJIS: {animated_emojis}/{guild.emoji_limit}\nSTICKERS: {len(guild.stickers)}/{guild.sticker_limit}\nROLES: {len(guild.roles)}\n```",
+            inline=False
+        )
 
-        embed.set_footer(text=f"Requested by {ctx.author}", icon_url=ctx.author.display_avatar.url)
+        # Role information
+        if roles:
+            # Create a more cyberpunk role display
+            top_roles = [f"[{role.name}]" for role in roles[:8]]
+            embed.add_field(
+                name="ACCESS LEVELS",
+                value=f"```ini\n{' '.join(top_roles)}{' [...]' if len(roles) > 8 else ''}```",
+                inline=False
+            )
+
+        # Features list
+        if guild.features:
+            features = [f.replace('_', ' ').title() for f in guild.features]
+            feature_str = ", ".join(features[:8]) + ("..." if len(features) > 8 else "")
+            embed.add_field(
+                name="NETWORK FEATURES",
+                value=f"```{feature_str}```",
+                inline=False
+            )
+
+        embed.set_footer(text=f"SCAN REQUESTED BY {ctx.author} • {discord.utils.utcnow().strftime('%H:%M:%S')}", 
+                         icon_url=ctx.author.display_avatar.url if ctx.author.display_avatar else None)
 
         await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(ServerInfo(bot))
-    print("✅ ServerInfo cog loaded!")
+    print("⚡ NETRUNNER MODULE: ServerInfo initialized ⚡")
