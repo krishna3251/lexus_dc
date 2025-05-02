@@ -160,8 +160,8 @@ class LexusGeminiCog(commands.Cog):
                 The user is asking for information with this query: "{content}"
                 Act as if you had access to search information. Provide a helpful, concise answer
                 to this knowledge query based on what you know. Keep your response under 150 words
-                and focus on the most important facts. If you're unsure, be honest about limitations.
-                """
+                and focus on the most important facts. If you're unsure, be honest about limitations."""
+                
                 
                 response = await self.get_gemini_response(search_prompt, user_id)
                 
@@ -192,8 +192,8 @@ class LexusGeminiCog(commands.Cog):
                 Analyze this message briefly: "{content}"
                 Return ONLY ONE WORD that best describes the emotional tone:
                 happy, sad, angry, confused, neutral, excited, worried, curious, or frustrated.
-                Just respond with the single word, nothing else.
-                """
+                Just respond with the single word, nothing else.""
+            
                 
                 try:
                     mood = await self.get_gemini_response(mood_prompt)
@@ -447,9 +447,10 @@ class LexusGeminiCog(commands.Cog):
             1. "task": what the user wants to be reminded about
             2. "time_text": the original time text (e.g., "in 1 hour", "tomorrow at 3pm")
             3. "minutes": your best estimate of when this should trigger in minutes from now (use 60 for "in 1 hour", etc.)
-            
-            Only respond with the JSON, nothing else.
             """
+            
+            
+            
             
             try:
                 response = await self.get_gemini_response(prompt)
