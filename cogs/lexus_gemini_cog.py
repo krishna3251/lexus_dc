@@ -639,4 +639,4 @@ class LexusGeminiCog(commands.Cog):
 
 # Setup function for the cog
 def setup(bot):
-    bot.add_cog(LexusGeminiCog(bot))
+    bot.load_extension("cogs.lexus_gemini_cog")
