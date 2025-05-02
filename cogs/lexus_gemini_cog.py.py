@@ -190,9 +190,9 @@ class LexusGeminiCog(commands.Cog):
                 # First try to detect mood/emotion in user message
                 mood_prompt = f"""
                 Analyze this message briefly: "{content}"
-                Return ONLY ONE WORD that best describes the emotional tone:
+                Return ONLY ONE WORD that best describes the emotional tone: 
                 happy, sad, angry, confused, neutral, excited, worried, curious, or frustrated.
-                Just respond with the single word, nothing else.""
+                Just respond with the single word, nothing else."""
             
                 
                 try:
