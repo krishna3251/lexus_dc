@@ -130,6 +130,9 @@ class LexusGeminiCog(commands.Cog):
             else:
                 query = content[8:].strip()  # Remove 'lex gif ' from the message
             await self.handle_gif_request(message, query)
+        
+        # Add this line to process commands after your custom logic
+        await self.bot.process_commands(message)
     
     async def process_message(self, message, content):
         """Process different types of messages based on content"""
@@ -449,9 +452,6 @@ class LexusGeminiCog(commands.Cog):
             3. "minutes": your best estimate of when this should trigger in minutes from now (use 60 for "in 1 hour", etc.)
             """
             
-            
-            
-            
             try:
                 response = await self.get_gemini_response(prompt)
                 
@@ -639,4 +639,4 @@ class LexusGeminiCog(commands.Cog):
 
 # Setup function for the cog
 def setup(bot):
-    bot.load_extension("cogs.lexus_gemini_cog")
+    bot.add_cog(LexusGeminiCog(bot))
