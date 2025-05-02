@@ -149,6 +149,12 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.followup.send("⚠️ An error occurred with this command", ephemeral=True)
     except Exception as e:
         logging.error(f"Error handling slash command error: {e}")
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
+    print("🔗 Connected to the following servers:")
+    for guild in bot.guilds:
+        print(f" - {guild.name} (ID: {guild.id})")
 
 if __name__ == "__main__":
     try:
