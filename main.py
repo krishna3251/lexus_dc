@@ -8,8 +8,10 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 
+# === Start keep_alive ===
 keep_alive()
-# Set up logging first
+
+# === Logging setup ===
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
@@ -20,60 +22,49 @@ logging.basicConfig(
     ]
 )
 
-# Load environment variables
+# === Load .env token ===
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Check if token exists
 if not TOKEN:
     logging.critical("DISCORD_TOKEN not found in .env file!")
     exit(1)
 
-# Define prefix options (with and without space)
+# === Intents & Prefix ===
 PREFIX = commands.when_mentioned_or("lx ", "lx")
-
-# Set up intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
+# === Bot class ===
 class Bot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=PREFIX, intents=intents, help_command=None)
         self.start_time = time.time()
-        self.processing_commands = set()  # Track commands being processed
-        logging.info("Bot initialization started")
+        self.processing_commands = set()
 
     async def setup_hook(self):
         logging.info("Setting up bot extensions...")
-        # Ensure cogs directory exists
         if not os.path.exists("cogs"):
             os.makedirs("cogs")
             logging.warning("Created missing cogs directory")
-        
-        # Load all cogs
+
         for filename in os.listdir("cogs"):
             if filename.endswith(".py"):
                 try:
                     await self.load_extension(f"cogs.{filename[:-3]}")
-                    logging.info(f"Loaded extension: {filename}")
+                    logging.info(f"✅ Loaded extension: {filename}")
                 except Exception as e:
-                    logging.error(f"Failed to load extension {filename}: {e}")
-    
+                    logging.error(f"❌ Failed to load {filename}: {e}")
+
     async def process_commands(self, message):
-        # Check if this message is already being processed to prevent double responses
         if message.id in self.processing_commands:
             return
-            
-        # Add message to processing set
         self.processing_commands.add(message.id)
-        
-        # Process the command
         try:
             await super().process_commands(message)
         finally:
-            # Remove from processing set after handling
             self.processing_commands.discard(message.id)
 
     def uptime(self):
@@ -81,34 +72,33 @@ class Bot(commands.Bot):
 
 bot = Bot()
 
+# === Events & Commands ===
+
 @bot.event
 async def on_ready():
-    logging.info(f"✅ Logged in as {bot.user}")
-    
-    # Wait a moment before syncing commands to ensure all cogs are fully loaded
+    logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     await asyncio.sleep(2)
-    
     try:
-        # Sync commands globally
         synced = await bot.tree.sync()
         logging.info(f"✅ Synced {len(synced)} slash commands")
     except Exception as e:
         logging.error(f"❌ Failed to sync slash commands: {e}")
     
-    # Set custom status
     await bot.change_presence(activity=discord.Activity(
-        type=discord.ActivityType.watching, 
+        type=discord.ActivityType.watching,
         name=f"for commands | lx help"
     ))
 
+    print("🔗 Connected to the following servers:")
+    for guild in bot.guilds:
+        print(f" - {guild.name} (ID: {guild.id})")
+
 @bot.command(name="uptime")
 async def uptime_command(ctx):
-    """Show the bot's uptime"""
     uptime_seconds = bot.uptime()
     minutes, seconds = divmod(uptime_seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    
     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
     embed = discord.Embed(
         title="🕒 Bot Uptime",
@@ -119,19 +109,15 @@ async def uptime_command(ctx):
 
 @bot.command(name="ping")
 async def ping_command(ctx):
-    """Check the bot's latency"""
     latency = round(bot.latency * 1000)
     await ctx.send(f"🏓 Pong! Latency: {latency}ms")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
-        # Log but don't respond for unknown commands
         logging.info(f"Unknown command: {ctx.message.content}")
         return
-        
     logging.error(f"Command error in {ctx.command}: {error}", exc_info=True)
-    
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"⚠️ Missing required argument: {error.param.name}")
     elif isinstance(error, commands.BadArgument):
@@ -150,17 +136,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
     except Exception as e:
         logging.error(f"Error handling slash command error: {e}")
 
-bot.remove_command("help")  # ← Add this before loading cogs
-
-# load your extensions
-await bot.load_extension("cogs.lexus_gemini_cog")
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print("🔗 Connected to the following servers:")
-    for guild in bot.guilds:
-        print(f" - {guild.name} (ID: {guild.id})")
-
+# === Run the bot ===
 if __name__ == "__main__":
     try:
         logging.info("Starting bot...")
