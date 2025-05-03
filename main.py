@@ -149,6 +149,11 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.followup.send("⚠️ An error occurred with this command", ephemeral=True)
     except Exception as e:
         logging.error(f"Error handling slash command error: {e}")
+
+bot.remove_command("help")  # ← Add this before loading cogs
+
+# load your extensions
+await bot.load_extension("cogs.lexus_gemini_cog")
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
