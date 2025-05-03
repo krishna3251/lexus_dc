@@ -7,22 +7,55 @@ import datetime
 import discord
 from dotenv import load_dotenv
 from discord.ext import commands
-import google.generativeai as genai
+import aiohttp  # Replaced google.generativeai with aiohttp
 from typing import Dict, List, Optional, Union, Tuple
 
 # Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configure Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
+# Helper function for Gemini API requests
+async def post_gemini_api(prompt, system_instruction=None):
+    """Make a direct request to the Gemini API using aiohttp"""
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    
+    # Prepare the request payload
+    payload = {
+        "contents": []
+    }
+    
+    # Add system instruction if provided
+    if system_instruction:
+        payload["contents"].append({
+            "role": "user",
+            "parts": [{"text": system_instruction}]
+        })
+    
+    # Add the user prompt
+    payload["contents"].append({
+        "role": "user", 
+        "parts": [{"text": prompt}]
+    })
+    
+    # Make the API request
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as response:
+            response.raise_for_status()
+            result = await response.json()
+            
+            # Extract the response text
+            if "candidates" in result and len(result["candidates"]) > 0:
+                if "content" in result["candidates"][0] and "parts" in result["candidates"][0]["content"]:
+                    return result["candidates"][0]["content"]["parts"][0]["text"]
+            
+            # Fallback if response format is unexpected
+            return "I couldn't process that request. Please try again."
 
 class LexusGeminiCog(commands.Cog):
     """A Cog for Lexus, an AI-powered Discord assistant using Gemini API"""
     
     def __init__(self, bot):
         self.bot = bot
-        self.model = genai.GenerativeModel('gemini-pro')
         self.chat_history = {}  # Store chat history per user
         self.reminders = {}  # Store reminders per user
         self.chat_modes = {}  # Store chat modes per user
@@ -76,8 +109,9 @@ class LexusGeminiCog(commands.Cog):
                 else:
                     full_prompt = prompt
             
-            response = await self.model.generate_content_async(full_prompt)
-            return response.text
+            # Use the helper function to make the API request
+            response = await post_gemini_api(prompt=full_prompt)
+            return response
         except Exception as e:
             print(f"Error getting Gemini response: {e}")
             return "I encountered an error processing your request. Please try again later."
