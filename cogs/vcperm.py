@@ -515,3 +515,6 @@ class VCPermissionCog(commands.Cog):
             embed.set_footer(text="NeuroLink™ Voice Security System")
             
         await ctx.send(embed=embed)
+        
+async def setup(bot):
+    await bot.add_cog(VCPermCog(bot))
