@@ -665,7 +665,9 @@ class LexusGeminiCog(commands.Cog):
         print(f"Command error: {error_text}")
         with open(self.log_file, "a") as f:
             f.write(f"[{datetime.datetime.now()}] ERROR: {error_text}\n")
+       
+
 
 # Setup function for the cog
-def setup(bot):
-    bot.add_cog(LexusGeminiCog(bot))
+async def setup(bot):
+    await bot.add_cog(LexusGeminiCog(bot))
