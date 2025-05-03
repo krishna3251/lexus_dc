@@ -44,6 +44,7 @@ async def post_gemini_api(prompt: str, user_id: Optional[int] = None) -> str:
         return "I couldn't process that request. Please try again."
     except Exception as e:
         print(f"API request error: {e}")
+        print(f"[Gemini ERROR] {e}")
         return "Sorry, I encountered an error communicating with my AI backend. Please try again later."
 
 class LexusGeminiCog(commands.Cog):
