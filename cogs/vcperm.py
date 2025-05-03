@@ -517,4 +517,4 @@ class VCPermissionCog(commands.Cog):
         await ctx.send(embed=embed)
         
 async def setup(bot):
-    await bot.add_cog(VCPermCog(bot))
+    await bot.add_cog(vcperm(bot))
