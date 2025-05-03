@@ -562,7 +562,7 @@ class LexusGeminiCog(commands.Cog):
         except Exception as e:
             print(f"Error triggering reminder: {e}")
     
-    @commands.command(name="help")
+    @commands.command(name="lexhelp")
     async def help_command(self, ctx, *, topic: str = None):
         """Show help information about Lexus"""
         if not topic:
