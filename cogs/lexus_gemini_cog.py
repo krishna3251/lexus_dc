@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from discord.ext import commands
 import aiohttp  # Replaced google.generativeai with aiohttp
 from typing import Dict, List, Optional, Union, Tuple
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
