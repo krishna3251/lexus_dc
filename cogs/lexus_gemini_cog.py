@@ -20,9 +20,8 @@ if not GEMINI_API_KEY:
     print("Please set the GEMINI_API_KEY in your .env file")
 
 # Helper function for Gemini API requests
-text": system_instruction}]
-        })
-    
+async def post_gemini_api(prompt: str, user_id: Optional[int] = None) -> str:
+    """Post a prompt to the Gemini API and return the response"""
     # Add the user prompt
     payload["contents"].append({
         "role": "user", 
