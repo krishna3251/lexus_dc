@@ -1,15 +1,13 @@
 import os
 import re
 import time
-import random
 import asyncio
 import datetime
 import discord
 from dotenv import load_dotenv
 from discord.ext import commands
-import aiohttp  # Replaced google.generativeai with aiohttp
-from typing import Dict, List, Optional, Union, Tuple
 import google.generativeai as genai
+from typing import Dict, List, Optional, Union, Tuple
 
 # Load environment variables
 load_dotenv()
@@ -19,34 +17,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     print("WARNING: No GEMINI_API_KEY found in environment variables")
     print("Please set the GEMINI_API_KEY in your .env file")
-
-# Helper function for Gemini API requests
-async def post_gemini_api(prompt: str, user_id: Optional[int] = None) -> str:
-    """Post a prompt to the Gemini API and return the response"""
-    # Add the user prompt
-    payload["contents"].append({
-        "role": "user", 
-        "parts": [{"text": prompt}]
-    })
-    
-    try:
-        # Make the API request
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as response:
-                response.raise_for_status()
-                result = await response.json()
-                
-                # Extract the response text
-                if "candidates" in result and len(result["candidates"]) > 0:
-                    if "content" in result["candidates"][0] and "parts" in result["candidates"][0]["content"]:
-                        return result["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # Fallback if response format is unexpected
-        return "I couldn't process that request. Please try again."
-    except Exception as e:
-        print(f"API request error: {e}")
-        print(f"[Gemini ERROR] {e}")
-        return "Sorry, I encountered an error communicating with my AI backend. Please try again later."
+else:
+    # Configure the Gemini API with the API key
+    genai.configure(api_key=GEMINI_API_KEY)
 
 class LexusGeminiCog(commands.Cog):
     """A Cog for Lexus, an AI-powered Discord assistant using Gemini API"""
@@ -57,6 +30,13 @@ class LexusGeminiCog(commands.Cog):
         self.reminders = {}  # Store reminders per user
         self.chat_modes = {}  # Store chat modes per user
         self.ongoing_conversations = set()  # Track active conversations
+        
+        # Initialize Gemini model
+        if GEMINI_API_KEY:
+            self.model = genai.GenerativeModel("gemini-2.0-flash")  # Using gemini-pro as gemini-2.0-flash may not exist
+        else:
+            self.model = None
+            print("WARNING: Gemini model not initialized due to missing API key")
         
         # Pre-defined chat personas with system prompts
         self.chat_personas = {
@@ -79,7 +59,7 @@ class LexusGeminiCog(commands.Cog):
         with open(self.log_file, "a") as f:
             f.write(f"\n--- New Session Started: {datetime.datetime.now()} ---\n")
     
-    def log_interaction(self, user_id: int, user_message: str, bot_response: str):
+    def log_interaction(self, user_id, user_message, bot_response):
         """Log interactions to console and file"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] User {user_id}: {user_message}\n[{timestamp}] Lexus: {bot_response}\n"
@@ -94,6 +74,9 @@ class LexusGeminiCog(commands.Cog):
     async def get_gemini_response(self, prompt: str, user_id: int = None, system_prompt: str = None) -> str:
         """Get a response from Gemini API"""
         try:
+            if not self.model:
+                return "Sorry, I'm having trouble connecting to my AI backend. Please check the API key configuration."
+            
             # Use system prompt if provided
             if system_prompt:
                 full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
@@ -106,12 +89,33 @@ class LexusGeminiCog(commands.Cog):
                 else:
                     full_prompt = prompt
             
-            # Use the helper function to make the API request
-            response = await post_gemini_api(prompt=full_prompt)
-            return response
+            # Create a generation config
+            generation_config = {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 800,
+            }
+            
+            # Generate content using the Gemini model
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                full_prompt,
+                generation_config=generation_config
+            )
+            
+            # Extract text from response
+            if hasattr(response, 'text'):
+                return response.text
+            elif hasattr(response, 'parts'):
+                return ''.join([part.text for part in response.parts])
+            else:
+                # Fallback for unexpected response format
+                return str(response)
+                
         except Exception as e:
             print(f"Error getting Gemini response: {e}")
-            return "I encountered an error processing your request. Please try again later."
+            return f"I encountered an error processing your request. Please try again later. (Error: {type(e).__name__})"
     
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -196,7 +200,6 @@ class LexusGeminiCog(commands.Cog):
                 to this knowledge query based on what you know. Keep your response under 150 words
                 and focus on the most important facts. If you're unsure, be honest about limitations."""
                 
-                
                 response = await self.get_gemini_response(search_prompt, user_id)
                 
                 # Store in chat history
@@ -228,7 +231,6 @@ class LexusGeminiCog(commands.Cog):
                 happy, sad, angry, confused, neutral, excited, worried, curious, or frustrated.
                 Just respond with the single word, nothing else."""
             
-                
                 try:
                     mood = await self.get_gemini_response(mood_prompt)
                     mood = mood.strip().lower()
@@ -583,7 +585,7 @@ class LexusGeminiCog(commands.Cog):
             
             embed.add_field(
                 name="🎭 Chat Modes",
-                value="Use `/chatmode [mode]` to change my personality\nAvailable modes: helper, anime, therapist",
+                value="Use `/chatmode [mode]` to change my personality\nAvailable modes: helper, anime, therapist, friend, expert",
                 inline=False
             )
             
@@ -611,7 +613,7 @@ class LexusGeminiCog(commands.Cog):
                 inline=False
             )
             
-            embed.set_footer(text="For specific help topics, use `/help [topic]`")
+            embed.set_footer(text="For specific help topics, use `/lexhelp [topic]`")
             
             await ctx.send(embed=embed)
             return
@@ -638,7 +640,7 @@ class LexusGeminiCog(commands.Cog):
             )
             
             # Log the interaction
-            self.log_interaction(ctx.author.id, f"/help {topic}", response)
+            self.log_interaction(ctx.author.id, f"/lexhelp {topic}", response)
             
             await ctx.send(embed=embed)
     
@@ -667,8 +669,6 @@ class LexusGeminiCog(commands.Cog):
         print(f"Command error: {error_text}")
         with open(self.log_file, "a") as f:
             f.write(f"[{datetime.datetime.now()}] ERROR: {error_text}\n")
-       
-
 
 # Setup function for the cog
 async def setup(bot):
