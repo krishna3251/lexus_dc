@@ -31,7 +31,7 @@ if not TOKEN:
     exit(1)
 
 # === Intents & Prefix ===
-PREFIX = commands.when_mentioned_or("lx ", "lx")
+PREFIX = commands.when_mentioned_or("lx ", "lx","LX","Lx")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
