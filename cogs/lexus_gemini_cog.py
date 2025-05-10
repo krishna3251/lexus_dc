@@ -1,4 +1,4 @@
-import os
+    import os
 import re
 import time
 import asyncio
@@ -52,6 +52,9 @@ class LexusGeminiCog(commands.Cog):
         
         # Set up logger
         self.setup_logger()
+
+        # Maximum message length for Discord (2000 characters)
+        self.MAX_DISCORD_LENGTH = 2000
         
     def setup_logger(self):
         """Setup basic console logging"""
@@ -116,6 +119,41 @@ class LexusGeminiCog(commands.Cog):
         except Exception as e:
             print(f"Error getting Gemini response: {e}")
             return f"I encountered an error processing your request. Please try again later. (Error: {type(e).__name__})"
+        
+     # Helper function to check message length and split if necessary
+    async def send_safe_message(self, channel, content, **kwargs):
+        """Send message safely, handling character limit restrictions"""
+        if len(content) <= self.MAX_DISCORD_LENGTH:
+            return await channel.send(content, **kwargs)
+        else:
+            # Alert that message is too long and will split
+            await channel.send("⚠️ My response is quite long, I'll split it into parts:", **kwargs)
+            
+            # Split message into parts
+            parts = []
+            remaining = content
+            while remaining:
+                if len(remaining) <= self.MAX_DISCORD_LENGTH:
+                    parts.append(remaining)
+                    remaining = ""
+                else:
+                    # Find a good split point (newline or space)
+                    split_point = remaining[:self.MAX_DISCORD_LENGTH].rfind('\n')
+                    if split_point == -1 or split_point < self.MAX_DISCORD_LENGTH // 2:
+                        split_point = remaining[:self.MAX_DISCORD_LENGTH].rfind(' ')
+                    if split_point == -1:  # If no good split found, force split
+                        split_point = self.MAX_DISCORD_LENGTH - 1
+                    
+                    parts.append(remaining[:split_point])
+                    remaining = remaining[split_point:].lstrip()
+            
+            # Send each part
+            sent_messages = []
+            for i, part in enumerate(parts):
+                msg = await channel.send(f"**Part {i+1}/{len(parts)}**\n{part}")
+                sent_messages.append(msg)    
+
+            return sent_messages[-1] # Return the last message sent for reference
     
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -158,13 +196,25 @@ class LexusGeminiCog(commands.Cog):
             clean_content = content.replace(f'<@{self.bot.user.id}>', '').strip()
             await self.process_message(message, clean_content)
             
-        # Process GIF command
         elif content_lower.startswith("lx gif ") or content_lower.startswith("lex gif "):
-            if content_lower.startswith("lx gif "):
-                query = content[7:].strip()  # Remove 'lx gif ' from the message
-            else:
-                query = content[8:].strip()  # Remove 'lex gif ' from the message
-            await self.handle_gif_request(message, query)
+            # Check if this user already has an active GIF request
+            user_gif_key = f"{message.author.id}_gif"
+            if user_gif_key in self.active_gif_requests:
+                await message.reply("I'm still processing your previous GIF request. Please wait a moment.")
+                return
+                
+            self.active_gif_requests.add(user_gif_key)  # Mark request as active
+            
+            try:
+                if content_lower.startswith("lx gif "):
+                    query = content[7:].strip()  # Remove 'lx gif ' from the message
+                else:
+                    query = content[8:].strip()  # Remove 'lex gif ' from the message
+                await self.handle_gif_request(message, query)
+            finally:
+                # Always remove from active requests when done
+                if user_gif_key in self.active_gif_requests:
+                    self.active_gif_requests.remove(user_gif_key)
         
         # Add this line to process commands after your custom logic
         await self.bot.process_commands(message)
@@ -512,11 +562,15 @@ class LexusGeminiCog(commands.Cog):
                 if user_id not in self.reminders:
                     self.reminders[user_id] = []
                 
+                reminder_id = len(self.reminders[user_id])  # Use index as ID
+                
                 self.reminders[user_id].append({
+                    "id": reminder_id,
                     "task": task,
                     "created_at": time.time(),
                     "trigger_at": time.time() + (minutes * 60),
-                    "channel_id": ctx.channel.id
+                    "channel_id": ctx.channel.id,
+                    "active": True  # Flag to track if reminder is still active
                 })
                 
                 # Confirm reminder
@@ -526,28 +580,39 @@ class LexusGeminiCog(commands.Cog):
                 self.log_interaction(user_id, f"/remindme {reminder_text}", f"Reminder set for {time_text}: {task}")
                 
                 # Start background task to check reminder
-                # In a real implementation, this would be a persistent scheduled task
-                # Here we'll use a simple delayed task
-                self.bot.loop.create_task(self.trigger_reminder(user_id, len(self.reminders[user_id]) - 1))
+                self.bot.loop.create_task(self.trigger_reminder(user_id, reminder_id))
                 
             except Exception as e:
                 print(f"Error setting reminder: {e}")
                 await ctx.send("I couldn't process that reminder. Please try a different format, like 'remind me to stretch in 1 hour'.")
     
-    async def trigger_reminder(self, user_id: int, reminder_index: int):
+    async def trigger_reminder(self, user_id: int, reminder_id: int):
         """Trigger a reminder when it's time"""
         try:
-            if user_id not in self.reminders or reminder_index >= len(self.reminders[user_id]):
+            if user_id not in self.reminders:
                 return
                 
-            reminder = self.reminders[user_id][reminder_index]
+            # Find reminder by ID
+            reminder = None
+            reminder_index = None
+            for i, r in enumerate(self.reminders[user_id]):
+                if r.get("id") == reminder_id and r.get("active", True):
+                    reminder = r
+                    reminder_index = i
+                    break
+                    
+            if not reminder:
+                return
+                
             wait_time = reminder["trigger_at"] - time.time()
             
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
             
-            # Check if reminder still exists
-            if user_id not in self.reminders or reminder_index >= len(self.reminders[user_id]):
+            # Double-check reminder still exists and is active
+            if (user_id not in self.reminders or 
+                reminder_index >= len(self.reminders[user_id]) or
+                not self.reminders[user_id][reminder_index].get("active", True)):
                 return
                 
             # Get channel and user
@@ -560,11 +625,83 @@ class LexusGeminiCog(commands.Cog):
                 # Log the reminder
                 self.log_interaction("SYSTEM", f"Reminder triggered for {user_id}", reminder["task"])
             
-            # Remove reminder
-            self.reminders[user_id].pop(reminder_index)
+            # Mark reminder as inactive
+            self.reminders[user_id][reminder_index]["active"] = False
             
         except Exception as e:
             print(f"Error triggering reminder: {e}")
+    
+    @commands.command(name="myreminders")
+    async def list_reminders(self, ctx):
+        """List all active reminders for a user"""
+        user_id = ctx.author.id
+        
+        if user_id not in self.reminders or not any(r.get("active", True) for r in self.reminders[user_id]):
+            await ctx.send("You don't have any active reminders.")
+            return
+            
+        # Filter active reminders and sort by trigger time
+        active_reminders = [r for r in self.reminders[user_id] if r.get("active", True)]
+        active_reminders.sort(key=lambda r: r["trigger_at"])
+        
+        embed = discord.Embed(
+            title="Your Active Reminders",
+            color=discord.Color.green()
+        )
+        
+        for i, reminder in enumerate(active_reminders):
+            time_remaining = reminder["trigger_at"] - time.time()
+            hours, remainder = divmod(time_remaining, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            time_str = ""
+            if hours > 0:
+                time_str += f"{int(hours)} hour{'s' if hours != 1 else ''} "
+            if minutes > 0 or (hours > 0 and seconds > 0):
+                time_str += f"{int(minutes)} minute{'s' if minutes != 1 else ''} "
+            if hours == 0:  # Only show seconds if less than an hour
+                time_str += f"{int(seconds)} second{'s' if seconds != 1 else ''}"
+            
+            embed.add_field(
+                name=f"Reminder #{i+1}",
+                value=f"**Task:** {reminder['task']}\n**Time Remaining:** {time_str.strip()}",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name="cancelreminder")
+    async def cancel_reminder(self, ctx, reminder_num: int = None):
+        """Cancel a specific reminder"""
+        user_id = ctx.author.id
+        
+        if reminder_num is None:
+            await ctx.send("Please specify which reminder to cancel (use `/myreminders` to see your reminders)")
+            return
+            
+        if user_id not in self.reminders or not any(r.get("active", True) for r in self.reminders[user_id]):
+            await ctx.send("You don't have any active reminders to cancel.")
+            return
+            
+        # Get active reminders sorted by trigger time
+        active_reminders = [r for r in self.reminders[user_id] if r.get("active", True)]
+        active_reminders.sort(key=lambda r: r["trigger_at"])
+        
+        if reminder_num < 1 or reminder_num > len(active_reminders):
+            await ctx.send(f"Invalid reminder number. Please choose between 1 and {len(active_reminders)}.")
+            return
+            
+        # Get the reminder to cancel
+        reminder_to_cancel = active_reminders[reminder_num-1]
+        
+        # Find this reminder in the original list and mark inactive
+        for r in self.reminders[user_id]:
+            if r["id"] == reminder_to_cancel["id"]:
+                r["active"] = False
+                break
+                
+        await ctx.send(f"✅ Cancelled reminder: **{reminder_to_cancel['task']}**")
+    
     
     @commands.command(name="lexhelp")
     async def help_command(self, ctx, *, topic: str = None):
