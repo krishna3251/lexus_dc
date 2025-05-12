@@ -1,6 +1,8 @@
 import os
 import discord
 import aiohttp
+import certifi
+import ssl
 from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
@@ -14,10 +16,14 @@ STRANGE_API_KEY = os.getenv("STRANGE_API_KEY")
 # Set up logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 class StrangeAPI:
     """Helper class to handle Strange API requests"""
-    BASE_URL = "https://strangeapi.hostz.me/api/"
+    BASE_URL = "https://strangeapi.hostz.me/api/image"  # Fixed URL structure to include /image
     
     @staticmethod
     async def apply_effect(effect: str, avatar_url: str) -> Optional[bytes]:
@@ -31,19 +37,31 @@ class StrangeAPI:
         Returns:
             bytes: The image data if successful, None otherwise
         """
+        # Construct proper endpoint URL with /image prefix
         endpoint = f"{StrangeAPI.BASE_URL}/{effect}"
+        
+        # Set up parameters including API key
         params = {
             "key": STRANGE_API_KEY,
             "avatar": avatar_url
         }
         
+        # Configure SSL context to handle certificate issues
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        
         try:
-            async with aiohttp.ClientSession() as session:
+            # Use connector with our SSL context
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            
+            async with aiohttp.ClientSession(connector=connector) as session:
+                logger.info(f"Calling Strange API: {endpoint} for effect: {effect}")
                 async with session.get(endpoint, params=params) as response:
                     if response.status == 200:
+                        logger.info(f"Successfully applied {effect} effect")
                         return await response.read()
                     else:
-                        logger.error(f"Strange API error: {response.status} - {await response.text()}")
+                        error_text = await response.text()
+                        logger.error(f"Strange API error: {response.status} - {error_text}")
                         return None
         except Exception as e:
             logger.error(f"Error calling Strange API: {e}")
@@ -55,10 +73,6 @@ class EffectButton(discord.ui.Button):
         style = discord.ButtonStyle.secondary
         super().__init__(style=style, label=effect_name.title(), emoji=emoji, custom_id=f"effect:{effect_id}")
         self.effect_id = effect_id
-        
-    async def callback(self, interaction: discord.Interaction):
-        # This will be handled by the view's interaction check
-        pass
 
 class ImageEffectsView(discord.ui.View):
     """UI View with buttons for each image effect"""
@@ -92,6 +106,7 @@ class ImageEffectsView(discord.ui.View):
         """Handle button clicks"""
         if interaction.data["custom_id"].startswith("effect:"):
             effect = interaction.data["custom_id"].split(":")[1]
+            # Properly defer the response to avoid interaction timeouts
             await interaction.response.defer(thinking=True)
             await self.cog.process_effect(interaction, effect, self.user)
             return False  # Don't call the button's callback
@@ -219,14 +234,17 @@ class ImageEffectsCog(commands.Cog):
         # Get user's avatar URL (with size 1024 for better quality)
         avatar_url = user.display_avatar.with_size(1024).url
         
+        logger.info(f"Processing effect {effect} for user {user.name} with avatar {avatar_url}")
+        
         # Apply the effect using the Strange API
         image_data = await StrangeAPI.apply_effect(effect, avatar_url)
         
         if not image_data:
+            error_message = "Sorry, something went wrong with the image effect. Please try again later."
             if isinstance(ctx, discord.Interaction):
-                await ctx.followup.send("Sorry, something went wrong with the image effect. Please try again later.")
+                await ctx.followup.send(error_message)
             else:
-                await ctx.send("Sorry, something went wrong with the image effect. Please try again later.")
+                await ctx.send(error_message)
             return
             
         # Create an embed for the resulting image
@@ -238,15 +256,24 @@ class ImageEffectsCog(commands.Cog):
         )
         embed.set_footer(text="Powered by Strange API")
         
-        # Create the file from the image data
+        # Create a binary file from the image data
         file = discord.File(fp=image_data, filename=f"{effect}_avatar.png")
         embed.set_image(url=f"attachment://{effect}_avatar.png")
         
         # Send the response
-        if isinstance(ctx, discord.Interaction):
-            await ctx.followup.send(embed=embed, file=file)
-        else:
-            await ctx.send(embed=embed, file=file)
+        try:
+            if isinstance(ctx, discord.Interaction):
+                await ctx.followup.send(embed=embed, file=file)
+            else:
+                await ctx.send(embed=embed, file=file)
+            logger.info(f"Successfully sent {effect} effect for {user.name}")
+        except Exception as e:
+            logger.error(f"Error sending effect result: {e}")
+            error_message = "Sorry, something went wrong when sending the image. Please try again later."
+            if isinstance(ctx, discord.Interaction):
+                await ctx.followup.send(error_message)
+            else:
+                await ctx.send(error_message)
 
 async def setup(bot):
     """Add the cog to the bot"""
