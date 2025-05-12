@@ -17,7 +17,7 @@ logger.setLevel(logging.INFO)
 
 class StrangeAPI:
     """Helper class to handle Strange API requests"""
-    BASE_URL = "https://strangeapi.fun/api"
+    BASE_URL = "https://strangeapi.hostz.me/api/your-endpoint"
     
     @staticmethod
     async def apply_effect(effect: str, avatar_url: str) -> Optional[bytes]:
