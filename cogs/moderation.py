@@ -93,18 +93,22 @@ class Moderation(commands.Cog):
 
             try:
                 msg = await ctx.bot.wait_for("message", check=check, timeout=30)
-                muted_role = msg.mentions[0]
-                self.muted_role = muted_role  # Store for future use
-                await ctx.send(f"✅ **Muted role set to:** {muted_role.mention}")
-            except Exception:
+                muted_role = msg.role_mentions[0] if msg.role_mentions else None
+                if muted_role:
+                    self.muted_role = muted_role  # Store for future use
+                    await ctx.send(f"✅ **Muted role set to:** {muted_role.mention}")
+                else:
+                    await ctx.send("❌ No valid role mentioned.")
+            except asyncio.TimeoutError:
                 await ctx.send("⏳ **No response received.** Please try again and mention a valid role.")
+                return None
 
         return muted_role
 
     async def analyze_text_toxicity(self, text):
         """Analyze text using Google's Perspective API with multiple attributes"""
         if not self.perspective_api_key:
-            return None  # API key not configured
+            return None, None  # API key not configured
 
         url = f"https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={self.perspective_api_key}"
         
@@ -715,4 +719,27 @@ class Moderation(commands.Cog):
                     
                     # Update karma negatively
                     await self.update_karma(message, is_toxic=True, toxicity_score=toxicity_score)
-                else:
+                except Exception as e:
+                    print(f"Error handling toxic message: {e}")
+            else:
+                # Update karma positively
+                await self.update_karma(message, is_toxic=False)
+        except Exception as e:
+            print(f"Error in message processing: {e}")
+            # Update karma positively as we couldn't check properly
+            await self.update_karma(message, is_toxic=False)
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        """Handle command errors"""
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("❌ **You don't have permission to use this command!**")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f"❌ **Missing required argument:** {error.param.name}")
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send(f"❌ **Invalid argument:** {error}")
+        else:
+            print(f"Command error: {error}")
+
+def setup(bot):
+    bot.add_cog(Moderation(bot))
