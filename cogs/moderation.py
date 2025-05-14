@@ -741,5 +741,6 @@ class Moderation(commands.Cog):
         else:
             print(f"Command error: {error}")
 
-def setup(bot):
-     await bot.add_cog(Moderation(bot))
+async def setup(bot):
+    await bot.add_cog((Moderation(bot))
+
