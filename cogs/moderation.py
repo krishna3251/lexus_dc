@@ -742,4 +742,4 @@ class Moderation(commands.Cog):
             print(f"Command error: {error}")
 
 def setup(bot):
-    bot.add_cog(Moderation(bot))
+     await bot.add_cog(Moderation(bot))
