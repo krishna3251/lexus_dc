@@ -678,7 +678,7 @@ class ModerationCog(commands.Cog):
         timeout_button.callback = timeout_callback
         mod_button.callback = mod_callback
         
-        await ctx.send(embed=embed, view=view)d(name="kick", description="Kick a user from the server")
+        await ctx.send(embed=embed, view=view)(name="kick", description="Kick a user from the server")
     @app_commands.describe(
         user="The user to kick",
         reason="Reason for kicking the user"
