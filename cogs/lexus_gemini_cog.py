@@ -494,7 +494,7 @@ class LexusGeminiCog(commands.Cog):
             prompt = f"""
             Summarize the following conversation between a user and Lexus (AI assistant).
             Focus on the main topics discussed and any important information or conclusions.
-            Keep the summary concise (3-5 sentences):
+            Keep the summary concise (3-5 sentences) in  lines make ie easy to understand use ### to higlight main points:
 
             {formatted_history}
             """
