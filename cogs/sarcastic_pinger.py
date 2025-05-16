@@ -14,57 +14,45 @@ class SarcasticPinger(commands.Cog):
         self.bot = bot
         self.config_dir = "data/sarcastic_pinger"
         self.enabled_guilds = {}  # guild_id: next_ping_time
-        self.pinger_loop.start()
         
         # Ensure config directory exists
         os.makedirs(self.config_dir, exist_ok=True)
         
-        # Sarcastic ping messages - more varied and entertaining
+        # Start the pinger loop
+        self.pinger_loop.start()
+        
+        # Sarcastic ping messages and GIF URLs to be added by user
         self.ping_messages = [
-            "Hey {member}, just checking if you're still breathing. The silence was deafening.",
-            "Knock knock, {member}! Oh wait, you can't answer because you're too busy ignoring us.",
-            "{member} has been selected by the algorithm of doom to receive this absolutely vital ping.",
-            "Breaking news: {member} exists! Thanks for coming to my TED talk.",
-            "Congratulations {member}! You've won the prestigious 'Random Ping of the Day' award!",
-            "Esteemed {member}, your presence is cordially requested in this channel... or whatever.",
-            "Earth to {member}, come in {member}! Are you receiving our transmission?",
-            "The council has spoken, and {member} shall be the chosen one to receive this ping.",
-            "{member} probably thought they could lurk forever without being noticed. WRONG!",
-            "Alert: Wild {member} spotted in their natural habitat!",
-            "According to my calculations, {member} was due for a completely unnecessary ping.",
-            "Hey {member}, I'm just pinging you to remind you about your car's extended warranty.",
-            "Attention {member}! This is a test of the Emergency Member Notification System.",
-            "In today's episode of 'People Who Forgot This Server Exists', we feature {member}!",
-            "The ritual is complete. {member} has been summoned.",
-            "Plot twist: {member} gets randomly pinged for absolutely no reason!",
-            "Breaking the fourth wall to acknowledge that {member} probably hates being pinged.",
-            "{member}, are you still with us? This server misses your awkward conversation attempts.",
-            "The ancient prophecy foretold that {member} would receive this ping today.",
-            "Roses are red, violets are blue, {member} got pinged, and has no clue why too!",
-            "Hello {member}, we've been trying to reach you about your server's extended warranty.",
-            "Beep boop. {member} has been selected by the random ping algorithm. Beep boop.",
-            "Ping! {member} is probably wondering why they joined this server in the first place.",
-            "Good news, {member}! You've been randomly selected for a complimentary ping!",
-            "Dear {member}, here's your regularly scheduled reminder that you're still in this server.",
-            "{member}'s FBI agent told me they were feeling lonely, so here's a ping!",
-            "What's that? {member} thought they could escape the random ping? Think again!",
-            "Testing... testing... is this {member} still connected to the server?",
-            "Legend says if you ping {member} three times in a row, they'll actually respond.",
-            "{member}, this ping is sponsored by RAID: Shadow Legends!"
-        ]
+    "@{member} Oye sab chup kyu ho gye? Group mute kr diya kya? 👀",
+    "@{member} Kya kar rahe ho sab? Ya mai hi sirf free hoon? 😅",
+    "@{member} Online toh ho, par bol koi nahi raha... ghost mode on hai kya? 👻",
+    "@{member} Itna sannata kyun hai bhai... koi to kuch bol do 😭",
+    "@{member} Group chat ya museum? Itna silence! 😐",
+    "@{member} Lagta hai sab Himalaya chale gaye meditation krne 🧘‍♂️",
+    "@{member} Ping ping... check 1 2 3... koi zinda hai kya idhar? 📡",
+    "@{member} Main message bhej ke dekh raha hoon ki group abhi bhi kaam kr raha hai ya nahi 😬",
+    "@{member} Aisa lag raha hai group me sirf mai hi hoon aur baaki log paid actors the 😭",
+    "@{member} Is group ka naam 'Silent Hill' rakh dete hain ab toh 😅",
+    "@{member} Chalo koi ek game ya bakchodi shuru karo, boring ho raha hai!",
+    "@{member} Vibe check kar raha hoon... alive ho ya bas story daal ke gaayab? 😂",
+    "@{member} Group ki hawa kaafi thandi ho gayi hai... thoda garam karo yaar 🔥",
+    "@{member} Aaj kis kis ka timepass mood on hai? Mujhe chat fight chahiye 😈"
+]
+# You'll add these yourself
         self.gif_urls = [
-            "https://media.giphy.com/media/3o7abldj0b3rxrZUxW/giphy.gif",  # classic confused John Travolta
-            "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # awkward silence
-            "https://media.giphy.com/media/3o7TKtnuHOHHUjR38Y/giphy.gif",  # you're being watched
-            "https://media.giphy.com/media/xUPGcguWZHRC2HyBRS/giphy.gif",  # hello?
-            "https://media.giphy.com/media/dzaUX7CAG0Ihi/giphy.gif",       # shocked Pikachu
-            "https://media.giphy.com/media/ASd0Ukj0y3qMM/giphy.gif",       # surprised reaction
-            "https://media.giphy.com/media/9J7tdYltWyXIY/giphy.gif",       # slow clap
-            "https://media.giphy.com/media/hPPx8yk3Bmqys/giphy.gif",       # typing intensely
-            "https://media.giphy.com/media/Rkis28kMJd1aE/giphy.gif",       # dramatically waiting
-        ]
+    "https://media.giphy.com/media/3og0IPxMM0erATueVW/giphy.gif",  # Hello? Anyone?
+    "https://media.giphy.com/media/l0MYB8Ory7Hqefo9a/giphy.gif",  # Crickets
+    "https://media.giphy.com/media/xT5LMzIK1AdZJ5I1So/giphy.gif",  # Ping!
+    "https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif",  # Waiting...
+    "https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif",  # Knock knock
+    "https://media.giphy.com/media/d2lcHJTG5Tscg/giphy.gif",       # Waving
+    "https://media.giphy.com/media/3oEduQAsYcJKQH2XsI/giphy.gif",  # Hello darkness...
+    "https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif",  # Where is everyone?
+    "https://media.giphy.com/media/l4EoTHjUqNjKaaz2w/giphy.gif",   # Ghost town
+    "https://media.giphy.com/media/3o6MbaZBc1BY6A2ZfO/giphy.gif"   # Come out come out...
+]
+# You'll add these yourself
 
-    
     def cog_unload(self):
         """Cancel the task when the cog is unloaded"""
         self.pinger_loop.cancel()
@@ -114,11 +102,16 @@ class SarcasticPinger(commands.Cog):
         now = datetime.datetime.utcnow()
         
         if config["next_ping"]:
-            # Convert stored timestamp to datetime
-            next_time = datetime.datetime.fromtimestamp(config["next_ping"])
-            
-            # If it's in the past, calculate a new time
-            if next_time <= now:
+            try:
+                # Convert stored timestamp to datetime
+                next_time = datetime.datetime.fromtimestamp(config["next_ping"])
+                
+                # If it's in the past, calculate a new time
+                if next_time <= now:
+                    interval_seconds = config["ping_interval"]
+                    next_time = now + datetime.timedelta(seconds=interval_seconds)
+            except (ValueError, TypeError, OverflowError):
+                # Handle invalid timestamp
                 interval_seconds = config["ping_interval"]
                 next_time = now + datetime.timedelta(seconds=interval_seconds)
                 
@@ -128,7 +121,7 @@ class SarcasticPinger(commands.Cog):
             interval_seconds = config["ping_interval"]
             return now + datetime.timedelta(seconds=interval_seconds)
     
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=5)  # Reduced from 10 to 5 minutes to check more frequently
     async def pinger_loop(self):
         """Check and ping members on schedule"""
         now = datetime.datetime.utcnow()
@@ -158,12 +151,14 @@ class SarcasticPinger(commands.Cog):
                     # No valid channels, disable pinging
                     config["enabled"] = False
                     self._save_guild_config(guild.id, config)
+                    print(f"Disabled pinger for guild {guild.id}: No valid channels")
                     continue
                 
                 # Select random channel
                 channel = random.choice(valid_channels)
                 
                 # Get eligible members - excluding bots and members with excluded roles
+                # FIXED: Removed the offline status check that was preventing pings
                 exclude_role_ids = config["exclude_roles"]
                 eligible_members = []
                 
@@ -174,50 +169,63 @@ class SarcasticPinger(commands.Cog):
                     # Skip members with excluded roles
                     if any(role.id in exclude_role_ids for role in member.roles):
                         continue
-                        
-                    # Skip offline members
-                    if member.status == discord.Status.offline:
-                        continue
-                        
+                    
+                    # IMPORTANT: Removed the offline status check to allow pinging all members
                     eligible_members.append(member)
                 
-                if eligible_members:
-                    # Choose a random member
-                    member = random.choice(eligible_members)
+                if not eligible_members:
+                    print(f"No eligible members found in guild {guild.id}")
                     
-                    # Choose a random message template and format it with the member mention
+                    # Update last ping time and calculate next ping despite no eligible members
+                    config["last_ping"] = now.timestamp()
+                    next_ping = now + datetime.timedelta(seconds=config["ping_interval"])
+                    config["next_ping"] = next_ping.timestamp()
+                    self._save_guild_config(guild.id, config)
+                    continue
+                
+                # Choose a random member
+                member = random.choice(eligible_members)
+                
+                # Ensure we have ping messages to use
+                if not self.ping_messages:
+                    message_content = "Random ping activated!"
+                else:
+                    # Choose a random message template and format it
                     message_template = random.choice(self.ping_messages)
-                    # Remove {member} placeholder since we'll mention them outside the embed
                     message_content = message_template.replace("{member}", "")
-                    
-                    # Choose a random GIF
+                
+                # Choose a random GIF if available
+                gif_url = None
+                if self.gif_urls:
                     gif_url = random.choice(self.gif_urls)
-                    
-                    # Create a futuristic embed
-                    embed = discord.Embed(
-                        title="⚡ RANDOM MEMBER DETECTED ⚡",
-                        description=message_content,
-                        color=0x00FFFF,  # Cyan for futuristic look
-                        timestamp=now
-                    )
-                    
-                    # Add a border-like effect with fields
-                    embed.add_field(name="┌───────────────────┐", value="", inline=False)
-                    embed.add_field(name="STATUS:", value="PING SUCCESSFUL", inline=True)
-                    embed.add_field(name="PROTOCOL:", value="RANDOM_SELECT_v2.5", inline=True)
-                    embed.add_field(name="└───────────────────┘", value="", inline=False)
-                    
-                    # Add the GIF
+                
+                # Create embed
+                embed = discord.Embed(
+                    title="⚡ RANDOM MEMBER DETECTED ⚡",
+                    description=message_content,
+                    color=0x00FFFF,  # Cyan for futuristic look
+                    timestamp=now
+                )
+                
+                # Add a border-like effect with fields
+                embed.add_field(name="┌───────────────────┐", value="", inline=False)
+                embed.add_field(name="STATUS:", value="PING SUCCESSFUL", inline=True)
+                embed.add_field(name="PROTOCOL:", value="RANDOM_SELECT_v2.5", inline=True)
+                embed.add_field(name="└───────────────────┘", value="", inline=False)
+                
+                # Add the GIF if available
+                if gif_url:
                     embed.set_image(url=gif_url)
-                    
-                    # Add futuristic footer
-                    embed.set_footer(text=f"SYSTEM: Auto-Ping v3.0 | NEXT SEQUENCE: T+6h")
-                    
-                    try:
-                        # The member mention is now outside the embed in the message content
-                        await channel.send(content=member.mention, embed=embed)
-                    except discord.HTTPException as e:
-                        print(f"Error sending ping in guild {guild.id}: {e}")
+                
+                # Add futuristic footer
+                embed.set_footer(text=f"SYSTEM: Auto-Ping v3.0 | NEXT SEQUENCE: T+6h")
+                
+                try:
+                    # The member mention is now outside the embed in the message content
+                    await channel.send(content=member.mention, embed=embed)
+                    print(f"Successfully pinged {member.name} in guild {guild.id}")
+                except discord.HTTPException as e:
+                    print(f"Error sending ping in guild {guild.id}: {e}")
                 
                 # Update last ping time and calculate next ping
                 config["last_ping"] = now.timestamp()
@@ -229,6 +237,7 @@ class SarcasticPinger(commands.Cog):
     async def before_pinger_loop(self):
         """Wait for the bot to be ready before starting the loop"""
         await self.bot.wait_until_ready()
+        print("Pinger loop is ready")
         
         # Load all guild configs
         for guild in self.bot.guilds:
@@ -240,6 +249,7 @@ class SarcasticPinger(commands.Cog):
                     # Update config with the calculated next ping time
                     config["next_ping"] = next_ping.timestamp()
                     self._save_guild_config(guild.id, config)
+                    print(f"Scheduled next ping for guild {guild.id} at {next_ping}")
     
     @commands.group(name="pinger", invoke_without_command=True)
     @commands.has_permissions(manage_guild=True)
@@ -304,7 +314,8 @@ class SarcasticPinger(commands.Cog):
                   f"`{ctx.prefix}pinger channel add #channel` - Add channel to network\n"
                   f"`{ctx.prefix}pinger channel remove #channel` - Remove channel from network\n"
                   f"`{ctx.prefix}pinger exclude @role` - Exclude role from ping protocol\n"
-                  f"`{ctx.prefix}pinger include @role` - Include previously excluded role",
+                  f"`{ctx.prefix}pinger include @role` - Include previously excluded role\n"
+                  f"`{ctx.prefix}pinger test` - Test ping system",
             inline=False
         )
         
@@ -332,8 +343,8 @@ class SarcasticPinger(commands.Cog):
         
         config["enabled"] = True
         
-        # Calculate next ping time (6 hours from now)
-        next_ping = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
+        # Calculate next ping time (1 hour from now instead of 6 for faster testing)
+        next_ping = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         config["next_ping"] = next_ping.timestamp()
         
         self._save_guild_config(ctx.guild.id, config)
@@ -643,6 +654,7 @@ class SarcasticPinger(commands.Cog):
             return
         
         # Get eligible members - excluding bots and members with excluded roles
+        # FIXED: Removed offline check for test command too
         exclude_role_ids = config["exclude_roles"]
         eligible_members = []
         
@@ -654,6 +666,7 @@ class SarcasticPinger(commands.Cog):
             if any(role.id in exclude_role_ids for role in member.roles):
                 continue
             
+            # Allow all members regardless of status
             eligible_members.append(member)
         
         if not eligible_members:
@@ -663,13 +676,17 @@ class SarcasticPinger(commands.Cog):
         # Choose a random member
         member = random.choice(eligible_members)
         
-        # Choose a random message template
-        message_template = random.choice(self.ping_messages)
-        # Remove {member} placeholder since we'll mention them outside the embed
-        message_content = message_template.replace("{member}", "")
+        # Choose a random message template if available
+        if self.ping_messages:
+            message_template = random.choice(self.ping_messages)
+            message_content = message_template.replace("{member}", "")
+        else:
+            message_content = "This is a test ping!"
         
-        # Choose a random GIF
-        gif_url = random.choice(self.gif_urls)
+        # Choose a random GIF if available
+        gif_url = None
+        if self.gif_urls:
+            gif_url = random.choice(self.gif_urls)
         
         # Create a test embed with futuristic styling
         embed = discord.Embed(
@@ -697,14 +714,43 @@ class SarcasticPinger(commands.Cog):
         # Add another divider
         embed.add_field(name="└───────────────────┘", value="", inline=False)
         
-        # Add the GIF
-        embed.set_image(url=gif_url)
+        # Add the GIF if available
+        if gif_url:
+            embed.set_image(url=gif_url)
         
         # Add futuristic footer
         embed.set_footer(text=f"TEST REQUEST: {ctx.author.name} | TIMESTAMP: {datetime.datetime.utcnow().strftime('%H:%M:%S')}")
         
         # Send the user mention outside the embed to trigger a notification
         await ctx.send(content=member.mention, embed=embed)
+
+    @pinger.command(name="ping_now")
+    @commands.has_permissions(manage_guild=True)
+    async def ping_now(self, ctx):
+        """Force an immediate ping"""
+        config = self._load_guild_config(ctx.guild.id)
+        
+        if not config["enabled"]:
+            await ctx.send("⚠️ SYSTEM ERROR: Sarcastic pinger is currently offline. Enable it first with `!pinger enable`.")
+            return
+            
+        if not config["channels"]:
+            await ctx.send("⚠️ CONFIGURATION ERROR: No channels detected. Use `!pinger channel add #channel` first.")
+            return
+            
+        # Set next ping time to now to trigger immediate ping on next loop
+        config["next_ping"] = datetime.datetime.utcnow().timestamp()
+        self._save_guild_config(ctx.guild.id, config)
+        
+        embed = discord.Embed(
+            title="⏱️ IMMEDIATE PING SCHEDULED",
+            description="A ping has been scheduled to execute on the next system cycle (within 5 minutes).",
+            color=0x00FFFF,
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.set_footer(text="Manual override accepted")
+        
+        await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(SarcasticPinger(bot))
