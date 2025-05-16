@@ -492,7 +492,7 @@ class LexusGeminiCog(commands.Cog):
             
             # Create summary prompt
             prompt = f"""
-            Summarize the following conversation between a user and Lexus (AI assistant).
+            Summarize the following conversation between a user and Lexus (AI assistant) also any chat which is in channel where command is used.
             Focus on the main topics discussed and any important information or conclusions.
             Keep the summary concise (3-5 sentences) in  lines make ie easy to understand use ### to higlight main points:
 
