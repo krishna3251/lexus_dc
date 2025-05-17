@@ -55,7 +55,7 @@ class LexusAIChatbot(commands.Cog):
         }
         
         # Default chat mode - updated to futuristic
-        self.default_chat_persona = "futuristic"
+        self.default_chat_persona = "helper"
         self.chat_modes = {}
         
         # Set up logger
