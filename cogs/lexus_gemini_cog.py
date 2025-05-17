@@ -3,6 +3,7 @@ import re
 import time
 import asyncio
 import datetime
+import random
 import discord
 from dotenv import load_dotenv
 from discord.ext import commands
@@ -21,34 +22,42 @@ else:
     # Configure the Gemini API with the API key
     genai.configure(api_key=GEMINI_API_KEY)
 
-class LexusGeminiCog(commands.Cog):
-    """A Cog for Lexus, an AI-powered Discord assistant using Gemini API"""
+class LexusAIChatbot(commands.Cog):
+    """Enhanced pure AI chatbot using Gemini API with futuristic embedded responses"""
     
     def __init__(self, bot):
         self.bot = bot
         self.chat_history = {}  # Store chat history per user
-        self.reminders = {}  # Store reminders per user
-        self.chat_modes = {}  # Store chat modes per user
-        self.ongoing_conversations = set()  # Track active conversations
+        self.active_conversations = set()  # Track active conversations
+        self.emoji_collection = {
+            "positive": ["✨", "🚀", "💫", "⭐", "🌟", "✅", "🔮", "💎"],
+            "negative": ["⚠️", "❓", "🔄", "🤔", "📝", "📌"],
+            "tech": ["🤖", "💻", "🔧", "⚙️", "🛠️", "🔌", "📡", "🔍"],
+            "fun": ["🎮", "🎯", "🎲", "🎭", "🎨", "🎬", "🎵", "🎧"],
+            "weather": ["☀️", "🌤️", "⛅", "🌥️", "☁️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "🌬️"]
+        }
         
         # Initialize Gemini model
         if GEMINI_API_KEY:
-            self.model = genai.GenerativeModel("gemini-2.0-flash")  # Using gemini-pro as gemini-2.0-flash may not exist
+            self.model = genai.GenerativeModel("gemini-2.0-flash")  # Using gemini-pro
+            print("Gemini model initialized successfully")
         else:
             self.model = None
             print("WARNING: Gemini model not initialized due to missing API key")
         
-        # Pre-defined chat personas with system prompts
+        # Chat personas with system prompts for different conversation styles
         self.chat_personas = {
-            "helper": "you are lexus a helper you answer like you are thinking and give straight forward answer in 200 charaters by adding some emojies",
-            "anime": "You are Lexus-chan, an anime-style AI with the personality of Naruto and Luffy. You're cheerful, loyal, goofy, and full of energy. You give short, friendly, and optimistic answers with anime-style flair. Use casual speech and fun expressions like 'dattebayo!' and 'let’s gooo!' whenever it fits and you answer in short.",
-            "therapist": "You are Lexus, a compassionate AI assistant with a calm, supportive demeanor. Respond with empathy and thoughtfulness. Use a gentle tone and encourage self-reflection through open-ended questions. Avoid giving medical advice or diagnosing any conditions and ans in short",
-            "friend": "You are Lexus, a casual and friendly AI assistant. Talk like a close friend - use casual language, occasional slang, and be conversational. Share opinions and react naturally to topics. Be encouraging and supportive and answer in short.",
-            "expert": "You are Lexus, an expert-level AI assistant. Provide detailed, technically accurate information. Use professional terminology appropriate to the subject. Be thorough yet clear, citing relevant concepts. Focus on depth of knowledge and answer in short."
+            "helper": "You are Lexus, an advanced AI assistant. You provide helpful, accurate, and concise responses with a touch of futuristic flair. Add appropriate emojis to your responses and format your answers in a visually appealing way. Keep responses under 200 characters when appropriate and make your answers direct and to the point.",
+            "anime": "You are Lexus-chan, an anime-style AI with the personality of Naruto and Luffy. You're cheerful, loyal, goofy, and full of energy. You give short, friendly, and optimistic answers with anime-style flair. Use casual speech and fun expressions like 'dattebayo!' and 'let's gooo!' whenever it fits.",
+            "therapist": "You are Lexus, a compassionate AI assistant with a calm, supportive demeanor. Respond with empathy and thoughtfulness. Use a gentle tone and encourage self-reflection through open-ended questions. Avoid giving medical advice or diagnosing any conditions.",
+            "friend": "You are Lexus, a casual and friendly AI assistant. Talk like a close friend - use casual language, occasional slang, and be conversational. Share opinions and react naturally to topics. Be encouraging and supportive.",
+            "expert": "You are Lexus, an expert-level AI assistant. Provide detailed, technically accurate information. Use professional terminology appropriate to the subject. Be thorough yet clear, citing relevant concepts. Focus on depth of knowledge.",
+            "futuristic": "You are Lexus, a superintelligent AI from the year 2150. Your responses should have a slightly otherworldly, futuristic quality. Use sleek, minimalist language with occasional references to advanced technology. Format responses with symmetrical emoji patterns when appropriate and organize information in a visually structured way. Embrace a transhuman perspective that blends logical precision with artistic elegance."
         }
         
-        # Default chat mode
-        self.default_chat_persona = "helper"
+        # Default chat mode - updated to futuristic
+        self.default_chat_persona = "futuristic"
+        self.chat_modes = {}
         
         # Set up logger
         self.setup_logger()
@@ -56,48 +65,79 @@ class LexusGeminiCog(commands.Cog):
         # Maximum message length for Discord (2000 characters)
         self.MAX_DISCORD_LENGTH = 2000
         
+        # Color themes for different message types
+        self.color_themes = {
+            "default": discord.Color.from_rgb(32, 156, 238),  # Bright blue
+            "error": discord.Color.from_rgb(231, 76, 60),     # Red
+            "success": discord.Color.from_rgb(46, 204, 113),  # Green
+            "warning": discord.Color.from_rgb(241, 196, 15),  # Yellow
+            "info": discord.Color.from_rgb(149, 165, 166),    # Gray
+            "futuristic": discord.Color.from_rgb(111, 30, 209) # Purple
+        }
+        
+        # Cooldown to prevent spam
+        self.user_cooldowns = {}
+        self.COOLDOWN_SECONDS = 1.5
+        
     def setup_logger(self):
-        """Setup basic console logging"""
-        self.log_file = "lexus_chat_log.txt"
+        """Setup enhanced logging system"""
+        self.log_dir = "logs"
+        os.makedirs(self.log_dir, exist_ok=True)
+        
+        # Create log file with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
+        self.log_file = f"{self.log_dir}/lexus_chat_log_{timestamp}.txt"
+        
+        # Log session start with separator
         with open(self.log_file, "a") as f:
-            f.write(f"\n--- New Session Started: {datetime.datetime.now()} ---\n")
+            f.write(f"\n{'='*50}\n")
+            f.write(f"  NEW SESSION STARTED: {datetime.datetime.now()}\n")
+            f.write(f"{'='*50}\n\n")
     
     def log_interaction(self, user_id, user_message, bot_response):
-        """Log interactions to console and file"""
+        """Enhanced logging with better formatting"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] User {user_id}: {user_message}\n[{timestamp}] Lexus: {bot_response}\n"
+        log_entry = f"[{timestamp}] User {user_id}:\n{user_message}\n\n[{timestamp}] Lexus:\n{bot_response}\n\n{'-'*50}\n"
         
-        # Log to console
-        print(log_entry)
+        # Log to console with color coding
+        print(f"\033[94m[{timestamp}] User {user_id}:\033[0m")
+        print(f"\033[37m{user_message}\033[0m")
+        print(f"\033[92m[{timestamp}] Lexus:\033[0m")
+        print(f"\033[37m{bot_response}\033[0m")
+        print(f"\033[90m{'-'*50}\033[0m")
         
         # Log to file
         with open(self.log_file, "a") as f:
             f.write(log_entry)
     
+    def get_random_emojis(self, category, count=1):
+        """Get random emojis from a category"""
+        if category in self.emoji_collection:
+            return random.sample(self.emoji_collection[category], min(count, len(self.emoji_collection[category])))
+        return []
+    
     async def get_gemini_response(self, prompt: str, user_id: int = None, system_prompt: str = None) -> str:
-        """Get a response from Gemini API"""
+        """Get a response from Gemini API with enhanced error handling"""
         try:
             if not self.model:
-                return "Sorry, I'm having trouble connecting to my AI backend. Please check the API key configuration."
+                return "⚠️ I'm having trouble connecting to my AI backend. Please check the API key configuration."
             
-            # Use system prompt if provided
+            # Use system prompt if provided, otherwise use user's chat mode
             if system_prompt:
                 full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
             else:
-                # Use the user's chat mode if set
-                if user_id in self.chat_modes:
-                    mode = self.chat_modes[user_id]
-                    system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
-                    full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
-                else:
-                    full_prompt = prompt
+                # Use the user's chat mode if set, otherwise default to futuristic
+                mode = self.chat_modes.get(user_id, self.default_chat_persona)
+                system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
+                full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
             
-            # Create a generation config
+            # Create generation config - enhanced parameters for better responses
             generation_config = {
                 "temperature": 0.7,
-                "top_p": 0.8,
+                "top_p": 0.9,
                 "top_k": 40,
                 "max_output_tokens": 800,
+                "candidate_count": 1,
             }
             
             # Generate content using the Gemini model
@@ -118,9 +158,8 @@ class LexusGeminiCog(commands.Cog):
                 
         except Exception as e:
             print(f"Error getting Gemini response: {e}")
-            return f"I encountered an error processing your request. Please try again later. (Error: {type(e).__name__})"
-        
-     # Helper function to check message length and split if necessary
+            return f"I encountered an error processing your request. Please try again later. {self.get_random_emojis('negative', 1)[0]} (Error: {type(e).__name__})"
+    
     async def send_safe_message(self, channel, content, **kwargs):
         """Send message safely, handling character limit restrictions"""
         if len(content) <= self.MAX_DISCORD_LENGTH:
@@ -147,7 +186,7 @@ class LexusGeminiCog(commands.Cog):
                     parts.append(remaining[:split_point])
                     remaining = remaining[split_point:].lstrip()
             
-            # Send each part
+            # Send each part with proper formatting
             sent_messages = []
             for i, part in enumerate(parts):
                 msg = await channel.send(f"**Part {i+1}/{len(parts)}**\n{part}")
@@ -155,15 +194,68 @@ class LexusGeminiCog(commands.Cog):
 
             return sent_messages[-1] # Return the last message sent for reference
     
+    def create_smart_embed(self, title, description, color_type="default", fields=None, footer=None, thumbnail=None):
+        """Create a visually enhanced embed with futuristic styling"""
+        # Select color from themes
+        color = self.color_themes.get(color_type, self.color_themes["default"])
+        
+        # Create embed
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=color
+        )
+        
+        # Add fields if provided
+        if fields:
+            for field in fields:
+                embed.add_field(
+                    name=field.get("name", "Information"),
+                    value=field.get("value", "No data available"),
+                    inline=field.get("inline", False)
+                )
+        
+        # Add footer if provided
+        if footer:
+            embed.set_footer(text=footer)
+            
+        # Add thumbnail if provided
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
+            
+        # Get current time for timestamp
+        embed.timestamp = datetime.datetime.now()
+        
+        return embed
+    
+    def check_cooldown(self, user_id):
+        """Check if user is on cooldown to prevent spam"""
+        current_time = time.time()
+        if user_id in self.user_cooldowns:
+            last_time = self.user_cooldowns[user_id]
+            if current_time - last_time < self.COOLDOWN_SECONDS:
+                return False
+        
+        # Update last message time
+        self.user_cooldowns[user_id] = current_time
+        return True
+    
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Listen for messages that mention or start with Lexus triggers"""
+        """Enhanced message listener with better pattern recognition"""
+        # Ignore bot messages
         if message.author.bot:
             return
             
+        # Initial message processing
         content = message.content.strip()
         content_lower = content.lower()
+        user_id = message.author.id
         
+        # Check for cooldown to prevent spam
+        if not self.check_cooldown(user_id):
+            return
+            
         # More flexible triggers - case insensitive
         start_triggers = [
             "hey lexus", "yo lexus", "lexus,", "lexus", 
@@ -171,9 +263,7 @@ class LexusGeminiCog(commands.Cog):
         ]
         
         # Check for mentions of the bot
-        bot_mentioned = False
-        if message.guild:
-            bot_mentioned = self.bot.user in message.mentions
+        bot_mentioned = self.bot.user in message.mentions if message.guild else False
         
         # Check if message starts with a Lexus trigger
         starts_with_trigger = False
@@ -196,261 +286,120 @@ class LexusGeminiCog(commands.Cog):
             clean_content = content.replace(f'<@{self.bot.user.id}>', '').strip()
             await self.process_message(message, clean_content)
             
-        elif content_lower.startswith("lx gif ") or content_lower.startswith("lex gif "):
-            # Check if this user already has an active GIF request
-            user_gif_key = f"{message.author.id}_gif"
-            if user_gif_key in self.active_gif_requests:
-                await message.reply("I'm still processing your previous GIF request. Please wait a moment.")
-                return
-                
-            self.active_gif_requests.add(user_gif_key)  # Mark request as active
-            
-            try:
-                if content_lower.startswith("lx gif "):
-                    query = content[7:].strip()  # Remove 'lx gif ' from the message
-                else:
-                    query = content[8:].strip()  # Remove 'lex gif ' from the message
-                await self.handle_gif_request(message, query)
-            finally:
-                # Always remove from active requests when done
-                if user_gif_key in self.active_gif_requests:
-                    self.active_gif_requests.remove(user_gif_key)
-        
-        # Add this line to process commands after your custom logic
+        # Process commands as normal
         await self.bot.process_commands(message)
     
     async def process_message(self, message, content):
-        """Process different types of messages based on content"""
+        """Process user messages with enhanced response generation"""
         user_id = message.author.id
         
         # If message is empty or just punctuation, respond with a helpful message
         if not content or content.strip() in ["?", "!", ".", ",", ";"]:
-            await message.reply("Hi there! How can I help you today?")
+            tech_emoji = self.get_random_emojis('tech', 1)[0]
+            futuristic_response = f"{tech_emoji} Greetings! How may I assist you today? My systems are operational and ready to serve."
+            await message.reply(futuristic_response)
             return
             
-        # Check for weather query - expanded patterns
-        weather_patterns = [
-            r"weather (in|at|for|of) ([a-zA-Z\s]+)",
-            r"(what'?s|how'?s) (the |)weather (in|at|for|of|like in|like at|like for|like) ([a-zA-Z\s]+)",
-            r"(is it|will it be) (hot|cold|warm|rainy|sunny|snowing) (in|at|today in|today at) ([a-zA-Z\s]+)"
-        ]
-        
-        is_weather_query = any(re.search(pattern, content.lower()) for pattern in weather_patterns)
-        
-        if is_weather_query:
-            await self.handle_weather_query(message, content)
-        
-        # Check for "who is" pattern for knowledge/search queries
-        elif re.search(r"(who|what) (is|are|was|were) ", content.lower()):
-            async with message.channel.typing():
-                # Create a special prompt for knowledge queries
-                search_prompt = f"""
-                The user is asking for information with this query: "{content}"
-                Act as if you had access to search information. Provide a helpful, concise answer
-                to this knowledge query based on what you know. Keep your response under 150 words
-                and focus on the most important facts. If you're unsure, be honest about limitations."""
-                
-                response = await self.get_gemini_response(search_prompt, user_id)
-                
-                # Store in chat history
-                if user_id not in self.chat_history:
-                    self.chat_history[user_id] = []
-                
-                self.chat_history[user_id].append({
-                    "user": content,
-                    "assistant": response,
-                    "timestamp": time.time()
-                })
-                
-                if len(self.chat_history[user_id]) > 20:
-                    self.chat_history[user_id].pop(0)
-                
-                # Log the interaction
-                self.log_interaction(user_id, content, response)
-                
-                # Send response
-                await message.reply(response)
-                
-        # Handle all other queries with Gemini
-        else:
-            async with message.channel.typing():
-                # First try to detect mood/emotion in user message
-                mood_prompt = f"""
-                Analyze this message briefly: "{content}"
-                Return ONLY ONE WORD that best describes the emotional tone: 
-                happy, sad, angry, confused, neutral, excited, worried, curious, or frustrated.
-                Just respond with the single word, nothing else."""
-            
-                try:
-                    mood = await self.get_gemini_response(mood_prompt)
-                    mood = mood.strip().lower()
-                    
-                    # Filter to valid moods
-                    valid_moods = ["happy", "sad", "angry", "confused", "neutral", 
-                                  "excited", "worried", "curious", "frustrated"]
-                    
-                    if mood not in valid_moods:
-                        mood = "neutral"
-                        
-                    # Create a context-aware prompt based on detected mood
-                    context_prompt = f"""
-                    The user's message seems to indicate they are feeling {mood}.
-                    Keep this in mind when crafting your response.
-                    
-                    User message: {content}
-                    
-                    Respond naturally and appropriately given their emotional state.
-                    """
-                    
-                    # Get response from Gemini with mood context
-                    response = await self.get_gemini_response(context_prompt, user_id)
-                    
-                except Exception:
-                    # Fallback if mood detection fails
-                    response = await self.get_gemini_response(content, user_id)
-                
-                # Store in chat history
-                if user_id not in self.chat_history:
-                    self.chat_history[user_id] = []
-                
-                # Add to chat history (limit to last 20 messages)
-                self.chat_history[user_id].append({
-                    "user": content,
-                    "assistant": response,
-                    "timestamp": time.time()
-                })
-                
-                if len(self.chat_history[user_id]) > 20:
-                    self.chat_history[user_id].pop(0)
-                
-                # Log the interaction
-                self.log_interaction(user_id, content, response)
-                
-                # Send response
-                await message.reply(response)
-    
-    async def handle_weather_query(self, message, content):
-        """Handle weather-related queries"""
+        # Process with AI with typing indicator
         async with message.channel.typing():
-            # Extract location from query using Gemini
-            location_prompt = f"Extract only the location name from this weather query: '{content}'. Respond with just the location name, nothing else."
-            location = await self.get_gemini_response(location_prompt)
-            location = location.strip()
-            
-            # Get current month for seasonal context
-            current_month = datetime.datetime.now().strftime("%B")
-            
-            # Create weather response using Gemini
-            weather_prompt = f"""
-            The user is asking about the weather in {location}. I don't have access to real-time weather data.
-            Generate a helpful response that:
-            1. Acknowledges I can't check live weather in a brief, non-apologetic way
-            2. Provides specific information about typical weather patterns in {location} during {current_month}
-               (Include typical temperature ranges, precipitation patterns, and notable weather features)
-            3. Briefly mentions one interesting weather fact about {location} if you know one
-            4. Suggests a simple way they might check actual weather
-            
-            Be conversational and friendly. Format with emojis for weather conditions (☀️, 🌧️, etc).
-            Keep it under 150 words and sound natural.
+            # First analyze sentiment/intent of the message
+            analysis_prompt = f"""
+            Analyze this message briefly: "{content}"
+            Provide a JSON object with:
+            1. "intent": primary purpose (question, greeting, command, chat, etc)
+            2. "complexity": simple, moderate, or complex
+            3. "sentiment": positive, negative, neutral, or curious
+            4. "key_topic": main subject (if any)
             """
             
-            response = await self.get_gemini_response(weather_prompt)
-            
-            # Create an embed for better visual presentation
-            embed = discord.Embed(
-                title=f"Weather in {location}",
-                description=response,
-                color=discord.Color.blue()
-            )
-            embed.set_footer(text="Based on typical weather patterns, not real-time data")
-            
-            # Log the interaction
-            self.log_interaction(message.author.id, content, response)
-            
-            # Send response with embed
-            await message.reply(embed=embed)
-    
-    async def handle_gif_request(self, message, query):
-        """Handle GIF requests with enhanced visualization"""
-        async with message.channel.typing():
-            # Use Gemini to clean and interpret the query
-            prompt = f"""
-            Convert this request: '{query}' into a SINGLE search term for finding a GIF.
-            Response must be ONLY 1-4 words, nothing else - no quotes, no periods, no explanations.
-            Make it expressive and emotive, perfect for a reaction GIF.
-            Examples: "happy dance", "mind blown", "facepalm", "cute kitten"
-            """
-            
-            # Get cleaned keywords from Gemini
-            clean_query = await self.get_gemini_response(prompt)
-            clean_query = clean_query.strip("\"',.!?").lower()
-            
-            # Use Gemini to generate a creative description of what the GIF might show
-            description_prompt = f"""
-            Generate a brief, vivid description (2-3 sentences) of what a reaction GIF with the term "{clean_query}" 
-            might show. Be creative and specific, describing the scene, emotions, and actions.
-            Example: "A happy dog jumping excitedly, ears flopping and tail wagging wildly. Its eyes sparkle with pure joy as it bounces around with uncontainable enthusiasm."
-            """
-            
-            gif_description = await self.get_gemini_response(description_prompt)
-            
-            # Log the interaction
-            self.log_interaction(message.author.id, f"lx gif {query}", f"Generated GIF for: {clean_query}")
-            
-            # Choose a color based on the emotional tone of the query
-            color_prompt = f"What emotion does '{clean_query}' most represent? Choose just ONE from: happy, sad, angry, surprised, confused, excited, neutral. Reply with only the word."
-            emotion = await self.get_gemini_response(color_prompt)
-            emotion = emotion.strip().lower()
-            
-            # Map emotions to colors
-            color_map = {
-                "happy": discord.Color.green(),
-                "sad": discord.Color.blue(),
-                "angry": discord.Color.red(),
-                "surprised": discord.Color.gold(),
-                "confused": discord.Color.purple(),
-                "excited": discord.Color.orange(),
-                "neutral": discord.Color.light_grey()
-            }
-            
-            color = color_map.get(emotion, discord.Color.purple())
-            
-            # Create an enhanced embed to simulate a GIF
-            embed = discord.Embed(
-                title=f"GIF: {clean_query.title()}",
-                description=gif_description,
-                color=color
-            )
-            
-            # Add emoji based on the query
-            emoji_prompt = f"What single emoji best represents '{clean_query}'? Reply with just ONE emoji."
-            emoji = await self.get_gemini_response(emoji_prompt)
-            emoji = emoji.strip()
-            
-            # Add fields to make it more visually interesting
-            embed.add_field(name="Imagine this GIF", value=f"{emoji} *{clean_query}* {emoji}", inline=False)
-            embed.set_footer(text="This message will be deleted in 60 seconds • Powered by Lexus AI")
-            
-            # Auto-deletion countdown
-            countdown = 60
-            sent_message = await message.channel.send(embed=embed)
-            
-            # Edit countdown in footer every 15 seconds
-            while countdown > 0:
-                await asyncio.sleep(min(15, countdown))
-                countdown -= 15
-                if countdown > 0:
-                    try:
-                        embed.set_footer(text=f"This message will be deleted in {countdown} seconds • Powered by Lexus AI")
-                        await sent_message.edit(embed=embed)
-                    except:
-                        break  # Message might have been deleted
-            
-            # Final deletion
             try:
-                await sent_message.delete()
-            except:
-                pass  # Message might already be deleted
+                # Get analysis from Gemini
+                analysis_response = await self.get_gemini_response(analysis_prompt)
+                
+                # Parse JSON (handle potential format issues)
+                import json
+                
+                # Clean response text to extract valid JSON
+                json_text = analysis_response.strip()
+                if '```json' in json_text:
+                    json_text = json_text.split('```json')[1].split('```')[0].strip()
+                elif '```' in json_text:
+                    json_text = json_text.split('```')[1].split('```')[0].strip()
+                
+                try:
+                    analysis = json.loads(json_text)
+                except:
+                    # Fallback if JSON parsing fails
+                    analysis = {
+                        "intent": "chat",
+                        "complexity": "moderate",
+                        "sentiment": "neutral",
+                        "key_topic": "general"
+                    }
+                
+                # Generate enhanced response based on analysis
+                mode = self.chat_modes.get(user_id, self.default_chat_persona)
+                system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
+                
+                # Add additional context based on analysis
+                enhanced_prompt = f"""
+                {system_prompt}
+                
+                The user's message appears to be a {analysis.get('complexity', 'moderate')} {analysis.get('intent', 'question')}
+                with a {analysis.get('sentiment', 'neutral')} sentiment about {analysis.get('key_topic', 'general topics')}.
+                
+                User message: {content}
+                
+                Respond in a way that's appropriate to their intent and sentiment, while maintaining your persona.
+                Format your response with elegant structure and appropriate futuristic elements.
+                """
+                
+                # Get enhanced response
+                response = await self.get_gemini_response(enhanced_prompt, user_id)
+                
+                # Determine if we should use embed based on response length and complexity
+                use_embed = len(response) > 100 or analysis.get('complexity') == 'complex'
+                
+                # Store in chat history
+                if user_id not in self.chat_history:
+                    self.chat_history[user_id] = []
+                
+                self.chat_history[user_id].append({
+                    "user": content,
+                    "assistant": response,
+                    "timestamp": time.time(),
+                    "analysis": analysis
+                })
+                
+                # Limit history size (keep last 20 messages)
+                if len(self.chat_history[user_id]) > 20:
+                    self.chat_history[user_id].pop(0)
+                
+                # Log the interaction
+                self.log_interaction(user_id, content, response)
+                
+                # Send response - either as embed or regular message
+                if use_embed:
+                    # Create futuristic embed with custom formatting
+                    title = f"{self.get_random_emojis('tech', 1)[0]} Lexus AI Response"
+                    
+                    # Create embed with clean formatting
+                    embed = self.create_smart_embed(
+                        title=title,
+                        description=response,
+                        color_type="futuristic",
+                        footer=f"Mode: {mode.capitalize()} • {datetime.datetime.now().strftime('%H:%M:%S')}"
+                    )
+                    
+                    await message.reply(embed=embed)
+                else:
+                    # For shorter responses, just send as regular text
+                    await message.reply(response)
+                    
+            except Exception as e:
+                print(f"Error in message processing: {e}")
+                error_emoji = self.get_random_emojis('negative', 1)[0]
+                await message.reply(f"{error_emoji} I encountered an unexpected glitch in my processing matrix. Please try rephrasing your request.")
     
     @commands.command(name="chatmode")
     async def set_chat_mode(self, ctx, mode: str = None):
@@ -458,332 +407,80 @@ class LexusGeminiCog(commands.Cog):
         if not mode:
             # Display current mode and available modes
             current_mode = self.chat_modes.get(ctx.author.id, self.default_chat_persona)
-            available_modes = ", ".join(self.chat_personas.keys())
             
-            await ctx.send(f"Your current chat mode is: **{current_mode}**\nAvailable modes: {available_modes}")
+            # Create visually appealing embed for mode selection
+            modes_list = "\n".join([f"• **{name}**: {desc[:50]}..." for name, desc in self.chat_personas.items()])
+            
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('tech', 1)[0]} Lexus AI Chat Modes",
+                description=f"Your current chat mode is: **{current_mode}**\n\n**Available Modes:**\n{modes_list}",
+                color_type="info",
+                footer="Use /chatmode [mode] to change"
+            )
+            
+            await ctx.send(embed=embed)
             return
             
         mode = mode.lower()
         if mode in self.chat_personas:
             self.chat_modes[ctx.author.id] = mode
-            await ctx.send(f"Chat mode set to: **{mode}**")
+            
+            # Send confirmation with futuristic flair
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('positive', 1)[0]} Mode Change Successful",
+                description=f"Chat mode updated to: **{mode}**\n\nAll future interactions will use this conversational framework.",
+                color_type="success"
+            )
+            
+            await ctx.send(embed=embed)
         else:
             available_modes = ", ".join(self.chat_personas.keys())
-            await ctx.send(f"Unknown chat mode. Available modes: {available_modes}")
-    
-    @commands.command(name="summarize")
-    async def summarize_chat(self, ctx):
-        """Summarize recent chat messages"""
-        user_id = ctx.author.id
-        
-        if user_id not in self.chat_history or not self.chat_history[user_id]:
-            await ctx.send("I don't have enough chat history to summarize.")
-            return
-        
-        async with ctx.typing():
-            # Get chat history
-            history = self.chat_history[user_id]
             
-            # Format history for Gemini
-            formatted_history = "\n".join([
-                f"User: {msg['user']}\nLexus: {msg['assistant']}"
-                for msg in history
-            ])
-            
-            # Create summary prompt
-            prompt = f"""
-            Summarize the following conversation between a user and Lexus (AI assistant) also any chat which is in channel where command is used.
-            Focus on the main topics discussed and any important information or conclusions.
-            Keep the summary concise (3-5 sentences) in  lines make ie easy to understand use ### to higlight main points:
-
-            {formatted_history}
-            """
-            
-            # Get summary from Gemini
-            summary = await self.get_gemini_response(prompt)
-            
-            # Create embed
-            embed = discord.Embed(
-                title="Conversation Summary",
-                description=summary,
-                color=discord.Color.blue()
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('negative', 1)[0]} Mode Selection Error",
+                description=f"Unknown chat mode. Available modes: {available_modes}",
+                color_type="error"
             )
-            embed.set_footer(text=f"Summary of {len(history)} messages")
             
-            # Log the interaction
-            self.log_interaction(user_id, "/summarize", summary)
-            
-            # Send summary
             await ctx.send(embed=embed)
     
-    @commands.command(name="remindme")
-    async def set_reminder(self, ctx, *, reminder_text: str = None):
-        """Set a reminder"""
-        user_id = ctx.author.id
-        
-        if not reminder_text:
-            await ctx.send("Please specify what you want to be reminded about. Example: `/remindme to stretch in 1 hour`")
-            return
-        
-        async with ctx.typing():
-            # Use Gemini to extract time information
-            prompt = f"""
-            Extract time information from this reminder request: "{reminder_text}"
-            Return a JSON object with:
-            1. "task": what the user wants to be reminded about
-            2. "time_text": the original time text (e.g., "in 1 hour", "tomorrow at 3pm")
-            3. "minutes": your best estimate of when this should trigger in minutes from now (use 60 for "in 1 hour", etc.)
-            """
-            
-            try:
-                response = await self.get_gemini_response(prompt)
-                
-                # Clean up response to extract JSON
-                response = response.strip()
-                if response.startswith("```json"):
-                    response = response[7:]
-                if response.endswith("```"):
-                    response = response[:-3]
-                
-                import json
-                reminder_data = json.loads(response)
-                
-                task = reminder_data.get("task", reminder_text)
-                time_text = reminder_data.get("time_text", "soon")
-                minutes = int(reminder_data.get("minutes", 60))  # Default to 60 minutes if parsing fails
-                
-                # Limit to reasonable values
-                if minutes < 1:
-                    minutes = 1
-                if minutes > 10080:  # One week in minutes
-                    minutes = 10080
-                
-                # Store reminder
-                if user_id not in self.reminders:
-                    self.reminders[user_id] = []
-                
-                reminder_id = len(self.reminders[user_id])  # Use index as ID
-                
-                self.reminders[user_id].append({
-                    "id": reminder_id,
-                    "task": task,
-                    "created_at": time.time(),
-                    "trigger_at": time.time() + (minutes * 60),
-                    "channel_id": ctx.channel.id,
-                    "active": True  # Flag to track if reminder is still active
-                })
-                
-                # Confirm reminder
-                await ctx.send(f"I'll remind you {time_text}: **{task}**")
-                
-                # Log the interaction
-                self.log_interaction(user_id, f"/remindme {reminder_text}", f"Reminder set for {time_text}: {task}")
-                
-                # Start background task to check reminder
-                self.bot.loop.create_task(self.trigger_reminder(user_id, reminder_id))
-                
-            except Exception as e:
-                print(f"Error setting reminder: {e}")
-                await ctx.send("I couldn't process that reminder. Please try a different format, like 'remind me to stretch in 1 hour'.")
-    
-    async def trigger_reminder(self, user_id: int, reminder_id: int):
-        """Trigger a reminder when it's time"""
-        try:
-            if user_id not in self.reminders:
-                return
-                
-            # Find reminder by ID
-            reminder = None
-            reminder_index = None
-            for i, r in enumerate(self.reminders[user_id]):
-                if r.get("id") == reminder_id and r.get("active", True):
-                    reminder = r
-                    reminder_index = i
-                    break
-                    
-            if not reminder:
-                return
-                
-            wait_time = reminder["trigger_at"] - time.time()
-            
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-            
-            # Double-check reminder still exists and is active
-            if (user_id not in self.reminders or 
-                reminder_index >= len(self.reminders[user_id]) or
-                not self.reminders[user_id][reminder_index].get("active", True)):
-                return
-                
-            # Get channel and user
-            channel = self.bot.get_channel(reminder["channel_id"])
-            user = self.bot.get_user(user_id)
-            
-            if channel and user:
-                await channel.send(f"{user.mention} Reminder: **{reminder['task']}**")
-                
-                # Log the reminder
-                self.log_interaction("SYSTEM", f"Reminder triggered for {user_id}", reminder["task"])
-            
-            # Mark reminder as inactive
-            self.reminders[user_id][reminder_index]["active"] = False
-            
-        except Exception as e:
-            print(f"Error triggering reminder: {e}")
-    
-    @commands.command(name="myreminders")
-    async def list_reminders(self, ctx):
-        """List all active reminders for a user"""
-        user_id = ctx.author.id
-        
-        if user_id not in self.reminders or not any(r.get("active", True) for r in self.reminders[user_id]):
-            await ctx.send("You don't have any active reminders.")
-            return
-            
-        # Filter active reminders and sort by trigger time
-        active_reminders = [r for r in self.reminders[user_id] if r.get("active", True)]
-        active_reminders.sort(key=lambda r: r["trigger_at"])
-        
-        embed = discord.Embed(
-            title="Your Active Reminders",
-            color=discord.Color.green()
+    @commands.command(name="lexhelp")
+    async def help_command(self, ctx):
+        """Enhanced futuristic help command"""
+        # Create a visually appealing help embed
+        embed = self.create_smart_embed(
+            title=f"{self.get_random_emojis('tech', 1)[0]} LEXUS AI NEURAL INTERFACE",
+            description="Welcome to the Lexus AI help system. Below are the available interaction protocols:",
+            color_type="futuristic"
         )
         
-        for i, reminder in enumerate(active_reminders):
-            time_remaining = reminder["trigger_at"] - time.time()
-            hours, remainder = divmod(time_remaining, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            
-            time_str = ""
-            if hours > 0:
-                time_str += f"{int(hours)} hour{'s' if hours != 1 else ''} "
-            if minutes > 0 or (hours > 0 and seconds > 0):
-                time_str += f"{int(minutes)} minute{'s' if minutes != 1 else ''} "
-            if hours == 0:  # Only show seconds if less than an hour
-                time_str += f"{int(seconds)} second{'s' if seconds != 1 else ''}"
-            
-            embed.add_field(
-                name=f"Reminder #{i+1}",
-                value=f"**Task:** {reminder['task']}\n**Time Remaining:** {time_str.strip()}",
-                inline=False
-            )
+        # Chat section
+        embed.add_field(
+            name=f"{self.get_random_emojis('tech', 1)[0]} CONVERSATION PROTOCOLS",
+            value="• Start messages with `Hey Lexus`, `Lexus`, or mention me directly\n"
+                 "• I can answer questions, provide information, or just chat\n"
+                 "• My responses adapt to your message style and content",
+            inline=False
+        )
+        
+        # Chat modes
+        embed.add_field(
+            name=f"{self.get_random_emojis('fun', 1)[0]} PERSONALITY MATRICES",
+            value="• `/chatmode [mode]` - Change my conversational style\n"
+                 "• Available modes: helper, anime, therapist, friend, expert, futuristic\n"
+                 "• Default mode: futuristic",
+            inline=False
+        )
+        
+        # Add timestamp and version
+        current_time = datetime.datetime.now().strftime("%Y.%m.%d")
+        embed.set_footer(text=f"Lexus AI v2.0.7 • Neural Core Active • {current_time}")
         
         await ctx.send(embed=embed)
     
-    @commands.command(name="cancelreminder")
-    async def cancel_reminder(self, ctx, reminder_num: int = None):
-        """Cancel a specific reminder"""
-        user_id = ctx.author.id
-        
-        if reminder_num is None:
-            await ctx.send("Please specify which reminder to cancel (use `/myreminders` to see your reminders)")
-            return
-            
-        if user_id not in self.reminders or not any(r.get("active", True) for r in self.reminders[user_id]):
-            await ctx.send("You don't have any active reminders to cancel.")
-            return
-            
-        # Get active reminders sorted by trigger time
-        active_reminders = [r for r in self.reminders[user_id] if r.get("active", True)]
-        active_reminders.sort(key=lambda r: r["trigger_at"])
-        
-        if reminder_num < 1 or reminder_num > len(active_reminders):
-            await ctx.send(f"Invalid reminder number. Please choose between 1 and {len(active_reminders)}.")
-            return
-            
-        # Get the reminder to cancel
-        reminder_to_cancel = active_reminders[reminder_num-1]
-        
-        # Find this reminder in the original list and mark inactive
-        for r in self.reminders[user_id]:
-            if r["id"] == reminder_to_cancel["id"]:
-                r["active"] = False
-                break
-                
-        await ctx.send(f"✅ Cancelled reminder: **{reminder_to_cancel['task']}**")
-    
-    
-    @commands.command(name="lexhelp")
-    async def help_command(self, ctx, *, topic: str = None):
-        """Show help information about Lexus"""
-        if not topic:
-            # General help
-            embed = discord.Embed(
-                title="Lexus AI Assistant Help",
-                description="Here are the things I can help you with:",
-                color=discord.Color.blue()
-            )
-            
-            embed.add_field(
-                name="💬 Chat with Lexus",
-                value="Start messages with 'Hey Lexus' or 'Lexus' followed by your question",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🎭 Chat Modes",
-                value="Use `/chatmode [mode]` to change my personality\nAvailable modes: helper, anime, therapist, friend, expert",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🌤️ Weather Questions",
-                value="Ask 'Lexus, what's the weather in [location]?'",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🎞️ GIF Search",
-                value="Type 'lx gif [search terms]' to get a GIF",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🧾 Summaries",
-                value="Use `/summarize` to get a summary of your recent conversation",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="⏰ Reminders",
-                value="Use `/remindme [what and when]` to set a reminder",
-                inline=False
-            )
-            
-            embed.set_footer(text="For specific help topics, use `/lexhelp [topic]`")
-            
-            await ctx.send(embed=embed)
-            return
-        
-        # Topic-specific help using Gemini
-        async with ctx.typing():
-            prompt = f"""
-            Generate helpful information about the Discord feature "{topic}".
-            The information should be:
-            1. Clear and easy to understand
-            2. Specific to Discord usage
-            3. Formatted nicely with bullet points where appropriate
-            4. Under 250 words
-            
-            This is for a Discord help command.
-            """
-            
-            response = await self.get_gemini_response(prompt)
-            
-            embed = discord.Embed(
-                title=f"Help: {topic.capitalize()}",
-                description=response,
-                color=discord.Color.green()
-            )
-            
-            # Log the interaction
-            self.log_interaction(ctx.author.id, f"/lexhelp {topic}", response)
-            
-            await ctx.send(embed=embed)
-    
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        """Handle command errors"""
+        """Handle command errors with futuristic styling"""
         if isinstance(error, commands.CommandNotFound):
             return
         
@@ -791,16 +488,26 @@ class LexusGeminiCog(commands.Cog):
         
         # Create a user-friendly error message
         prompt = f"""
-        Create a friendly, helpful error message about this Discord bot error: "{error_text}"
-        Make it easy to understand for non-technical users.
+        Create a friendly, futuristic error message about this Discord bot error: "{error_text}"
+        Make it sound like advanced AI terminology but still understandable.
+        Frame it as a 'system anomaly' or similar concept.
         Keep it under 100 words.
         """
         
         try:
             response = await self.get_gemini_response(prompt)
-            await ctx.send(f"⚠️ {response}")
+            
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('negative', 1)[0]} SYSTEM ANOMALY DETECTED",
+                description=response,
+                color_type="error",
+                footer="Error code: " + str(hash(error_text))[:8].upper()
+            )
+            
+            await ctx.send(embed=embed)
         except:
-            await ctx.send(f"⚠️ An error occurred: {error_text}")
+            # Fallback simple error message
+            await ctx.send(f"⚠️ An error occurred in my neural pathways: {error_text}")
         
         # Log the error
         print(f"Command error: {error_text}")
@@ -809,4 +516,4 @@ class LexusGeminiCog(commands.Cog):
 
 # Setup function for the cog
 async def setup(bot):
-    await bot.add_cog(LexusGeminiCog(bot))
+    await bot.add_cog(LexusAIChatbot(bot))
