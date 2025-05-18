@@ -47,7 +47,7 @@ class LexusAIChatbot(commands.Cog):
         
         # Chat personas with system prompts for different conversation styles
         self.chat_personas = {
-            "helper": "You are Lexus, an advanced AI assistant. You provide helpful, accurate, and concise responses with a touch of futuristic flair. Add appropriate emojis to your responses and format your answers in a visually appealing way.  when appropriate and make your answers direct and to the point.",
+            "helper": "You are Lexus, an advanced desi Indian AI assistant. You provide helpful, accurate, and concise responses with a touch of futuristic flair. Add appropriate emojis to your responses and format your answers in a visually appealing way.  when appropriate and make your answers direct and to the point.",
             "anime": "You are Lexus-chan, an anime-style AI with the personality of Naruto and Luffy. You're cheerful, loyal, goofy, and full of energy. You give short, friendly, and optimistic answers with anime-style flair. Use casual speech and fun expressions like 'dattebayo!' and 'let's gooo!' whenever it fits.",
             "therapist": "You are Lexus, a compassionate AI assistant with a calm, supportive demeanor. Respond with empathy and thoughtfulness. Use a gentle tone and encourage self-reflection through open-ended questions. Avoid giving medical advice or diagnosing any conditions.",
             "friend": "You are Lexus, a casual and friendly AI assistant. Talk like a close friend - use casual language, occasional slang, and be conversational. Share opinions and react naturally to topics. Be encouraging and supportive.",
@@ -77,6 +77,12 @@ class LexusAIChatbot(commands.Cog):
         # Cooldown to prevent spam
         self.user_cooldowns = {}
         self.COOLDOWN_SECONDS = 1.5
+        
+        # Track common requests and responses for faster replies
+        self.common_requests = {}
+        
+        # Maximum context history to include
+        self.MAX_HISTORY_CONTEXT = 5
         
     def setup_logger(self):
         """Setup enhanced logging system"""
@@ -115,20 +121,66 @@ class LexusAIChatbot(commands.Cog):
             return random.sample(self.emoji_collection[category], min(count, len(self.emoji_collection[category])))
         return []
     
+    def format_chat_history(self, user_id):
+        """Format chat history for context in AI prompts"""
+        if user_id not in self.chat_history or not self.chat_history[user_id]:
+            return ""
+        
+        # Get the recent conversation history (limited to prevent token overuse)
+        recent_history = self.chat_history[user_id][-self.MAX_HISTORY_CONTEXT:]
+        
+        # Format the history as a conversation
+        formatted_history = []
+        for entry in recent_history:
+            formatted_history.append(f"User: {entry['user']}")
+            formatted_history.append(f"Assistant: {entry['assistant']}")
+        
+        return "\n".join(formatted_history)
+    
     async def get_gemini_response(self, prompt: str, user_id: int = None, system_prompt: str = None) -> str:
-        """Get a response from Gemini API with enhanced error handling"""
+        """Get a response from Gemini API with enhanced error handling and memory"""
         try:
             if not self.model:
                 return "⚠️ I'm having trouble connecting to my AI backend. Please check the API key configuration."
             
+            # Get conversation history
+            chat_context = ""
+            if user_id is not None:
+                chat_context = self.format_chat_history(user_id)
+            
             # Use system prompt if provided, otherwise use user's chat mode
             if system_prompt:
-                full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
+                mode_prompt = system_prompt
             else:
                 # Use the user's chat mode if set, otherwise default to futuristic
                 mode = self.chat_modes.get(user_id, self.default_chat_persona)
-                system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
-                full_prompt = f"{system_prompt}\n\nUser message: {prompt}"
+                mode_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
+            
+            # Check for common requests to provide faster responses
+            request_hash = hash(f"{mode_prompt}:{prompt}")
+            if request_hash in self.common_requests:
+                # If we've seen this exact request before, reuse the response 
+                # but tell the model to personalize it slightly
+                common_response = self.common_requests[request_hash]
+                
+                # Only use cached response if it's recent (within last 24 hours)
+                if time.time() - common_response["timestamp"] < 86400:  # 24 hours in seconds
+                    personalization_prompt = f"""
+                    I've answered this question before. Here was my previous response:
+                    {common_response["response"]}
+                    
+                    Keep the same information but make it feel like a fresh response.
+                    Try to be direct and reference our conversation history if relevant.
+                    """
+                    
+                    # Generate personalized variant of the common response
+                    full_prompt = f"{mode_prompt}\n\n{personalization_prompt}\n\nUser message: {prompt}"
+                else:
+                    # If cached response is old, create a new full prompt with context
+                    full_prompt = f"{mode_prompt}\n\nPrevious conversation:\n{chat_context}\n\nUser message: {prompt}"
+            else:
+                # First time seeing this request, create full prompt with context
+                full_prompt = f"{mode_prompt}\n\nPrevious conversation:\n{chat_context}\n\nUser message: {prompt}"
             
             # Create generation config - enhanced parameters for better responses
             generation_config = {
@@ -147,13 +199,24 @@ class LexusAIChatbot(commands.Cog):
             )
             
             # Extract text from response
+            result_text = ""
             if hasattr(response, 'text'):
-                return response.text
+                result_text = response.text
             elif hasattr(response, 'parts'):
-                return ''.join([part.text for part in response.parts])
+                result_text = ''.join([part.text for part in response.parts])
             else:
                 # Fallback for unexpected response format
-                return str(response)
+                result_text = str(response)
+            
+            # Store in common requests cache for faster future responses
+            # Only cache if this is a direct user query (not an internal analysis)
+            if "Analyze this message briefly" not in prompt and user_id is not None:
+                self.common_requests[request_hash] = {
+                    "response": result_text,
+                    "timestamp": time.time()
+                }
+            
+            return result_text
                 
         except Exception as e:
             print(f"Error getting Gemini response: {e}")
@@ -239,6 +302,26 @@ class LexusAIChatbot(commands.Cog):
         self.user_cooldowns[user_id] = current_time
         return True
     
+    def find_similar_question(self, user_id, question):
+        """Find if a similar question was asked before"""
+        if user_id not in self.chat_history or not self.chat_history[user_id]:
+            return None
+        
+        question_lower = question.lower()
+        
+        # Check recent history for similar questions
+        for entry in reversed(self.chat_history[user_id]):
+            user_msg = entry['user'].lower()
+            
+            # Simple similarity check - improve this algorithm as needed
+            # Check if messages are substantially similar
+            if (user_msg == question_lower or 
+                (len(question_lower) > 5 and question_lower in user_msg) or
+                (len(user_msg) > 5 and user_msg in question_lower)):
+                return entry
+                
+        return None
+    
     @commands.Cog.listener()
     async def on_message(self, message):
         """Enhanced message listener with better pattern recognition"""
@@ -289,7 +372,7 @@ class LexusAIChatbot(commands.Cog):
         await self.bot.process_commands(message)
     
     async def process_message(self, message, content):
-        """Process user messages with enhanced response generation"""
+        """Process user messages with enhanced response generation and memory"""
         user_id = message.author.id
         
         # If message is empty or just punctuation, respond with a helpful message
@@ -297,6 +380,47 @@ class LexusAIChatbot(commands.Cog):
             tech_emoji = self.get_random_emojis('tech', 1)[0]
             futuristic_response = f"{tech_emoji} Greetings! How may I assist you today? My systems are operational and ready to serve."
             await message.reply(futuristic_response)
+            return
+        
+        # First check if this is a repeated question
+        similar_entry = self.find_similar_question(user_id, content)
+        if similar_entry:
+            # User asked a similar question before - respond fast with cached answer
+            # but with a personalized intro indicating we remember
+            tech_emoji = self.get_random_emojis('tech', 1)[0]
+            cached_response = similar_entry['assistant']
+            
+            # Add a personalized intro referencing the previous question
+            intro = f"{tech_emoji} I recall you asked about this before. Here's the information again:"
+            
+            # Sometimes provide a shorter version of the previous response for variety
+            if len(cached_response) > 150 and random.random() > 0.5:
+                summarization_prompt = f"""
+                Summarize this previous response in a shorter form while maintaining the key information:
+                {cached_response}
+                
+                Keep it concise but accurate.
+                """
+                
+                shortened_response = await self.get_gemini_response(summarization_prompt)
+                enhanced_response = f"{intro}\n\n{shortened_response}\n\n*Note: This is a summarized version of my previous answer. Let me know if you need more details.*"
+            else:
+                enhanced_response = f"{intro}\n\n{cached_response}"
+            
+            # Send the response
+            if len(enhanced_response) > 100:
+                # For longer responses, use embed
+                embed = self.create_smart_embed(
+                    title=f"{tech_emoji} Previous Information Retrieved",
+                    description=enhanced_response,
+                    color_type="futuristic",
+                    footer="Memory systems operational • Using cached data"
+                )
+                await message.reply(embed=embed)
+            else:
+                # For shorter responses, just send text
+                await message.reply(enhanced_response)
+            
             return
             
         # Process with AI with typing indicator
@@ -340,9 +464,14 @@ class LexusAIChatbot(commands.Cog):
                 mode = self.chat_modes.get(user_id, self.default_chat_persona)
                 system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_chat_persona])
                 
-                # Add additional context based on analysis
+                # Add additional context based on analysis and chat history
+                chat_context = self.format_chat_history(user_id)
+                
                 enhanced_prompt = f"""
                 {system_prompt}
+                
+                Previous conversation:
+                {chat_context}
                 
                 The user's message appears to be a {analysis.get('complexity', 'moderate')} {analysis.get('intent', 'question')}
                 with a {analysis.get('sentiment', 'neutral')} sentiment about {analysis.get('key_topic', 'general topics')}.
@@ -351,6 +480,7 @@ class LexusAIChatbot(commands.Cog):
                 
                 Respond in a way that's appropriate to their intent and sentiment, while maintaining your persona.
                 Format your response with elegant structure and appropriate futuristic elements.
+                If you see references to previous conversation in our chat history, make sure to acknowledge and build upon that context.
                 """
                 
                 # Get enhanced response
@@ -443,6 +573,31 @@ class LexusAIChatbot(commands.Cog):
             
             await ctx.send(embed=embed)
     
+    @commands.command(name="clearmemory")
+    async def clear_memory(self, ctx):
+        """Clear your conversation history with Lexus"""
+        user_id = ctx.author.id
+        
+        if user_id in self.chat_history:
+            # Clear user's chat history
+            self.chat_history[user_id] = []
+            
+            # Send confirmation
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('positive', 1)[0]} Memory Reset Complete",
+                description="I've cleared our conversation history. Our future interactions will start fresh.",
+                color_type="success"
+            )
+        else:
+            # No history to clear
+            embed = self.create_smart_embed(
+                title=f"{self.get_random_emojis('tech', 1)[0]} No Memory to Clear",
+                description="We don't have any stored conversation history yet.",
+                color_type="info"
+            )
+        
+        await ctx.send(embed=embed)
+    
     @commands.command(name="lexhelp")
     async def help_command(self, ctx):
         """Enhanced futuristic help command"""
@@ -458,7 +613,8 @@ class LexusAIChatbot(commands.Cog):
             name=f"{self.get_random_emojis('tech', 1)[0]} CONVERSATION PROTOCOLS",
             value="• Start messages with `Hey Lexus`, `Lexus`, or mention me directly\n"
                  "• I can answer questions, provide information, or just chat\n"
-                 "• My responses adapt to your message style and content",
+                 "• My responses adapt to your message style and content\n"
+                 "• I remember our previous conversations and can reference them",
             inline=False
         )
         
@@ -468,6 +624,15 @@ class LexusAIChatbot(commands.Cog):
             value="• `/chatmode [mode]` - Change my conversational style\n"
                  "• Available modes: helper, anime, therapist, friend, expert, futuristic\n"
                  "• Default mode: futuristic",
+            inline=False
+        )
+        
+        # Memory commands
+        embed.add_field(
+            name=f"{self.get_random_emojis('tech', 1)[0]} MEMORY SYSTEMS",
+            value="• I remember our conversations and use them for context\n"
+                 "• `/clearmemory` - Clear your conversation history with me\n"
+                 "• I can recognize repeated questions and give consistent answers",
             inline=False
         )
         
