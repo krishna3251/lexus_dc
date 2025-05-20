@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import aiohttp
 import asyncio
-import google.generativeai as genai
+from openai import OpenAI
 
 # Enhanced futuristic color scheme
 COLORS = {
@@ -40,34 +40,33 @@ ASCII_ART = """
 class AIHelp(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.api_key = os.getenv("GEMINI_API_KEY", "")
-        self.model = None
+        self.api_key = os.getenv("NVIDIA_API_KEY", "")
+        self.llama_client = None
         self.generation_config = {
             "temperature": 0.7,
             "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,
+            "max_tokens": 1024,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
         }
         
         # Initialize model if API key exists
         if self.api_key:
             self._setup_model()
-            logging.info("🤖 Gemini AI integration initialized")
+            logging.info("🤖 Llama 3.1 Nemotron Ultra AI integration initialized")
         else:
-            logging.warning("⚠️ GEMINI_API_KEY not found. AI features will be disabled")
+            logging.warning("⚠️ NVIDIA_API_KEY not found. AI features will be disabled")
     
     def _setup_model(self):
-        """Set up the Gemini AI model with the provided API key"""
+        """Set up the Llama 3.1 model with the provided API key"""
         try:
-            genai.configure(api_key=self.api_key)
-            # You can change this to the model of your choice
-            self.model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                generation_config=self.generation_config
+            self.llama_client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=self.api_key
             )
             return True
         except Exception as e:
-            logging.error(f"❌ Failed to initialize Gemini AI: {e}")
+            logging.error(f"❌ Failed to initialize Llama 3.1 AI: {e}")
             return False
     
     def _build_command_reference(self):
@@ -114,8 +113,8 @@ class AIHelp(commands.Cog):
         logging.info(f"📚 Built command reference with {sum(len(cmds) for cmds in COMMAND_REFERENCE.values())} commands")
     
     async def generate_ai_response(self, query, context=None):
-        """Generate a response from Gemini AI model"""
-        if not self.model:
+        """Generate a response from Llama 3.1 Nemotron Ultra model"""
+        if not self.llama_client:
             if self._setup_model() is False:
                 return "⚠️ AI service is currently unavailable. Please try again later."
         
@@ -135,18 +134,33 @@ Keep your responses friendly and professional. If you're unsure about a command,
             if context:
                 system_prompt += f"\nAdditional context about the command: {context}"
             
-            # Prepare the model prompt with the system prompt and user query
-            prompt = f"{system_prompt}\n\nUser question: {query}"
+            # Create messages array for the API
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
             
-            # Generate response from Gemini
-            response = await asyncio.to_thread(
-                lambda: self.model.generate_content(prompt).text
-            )
+            # Generate response asynchronously
+            def get_completion():
+                return self.llama_client.chat.completions.create(
+                    model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                    messages=messages,
+                    temperature=self.generation_config["temperature"],
+                    top_p=self.generation_config["top_p"],
+                    max_tokens=self.generation_config["max_tokens"],
+                    frequency_penalty=self.generation_config["frequency_penalty"],
+                    presence_penalty=self.generation_config["presence_penalty"]
+                )
             
-            return response
+            # Execute the API call in a separate thread to avoid blocking
+            completion = await asyncio.to_thread(get_completion)
+            response_text = completion.choices[0].message.content
+            
+            return response_text
+                
         except Exception as e:
             logging.error(f"❌ Error generating AI response: {e}")
-            return f"I encountered an error while processing your request. Please try again later."
+            return f"I encountered an error while processing your request. Please try again later. (Error: {type(e).__name__})"
     
     def get_command_context(self, query):
         """Extract relevant command information based on user query"""
@@ -306,13 +320,28 @@ Keep your responses friendly and professional. If you're unsure about a command,
             is_working = False
             response = "AI system is unavailable"
             
-            if self.model:
-                test_response = await asyncio.to_thread(
-                    lambda: self.model.generate_content("Say 'AI system online'").text
-                )
-                if test_response and "AI system online" in test_response:
-                    is_working = True
-                    response = "AI neural network is online and fully operational"
+            if self.llama_client:
+                try:
+                    messages = [
+                        {"role": "system", "content": "Respond with exactly 'AI system online'"},
+                        {"role": "user", "content": "Status check"}
+                    ]
+                    
+                    completion = await asyncio.to_thread(
+                        lambda: self.llama_client.chat.completions.create(
+                            model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                            messages=messages,
+                            temperature=0.1,  # Low temperature for deterministic response
+                            max_tokens=10
+                        )
+                    )
+                    
+                    test_response = completion.choices[0].message.content
+                    if test_response and "AI system online" in test_response:
+                        is_working = True
+                        response = "AI neural network is online and fully operational"
+                except Exception as e:
+                    response = f"AI system error: {str(e)[:100]}"
             
             embed = discord.Embed(
                 title="📊 AI NEURAL NETWORK STATUS",
@@ -323,7 +352,7 @@ Keep your responses friendly and professional. If you're unsure about a command,
             # Add system info
             embed.add_field(
                 name="🧠 NEURAL MODEL",
-                value=f"```Gemini-2.0-Flash```",
+                value=f"```Llama 3.1 Nemotron Ultra```",
                 inline=True
             )
             
@@ -361,7 +390,7 @@ Keep your responses friendly and professional. If you're unsure about a command,
     @commands.is_owner()  # Owner only due to potential API usage
     async def generate_all_help(self, ctx):
         """Generate help documentation for all commands using AI"""
-        if not self.model:
+        if not self.llama_client:
             if self._setup_model() is False:
                 await ctx.send("⚠️ AI service is unavailable. Cannot generate documentation.")
                 return
