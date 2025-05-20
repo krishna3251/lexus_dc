@@ -1,4 +1,4 @@
-import os
+  import os
 import re
 import time
 import asyncio
@@ -7,23 +7,23 @@ import random
 import discord
 from dotenv import load_dotenv
 from discord.ext import commands
-import google.generativeai as genai
+from openai import OpenAI
 from typing import Dict, List, Optional, Union, Tuple
 
 # Load environment variables
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 
 # Check if API key is available
-if not GEMINI_API_KEY:
-    print("WARNING: No GEMINI_API_KEY found in environment variables")
-    print("Please set the GEMINI_API_KEY in your .env file")
+if not NVIDIA_API_KEY:
+    print("WARNING: No NVIDIA_API_KEY found in environment variables")
+    print("Please set the NVIDIA_API_KEY in your .env file")
 else:
-    # Configure the Gemini API with the API key
-    genai.configure(api_key=GEMINI_API_KEY)
+    # Initialize OpenAI client for NVIDIA API access
+    print("NVIDIA API key found, initializing client")
 
 class LexusAIChatbot(commands.Cog):
-    """Enhanced pure AI chatbot using Gemini API with futuristic embedded responses"""
+    """Enhanced pure AI chatbot using Llama 3.1 Nemotron Ultra with futuristic embedded responses"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -37,13 +37,16 @@ class LexusAIChatbot(commands.Cog):
             "weather": ["☀️", "🌤️", "⛅", "🌥️", "☁️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "🌬️"]
         }
         
-        # Initialize Gemini model
-        if GEMINI_API_KEY:
-            self.model = genai.GenerativeModel("gemini-2.0-flash")  # Using gemini-pro
-            print("Gemini model initialized successfully")
+        # Initialize Llama model client
+        if NVIDIA_API_KEY:
+            self.client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=NVIDIA_API_KEY
+            )
+            print("Llama 3.1 Nemotron Ultra model client initialized successfully")
         else:
-            self.model = None
-            print("WARNING: Gemini model not initialized due to missing API key")
+            self.client = None
+            print("WARNING: Llama model client not initialized due to missing API key")
         
         # Chat personas with system prompts for different conversation styles
         self.chat_personas = {
@@ -137,10 +140,10 @@ class LexusAIChatbot(commands.Cog):
         
         return "\n".join(formatted_history)
     
-    async def get_gemini_response(self, prompt: str, user_id: int = None, system_prompt: str = None) -> str:
-        """Get a response from Gemini API with enhanced error handling and memory"""
+    async def get_llama_response(self, prompt: str, user_id: int = None, system_prompt: str = None) -> str:
+        """Get a response from Llama 3.1 Nemotron Ultra API with enhanced error handling and memory"""
         try:
-            if not self.model:
+            if not self.client:
                 return "⚠️ I'm having trouble connecting to my AI backend. Please check the API key configuration."
             
             # Get conversation history
@@ -173,40 +176,40 @@ class LexusAIChatbot(commands.Cog):
                     Try to be direct and reference our conversation history if relevant.
                     """
                     
-                    # Generate personalized variant of the common response
-                    full_prompt = f"{mode_prompt}\n\n{personalization_prompt}\n\nUser message: {prompt}"
+                    # Use the personalization prompt instead of the original one
+                    messages = [
+                        {"role": "system", "content": f"{mode_prompt}\n\n{personalization_prompt}"},
+                        {"role": "user", "content": prompt}
+                    ]
                 else:
-                    # If cached response is old, create a new full prompt with context
-                    full_prompt = f"{mode_prompt}\n\nPrevious conversation:\n{chat_context}\n\nUser message: {prompt}"
+                    # If cached response is old, create messages with context
+                    full_context = f"Previous conversation:\n{chat_context}\n\nUser message: {prompt}"
+                    messages = [
+                        {"role": "system", "content": mode_prompt},
+                        {"role": "user", "content": full_context}
+                    ]
             else:
-                # First time seeing this request, create full prompt with context
-                full_prompt = f"{mode_prompt}\n\nPrevious conversation:\n{chat_context}\n\nUser message: {prompt}"
+                # First time seeing this request, create messages with context
+                full_context = f"Previous conversation:\n{chat_context}\n\nUser message: {prompt}"
+                messages = [
+                    {"role": "system", "content": mode_prompt},
+                    {"role": "user", "content": full_context}
+                ]
             
-            # Create generation config - enhanced parameters for better responses
-            generation_config = {
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40,
-                "max_output_tokens": 800,
-                "candidate_count": 1,
-            }
-            
-            # Generate content using the Gemini model
-            response = await asyncio.to_thread(
-                self.model.generate_content,
-                full_prompt,
-                generation_config=generation_config
+            # Generate content using the Llama model via OpenAI client
+            response_stream = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                messages=messages,
+                temperature=0.7,
+                top_p=0.95,
+                max_tokens=800,
+                frequency_penalty=0,
+                presence_penalty=0
             )
             
             # Extract text from response
-            result_text = ""
-            if hasattr(response, 'text'):
-                result_text = response.text
-            elif hasattr(response, 'parts'):
-                result_text = ''.join([part.text for part in response.parts])
-            else:
-                # Fallback for unexpected response format
-                result_text = str(response)
+            result_text = response_stream.choices[0].message.content
             
             # Store in common requests cache for faster future responses
             # Only cache if this is a direct user query (not an internal analysis)
@@ -219,7 +222,7 @@ class LexusAIChatbot(commands.Cog):
             return result_text
                 
         except Exception as e:
-            print(f"Error getting Gemini response: {e}")
+            print(f"Error getting Llama response: {e}")
             return f"I encountered an error processing your request. Please try again later. {self.get_random_emojis('negative', 1)[0]} (Error: {type(e).__name__})"
     
     async def send_safe_message(self, channel, content, **kwargs):
@@ -402,7 +405,7 @@ class LexusAIChatbot(commands.Cog):
                 Keep it concise but accurate.
                 """
                 
-                shortened_response = await self.get_gemini_response(summarization_prompt)
+                shortened_response = await self.get_llama_response(summarization_prompt)
                 enhanced_response = f"{intro}\n\n{shortened_response}\n\n*Note: This is a summarized version of my previous answer. Let me know if you need more details.*"
             else:
                 enhanced_response = f"{intro}\n\n{cached_response}"
@@ -436,8 +439,8 @@ class LexusAIChatbot(commands.Cog):
             """
             
             try:
-                # Get analysis from Gemini
-                analysis_response = await self.get_gemini_response(analysis_prompt)
+                # Get analysis from Llama
+                analysis_response = await self.get_llama_response(analysis_prompt)
                 
                 # Parse JSON (handle potential format issues)
                 import json
@@ -484,7 +487,7 @@ class LexusAIChatbot(commands.Cog):
                 """
                 
                 # Get enhanced response
-                response = await self.get_gemini_response(enhanced_prompt, user_id)
+                response = await self.get_llama_response(enhanced_prompt, user_id)
                 
                 # Determine if we should use embed based on response length and complexity
                 use_embed = len(response) > 100 or analysis.get('complexity') == 'complex'
@@ -622,8 +625,8 @@ class LexusAIChatbot(commands.Cog):
         embed.add_field(
             name=f"{self.get_random_emojis('fun', 1)[0]} PERSONALITY MATRICES",
             value="• `/chatmode [mode]` - Change my conversational style\n"
-                 "• Available modes: helper, anime, therapist, friend, expert, futuristic\n"
-                 "• Default mode: futuristic",
+                 "• Available modes: helper, anime, therapist, friend, expert\n"
+                 "• Default mode: helper",
             inline=False
         )
         
@@ -638,7 +641,7 @@ class LexusAIChatbot(commands.Cog):
         
         # Add timestamp and version
         current_time = datetime.datetime.now().strftime("%Y.%m.%d")
-        embed.set_footer(text=f"Lexus AI v2.0.7 • Neural Core Active • {current_time}")
+        embed.set_footer(text=f"Lexus AI v3.0.0 • Llama 3.1 Nemotron Ultra Neural Core • {current_time}")
         
         await ctx.send(embed=embed)
     
@@ -659,7 +662,7 @@ class LexusAIChatbot(commands.Cog):
         """
         
         try:
-            response = await self.get_gemini_response(prompt)
+            response = await self.get_llama_response(prompt)
             
             embed = self.create_smart_embed(
                 title=f"{self.get_random_emojis('negative', 1)[0]} SYSTEM ANOMALY DETECTED",
@@ -680,4 +683,4 @@ class LexusAIChatbot(commands.Cog):
 
 # Setup function for the cog
 async def setup(bot):
-    await bot.add_cog(LexusAIChatbot(bot))
+  await bot.add_cog(LexusAIChatbot(bot))
