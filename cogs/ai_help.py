@@ -7,7 +7,13 @@ from datetime import datetime
 import json
 import aiohttp
 import asyncio
-from openai import OpenAI
+
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    logging.warning("⚠️ OpenAI module not found. Installing with 'pip install openai' is required.")
 
 # Enhanced futuristic color scheme
 COLORS = {
@@ -50,16 +56,23 @@ class AIHelp(commands.Cog):
             "presence_penalty": 0,
         }
         
-        # Initialize model if API key exists
-        if self.api_key:
+        # Initialize model if API key exists and OpenAI module is available
+        if self.api_key and OPENAI_AVAILABLE:
             self._setup_model()
             logging.info("🤖 Llama 3.1 Nemotron Ultra AI integration initialized")
         else:
-            logging.warning("⚠️ NVIDIA_API_KEY not found. AI features will be disabled")
+            if not OPENAI_AVAILABLE:
+                logging.warning("⚠️ OpenAI module not found. Install with 'pip install openai'")
+            if not self.api_key:
+                logging.warning("⚠️ NVIDIA_API_KEY not found. AI features will be disabled")
     
     def _setup_model(self):
         """Set up the Llama 3.1 model with the provided API key"""
         try:
+            if not OPENAI_AVAILABLE:
+                logging.error("❌ OpenAI module not installed. Cannot initialize AI client.")
+                return False
+                
             self.llama_client = OpenAI(
                 base_url="https://integrate.api.nvidia.com/v1",
                 api_key=self.api_key
@@ -114,9 +127,12 @@ class AIHelp(commands.Cog):
     
     async def generate_ai_response(self, query, context=None):
         """Generate a response from Llama 3.1 Nemotron Ultra model"""
+        if not OPENAI_AVAILABLE:
+            return "⚠️ AI service is unavailable: OpenAI module not installed. Please install with 'pip install openai' and restart the bot."
+            
         if not self.llama_client:
             if self._setup_model() is False:
-                return "⚠️ AI service is currently unavailable. Please try again later."
+                return "⚠️ AI service is currently unavailable. Please make sure OpenAI module is installed and API key is configured."
         
         try:
             # Prompt engineering for better results
@@ -202,6 +218,16 @@ Keep your responses friendly and professional. If you're unsure about a command,
             await ctx.send(embed=embed)
             return
         
+        # Check if OpenAI module is available
+        if not OPENAI_AVAILABLE:
+            embed = discord.Embed(
+                title="⚠️ AI MODULE UNAVAILABLE",
+                description="The OpenAI module is not installed. Please install it with `pip install openai` and restart the bot.",
+                color=COLORS["error"]
+            )
+            await ctx.send(embed=embed)
+            return
+            
         # Show typing indicator while generating response
         async with ctx.typing():
             # Get command context if available
@@ -232,6 +258,16 @@ Keep your responses friendly and professional. If you're unsure about a command,
         """Slash command to interact with the AI assistant"""
         await interaction.response.defer()
         
+        # Check if OpenAI module is available
+        if not OPENAI_AVAILABLE:
+            embed = discord.Embed(
+                title="⚠️ AI MODULE UNAVAILABLE",
+                description="The OpenAI module is not installed. Please install it with `pip install openai` and restart the bot.",
+                color=COLORS["error"]
+            )
+            await interaction.followup.send(embed=embed)
+            return
+            
         # Get command context if available
         context = self.get_command_context(query)
         
@@ -287,6 +323,16 @@ Keep your responses friendly and professional. If you're unsure about a command,
             # Fall back to regular help command
             await ctx.invoke(self.bot.get_command('help'))
             return
+            
+        # Check if OpenAI module is available
+        if not OPENAI_AVAILABLE:
+            embed = discord.Embed(
+                title="⚠️ AI MODULE UNAVAILABLE",
+                description="The OpenAI module is not installed. Please install it with `pip install openai` and restart the bot.",
+                color=COLORS["error"]
+            )
+            await ctx.send(embed=embed)
+            return
         
         async with ctx.typing():
             # Get command context
@@ -316,6 +362,21 @@ Keep your responses friendly and professional. If you're unsure about a command,
     async def ai_status(self, ctx):
         """Check the status of the AI system"""
         try:
+            # Check if OpenAI module is installed
+            if not OPENAI_AVAILABLE:
+                embed = discord.Embed(
+                    title="📊 AI NEURAL NETWORK STATUS",
+                    description="```css\n[AI system unavailable: OpenAI module not installed]```",
+                    color=COLORS["error"]
+                )
+                embed.add_field(
+                    name="📋 REQUIRED ACTION",
+                    value="Install the required module with: `pip install openai`",
+                    inline=False
+                )
+                await ctx.send(embed=embed)
+                return
+                
             # Test the AI with a simple query
             is_working = False
             response = "AI system is unavailable"
@@ -390,6 +451,16 @@ Keep your responses friendly and professional. If you're unsure about a command,
     @commands.is_owner()  # Owner only due to potential API usage
     async def generate_all_help(self, ctx):
         """Generate help documentation for all commands using AI"""
+        # Check if OpenAI module is available
+        if not OPENAI_AVAILABLE:
+            embed = discord.Embed(
+                title="⚠️ AI MODULE UNAVAILABLE",
+                description="The OpenAI module is not installed. Please install it with `pip install openai` and restart the bot.",
+                color=COLORS["error"]
+            )
+            await ctx.send(embed=embed)
+            return
+            
         if not self.llama_client:
             if self._setup_model() is False:
                 await ctx.send("⚠️ AI service is unavailable. Cannot generate documentation.")
