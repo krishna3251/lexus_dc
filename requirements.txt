@@ -18,6 +18,7 @@ greenlet==3.1.1
 gunicorn==23.0.0
 idna==3.10
 itsdangerous==2.2.0
+openai==0.27.0
 Jinja2==3.1.6
 MarkupSafe==3.0.2
 multidict==6.4.3
