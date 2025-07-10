@@ -16,18 +16,18 @@ class AIPinger(commands.Cog):
         self.tenor_api_key = os.getenv('TENOR_API_KEY')
         self.giphy_api_key = os.getenv('GIPHY_API_KEY')
         
-        # Predefined server configurations
+        # Predefined server configurations with guild IDs
         self.predefined_servers = {
-            # Hollow HQ Server
-            "hollow_hq": {
+            # Replace YOUR_HOLLOW_HQ_GUILD_ID with actual guild ID
+            1273151341241307187: {  # Replace with Hollow HQ guild ID
                 "name": "Hollow HQ",
                 "channel_id": 1273151342302724113,
                 "enabled": True,
                 "interval_hours": 6,
                 "next_ping": None
             },
-            # WeWake Server
-            "wewake": {
+            # Replace YOUR_WEWAKE_GUILD_ID with actual guild ID  
+            1283419068656910386: {  # Replace with WeWake guild ID
                 "name": "WeWake",
                 "channel_id": 1323720347421511831,
                 "enabled": True,
@@ -61,7 +61,7 @@ class AIPinger(commands.Cog):
 ]
 
         
-        self.gif_terms = [
+      self.gif_terms = [
     "missing", "where are you", "looking for", "searching", "absent",
     "come back", "hiding", "disappeared", "invisible", "ghost",
     "peekaboo", "lost friend", "sad bot", "pinging you", "lonely bot",
@@ -76,12 +76,7 @@ class AIPinger(commands.Cog):
     
     def get_server_config(self, guild_id: int) -> Optional[Dict]:
         """Get predefined server config by guild ID"""
-        for config in self.predefined_servers.values():
-            # You'll need to match guild IDs to your server configs
-            # For now, returning the first available config
-            if guild_id:  # Add your actual guild ID matching logic here
-                return config
-        return None
+        return self.predefined_servers.get(guild_id)
     
     async def safe_respond(self, interaction: discord.Interaction, content: str = None, 
                           embed: discord.Embed = None, ephemeral: bool = False):
@@ -126,13 +121,8 @@ class AIPinger(commands.Cog):
         
         for guild in self.bot.guilds:
             try:
-                # Find matching predefined server config
-                config = None
-                for server_config in self.predefined_servers.values():
-                    # You should add proper guild ID matching here
-                    # For now, just using the first available config
-                    config = server_config
-                    break
+                # Get server config by guild ID
+                config = self.get_server_config(guild.id)
                 
                 if not config or not config["enabled"]:
                     continue
@@ -186,16 +176,17 @@ class AIPinger(commands.Cog):
             await interaction.followup.send("❌ Need 'Manage Server' permission", ephemeral=True)
             return
         
-        # Find server config
-        config = None
-        server_name = "Unknown"
-        for server_config in self.predefined_servers.values():
-            config = server_config
-            server_name = server_config["name"]
-            break
+        # Get server config
+        config = self.get_server_config(interaction.guild.id)
         
         if not config:
             await interaction.followup.send("❌ Server not configured", ephemeral=True)
+            return
+        
+        server_name = config["name"]
+        
+        if not config["enabled"]:
+            await self.safe_respond(interaction, "❌ Pinger not enabled for this server!", ephemeral=True)
             return
         
         # Create embed for status
@@ -243,17 +234,14 @@ class AIPinger(commands.Cog):
             await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
             return
         
-        # Find server config
-        config = None
-        server_name = "Unknown"
-        for server_config in self.predefined_servers.values():
-            config = server_config
-            server_name = server_config["name"]
-            break
+        # Get server config
+        config = self.get_server_config(interaction.guild.id)
         
         if not config:
             await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
             return
+        
+        server_name = config["name"]
         
         config["enabled"] = not config["enabled"]
         
@@ -287,17 +275,14 @@ class AIPinger(commands.Cog):
             await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
             return
         
-        # Find server config
-        config = None
-        server_name = "Unknown"
-        for server_config in self.predefined_servers.values():
-            config = server_config
-            server_name = server_config["name"]
-            break
+        # Get server config
+        config = self.get_server_config(interaction.guild.id)
         
-        if not config or not config["enabled"]:
-            await self.safe_respond(interaction, "❌ Pinger not enabled for this server!", ephemeral=True)
+        if not config:
+            await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
             return
+        
+        server_name = config["name"]
         
         config["next_ping"] = datetime.datetime.utcnow().timestamp()
         
@@ -332,17 +317,14 @@ class AIPinger(commands.Cog):
             await self.safe_respond(interaction, "❌ Hours must be 1-24", ephemeral=True)
             return
         
-        # Find server config
-        config = None
-        server_name = "Unknown"
-        for server_config in self.predefined_servers.values():
-            config = server_config
-            server_name = server_config["name"]
-            break
+        # Get server config
+        config = self.get_server_config(interaction.guild.id)
         
         if not config:
             await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
             return
+        
+        server_name = config["name"]
         
         config["interval_hours"] = hours
         
