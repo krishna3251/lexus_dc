@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import random
 import asyncio
 import datetime
@@ -161,11 +162,15 @@ class AIPinger(commands.Cog):
         await self.bot.wait_until_ready()
         print("AI Pinger is ready!")
     
-    @commands.group(name="ping", invoke_without_command=True)
-    @commands.has_permissions(manage_guild=True)
-    async def ping_cmd(self, ctx):
+    @app_commands.command(name="ping", description="Show smart pinger control panel")
+    @app_commands.describe()
+    async def ping_status(self, interaction: discord.Interaction):
         """Smart pinger control panel"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         
         embed = discord.Embed(
             title="🤖 SMART PINGER CONTROL",
@@ -181,102 +186,156 @@ class AIPinger(commands.Cog):
         if config["next_ping"]:
             embed.add_field(name="⏰ Next Ping", value=f"<t:{int(config['next_ping'])}:R>", inline=True)
         
-        channels = [ctx.guild.get_channel(ch_id).mention for ch_id in config["channels"] if ctx.guild.get_channel(ch_id)]
+        channels = [interaction.guild.get_channel(ch_id).mention for ch_id in config["channels"] if interaction.guild.get_channel(ch_id)]
         embed.add_field(name="📢 Channels", value="\n".join(channels) if channels else "None", inline=False)
         
         embed.add_field(
-            name="🔧 Commands",
-            value=f"`{ctx.prefix}ping on` - Enable pinger\n"
-                  f"`{ctx.prefix}ping off` - Disable pinger\n"
-                  f"`{ctx.prefix}ping channel <#channel>` - Add channel\n"
-                  f"`{ctx.prefix}ping ai toggle` - Toggle AI messages\n"
-                  f"`{ctx.prefix}ping now` - Force ping now\n"
-                  f"`{ctx.prefix}ping interval <hours>` - Set interval",
+            name="🔧 Available Commands",
+            value="• `/ping-enable` - Enable pinger\n"
+                  "• `/ping-disable` - Disable pinger\n"
+                  "• `/ping-channel` - Add/remove channel\n"
+                  "• `/ping-ai-toggle` - Toggle AI messages\n"
+                  "• `/ping-now` - Force ping immediately\n"
+                  "• `/ping-interval` - Set ping interval",
             inline=False
         )
         
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.command(name="on")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_on(self, ctx):
+    @app_commands.command(name="ping-enable", description="Enable the smart pinger")
+    async def ping_enable(self, interaction: discord.Interaction):
         """Enable the pinger"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         
         if not config["channels"]:
-            await ctx.send("❌ Add a channel first: `!ping channel #channel`")
+            await interaction.response.send_message("❌ Add a channel first using `/ping-channel`", ephemeral=True)
             return
         
         config["enabled"] = True
         config["next_ping"] = (datetime.datetime.utcnow() + datetime.timedelta(hours=config["interval_hours"])).timestamp()
         
-        await ctx.send("✅ Smart pinger activated!")
+        embed = discord.Embed(
+            title="✅ SMART PINGER ACTIVATED",
+            description=f"Pinger will now ping members every {config['interval_hours']} hours",
+            color=0x00FF41
+        )
+        embed.add_field(name="⏰ Next Ping", value=f"<t:{int(config['next_ping'])}:R>", inline=True)
+        
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.command(name="off")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_off(self, ctx):
+    @app_commands.command(name="ping-disable", description="Disable the smart pinger")
+    async def ping_disable(self, interaction: discord.Interaction):
         """Disable the pinger"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         config["enabled"] = False
-        await ctx.send("❌ Smart pinger deactivated!")
+        
+        embed = discord.Embed(
+            title="❌ SMART PINGER DEACTIVATED",
+            description="Pinger has been disabled for this server",
+            color=0xFF4444
+        )
+        
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.command(name="channel")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_channel(self, ctx, channel: discord.TextChannel):
+    @app_commands.command(name="ping-channel", description="Add or remove a channel from ping list")
+    @app_commands.describe(channel="Channel to add/remove from ping list")
+    async def ping_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Add/remove a channel"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         
         if channel.id in config["channels"]:
             config["channels"].remove(channel.id)
-            await ctx.send(f"➖ Removed {channel.mention} from ping channels")
+            embed = discord.Embed(
+                title="➖ CHANNEL REMOVED",
+                description=f"Removed {channel.mention} from ping channels",
+                color=0xFF4444
+            )
         else:
             config["channels"].append(channel.id)
-            await ctx.send(f"➕ Added {channel.mention} to ping channels")
+            embed = discord.Embed(
+                title="➕ CHANNEL ADDED",
+                description=f"Added {channel.mention} to ping channels",
+                color=0x00FF41
+            )
+        
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.command(name="now")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_now(self, ctx):
+    @app_commands.command(name="ping-now", description="Force an immediate ping")
+    async def ping_now(self, interaction: discord.Interaction):
         """Force an immediate ping"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         
         if not config["enabled"] or not config["channels"]:
-            await ctx.send("❌ Pinger not configured properly!")
+            await interaction.response.send_message("❌ Pinger is not enabled or no channels configured!", ephemeral=True)
             return
         
         config["next_ping"] = datetime.datetime.utcnow().timestamp()
-        await ctx.send("⏰ Immediate ping scheduled!")
+        
+        embed = discord.Embed(
+            title="⏰ IMMEDIATE PING SCHEDULED",
+            description="A ping will be sent within the next 10 minutes",
+            color=0x00FF41
+        )
+        
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.group(name="ai")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_ai(self, ctx):
-        """AI-related commands"""
-        if ctx.invoked_subcommand is None:
-            config = self.get_server_config(ctx.guild.id)
-            status = "✅ Enabled" if config["ai_enabled"] else "❌ Disabled"
-            await ctx.send(f"🤖 AI Messages: {status}")
-    
-    @ping_ai.command(name="toggle")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_ai_toggle(self, ctx):
+    @app_commands.command(name="ping-ai-toggle", description="Toggle AI message generation")
+    async def ping_ai_toggle(self, interaction: discord.Interaction):
         """Toggle AI message generation"""
-        config = self.get_server_config(ctx.guild.id)
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
+        config = self.get_server_config(interaction.guild.id)
         config["ai_enabled"] = not config["ai_enabled"]
         
         status = "enabled" if config["ai_enabled"] else "disabled"
-        await ctx.send(f"🤖 AI messages {status}!")
+        embed = discord.Embed(
+            title=f"🤖 AI MESSAGES {status.upper()}",
+            description=f"AI message generation is now {status}",
+            color=0x00FF41 if config["ai_enabled"] else 0xFF4444
+        )
+        
+        await interaction.response.send_message(embed=embed)
     
-    @ping_cmd.command(name="interval")
-    @commands.has_permissions(manage_guild=True)
-    async def ping_interval(self, ctx, hours: int):
+    @app_commands.command(name="ping-interval", description="Set ping interval in hours")
+    @app_commands.describe(hours="Interval in hours (1-24)")
+    async def ping_interval(self, interaction: discord.Interaction, hours: int):
         """Set ping interval in hours"""
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            return
+            
         if hours < 1 or hours > 24:
-            await ctx.send("❌ Interval must be between 1-24 hours")
+            await interaction.response.send_message("❌ Interval must be between 1-24 hours", ephemeral=True)
             return
         
-        config = self.get_server_config(ctx.guild.id)
+        config = self.get_server_config(interaction.guild.id)
         config["interval_hours"] = hours
         
-        await ctx.send(f"⏱️ Ping interval set to {hours} hours")
+        embed = discord.Embed(
+            title="⏱️ INTERVAL UPDATED",
+            description=f"Ping interval set to {hours} hours",
+            color=0x00FF41
+        )
+        
+        await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(AIPinger(bot))
