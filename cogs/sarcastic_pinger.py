@@ -14,12 +14,12 @@ class AIPinger(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        self.nvidia_api_key = os.getenv('NVIDIA_API_KEY')  # Set your NVIDIA API key as environment variable
+        self.nvidia_api_key = os.getenv('NVIDIA_API_KEY')
         self.nvidia_base_url = "https://integrate.api.nvidia.com/v1"
         
         # GIF API keys
-        self.tenor_api_key = os.getenv('TENOR_API_KEY')  # Get from https://developers.google.com/tenor
-        self.giphy_api_key = os.getenv('GIPHY_API_KEY')  # Get from https://developers.giphy.com/
+        self.tenor_api_key = os.getenv('TENOR_API_KEY')
+        self.giphy_api_key = os.getenv('GIPHY_API_KEY')
         
         # Server-specific configurations stored in memory
         self.server_configs = {}
@@ -48,12 +48,34 @@ class AIPinger(commands.Cog):
                 "excluded_roles": [],
                 "ai_enabled": True,
                 "gif_enabled": True,
-                "gif_source": "both"  # "tenor", "giphy", "both"
+                "gif_source": "both"
             }
         return self.server_configs[guild_id]
     
+    async def safe_interaction_response(self, interaction: discord.Interaction, content: str = None, embed: discord.Embed = None, ephemeral: bool = False):
+        """Safely respond to an interaction with proper error handling"""
+        try:
+            if interaction.response.is_done():
+                # If already responded, use followup
+                if embed:
+                    await interaction.followup.send(content=content, embed=embed, ephemeral=ephemeral)
+                else:
+                    await interaction.followup.send(content=content, ephemeral=ephemeral)
+            else:
+                # First response
+                if embed:
+                    await interaction.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+                else:
+                    await interaction.response.send_message(content=content, ephemeral=ephemeral)
+        except discord.errors.NotFound:
+            print(f"Interaction expired for command: {interaction.command.name if interaction.command else 'unknown'}")
+        except discord.errors.InteractionResponded:
+            print(f"Interaction already responded to: {interaction.command.name if interaction.command else 'unknown'}")
+        except Exception as e:
+            print(f"Error responding to interaction: {e}")
+    
     async def get_tenor_gif(self, search_term: str) -> Optional[str]:
-        """Get a random GIF from Tenor"""
+        """Get a random GIF from Tenor with timeout"""
         if not self.tenor_api_key:
             return None
         
@@ -68,7 +90,7 @@ class AIPinger(commands.Cog):
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
+                async with session.get(url, params=params, timeout=5) as response:  # Reduced timeout
                     if response.status == 200:
                         data = await response.json()
                         if data.get("results"):
@@ -80,7 +102,7 @@ class AIPinger(commands.Cog):
             return None
     
     async def get_giphy_gif(self, search_term: str) -> Optional[str]:
-        """Get a random GIF from Giphy"""
+        """Get a random GIF from Giphy with timeout"""
         if not self.giphy_api_key:
             return None
         
@@ -95,7 +117,7 @@ class AIPinger(commands.Cog):
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
+                async with session.get(url, params=params, timeout=5) as response:  # Reduced timeout
                     if response.status == 200:
                         data = await response.json()
                         if data.get("data"):
@@ -114,28 +136,30 @@ class AIPinger(commands.Cog):
         search_term = random.choice(self.gif_search_terms)
         gif_url = None
         
-        # Try based on preference
-        if config["gif_source"] == "tenor":
-            gif_url = await self.get_tenor_gif(search_term)
-        elif config["gif_source"] == "giphy":
-            gif_url = await self.get_giphy_gif(search_term)
-        else:  # "both"
-            # Randomly choose between Tenor and Giphy
-            if random.choice([True, False]):
-                gif_url = await self.get_tenor_gif(search_term)
-                if not gif_url:
-                    gif_url = await self.get_giphy_gif(search_term)
-            else:
-                gif_url = await self.get_giphy_gif(search_term)
-                if not gif_url:
-                    gif_url = await self.get_tenor_gif(search_term)
+        try:
+            # Try based on preference with timeout
+            if config["gif_source"] == "tenor":
+                gif_url = await asyncio.wait_for(self.get_tenor_gif(search_term), timeout=3.0)
+            elif config["gif_source"] == "giphy":
+                gif_url = await asyncio.wait_for(self.get_giphy_gif(search_term), timeout=3.0)
+            else:  # "both"
+                if random.choice([True, False]):
+                    gif_url = await asyncio.wait_for(self.get_tenor_gif(search_term), timeout=3.0)
+                    if not gif_url:
+                        gif_url = await asyncio.wait_for(self.get_giphy_gif(search_term), timeout=3.0)
+                else:
+                    gif_url = await asyncio.wait_for(self.get_giphy_gif(search_term), timeout=3.0)
+                    if not gif_url:
+                        gif_url = await asyncio.wait_for(self.get_tenor_gif(search_term), timeout=3.0)
+        except asyncio.TimeoutError:
+            print(f"GIF fetch timeout for search term: {search_term}")
+            return None
         
         return gif_url
     
     async def generate_ai_message(self, guild_name: str, member_name: str) -> str:
-        """Generate AI-powered sarcastic message using NVIDIA API"""
+        """Generate AI-powered sarcastic message using NVIDIA API with timeout"""
         if not self.nvidia_api_key:
-            # Fallback messages if no API key
             fallback_messages = [
                 f"@{member_name} Kya baat hai, ghost mode on hai kya? 👻",
                 f"@{member_name} Server itna quiet kyun hai? Sab hibernation mein gaye? 😴",
@@ -166,7 +190,7 @@ class AIPinger(commands.Cog):
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{self.nvidia_base_url}/chat/completions", 
-                                      headers=headers, json=payload, timeout=10) as response:
+                                      headers=headers, json=payload, timeout=5) as response:  # Reduced timeout
                     if response.status == 200:
                         data = await response.json()
                         ai_message = data['choices'][0]['message']['content'].strip()
@@ -176,7 +200,6 @@ class AIPinger(commands.Cog):
                         
         except Exception as e:
             print(f"AI generation failed: {e}")
-            # Fallback to random message
             fallback_messages = [
                 f"@{member_name} AI se message generate kar raha tha, but you're too special for AI! 🤖✨",
                 f"@{member_name} Server mein kya chal raha hai? Update chahiye! 📱",
@@ -190,72 +213,87 @@ class AIPinger(commands.Cog):
         now = datetime.datetime.utcnow()
         
         for guild in self.bot.guilds:
-            config = self.get_server_config(guild.id)
-            
-            if not config["enabled"] or not config["channels"]:
-                continue
-            
-            # Check if it's time to ping
-            if config["next_ping"] and now.timestamp() < config["next_ping"]:
-                continue
-            
-            # Get valid channels
-            valid_channels = [
-                guild.get_channel(ch_id) for ch_id in config["channels"]
-                if guild.get_channel(ch_id) and guild.get_channel(ch_id).permissions_for(guild.me).send_messages
-            ]
-            
-            if not valid_channels:
-                continue
-            
-            # Get eligible members
-            eligible_members = [
-                member for member in guild.members
-                if not member.bot and 
-                not any(role.id in config["excluded_roles"] for role in member.roles)
-            ]
-            
-            if not eligible_members:
-                # Update next ping time and continue
-                config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
-                continue
-            
-            # Select random channel and member
-            channel = random.choice(valid_channels)
-            member = random.choice(eligible_members)
-            
-            # Generate message
-            if config["ai_enabled"]:
-                message = await self.generate_ai_message(guild.name, member.display_name)
-            else:
-                message = f"@{member.display_name} Random ping! Kya chal raha hai? 🎯"
-            
-            # Get GIF if enabled
-            gif_url = await self.get_random_gif(config)
-            
-            # Get GIF and create simple embed
-            gif_url = await self.get_random_gif(config)
-            
-            # Create simple embed with only GIF
-            embed = None
-            if gif_url:
-                embed = discord.Embed(color=0x00FF41)
-                embed.set_image(url=gif_url)
-            
-            # Prepare the sarcastic message (without @mention in the message text)
-            ping_message = message.replace(f"@{member.display_name}", "").strip()
-            
             try:
-                if embed:
-                    await channel.send(content=f"{member.mention} {ping_message}", embed=embed)
-                else:
-                    await channel.send(content=f"{member.mention} {ping_message}")
-                print(f"Pinged {member.display_name} in {guild.name} with GIF: {bool(gif_url)}")
+                config = self.get_server_config(guild.id)
+                
+                if not config["enabled"] or not config["channels"]:
+                    continue
+                
+                if config["next_ping"] and now.timestamp() < config["next_ping"]:
+                    continue
+                
+                valid_channels = [
+                    guild.get_channel(ch_id) for ch_id in config["channels"]
+                    if guild.get_channel(ch_id) and guild.get_channel(ch_id).permissions_for(guild.me).send_messages
+                ]
+                
+                if not valid_channels:
+                    continue
+                
+                eligible_members = [
+                    member for member in guild.members
+                    if not member.bot and 
+                    not any(role.id in config["excluded_roles"] for role in member.roles)
+                ]
+                
+                if not eligible_members:
+                    config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
+                    continue
+                
+                channel = random.choice(valid_channels)
+                member = random.choice(eligible_members)
+                
+                # Generate message and GIF concurrently with timeout
+                try:
+                    tasks_to_run = []
+                    
+                    if config["ai_enabled"]:
+                        tasks_to_run.append(self.generate_ai_message(guild.name, member.display_name))
+                    else:
+                        tasks_to_run.append(asyncio.create_task(asyncio.sleep(0)))  # Dummy task
+                    
+                    if config["gif_enabled"]:
+                        tasks_to_run.append(self.get_random_gif(config))
+                    else:
+                        tasks_to_run.append(asyncio.create_task(asyncio.sleep(0)))  # Dummy task
+                    
+                    # Wait for both with timeout
+                    results = await asyncio.wait_for(asyncio.gather(*tasks_to_run), timeout=10.0)
+                    
+                    if config["ai_enabled"]:
+                        message = results[0]
+                    else:
+                        message = f"@{member.display_name} Random ping! Kya chal raha hai? 🎯"
+                    
+                    gif_url = results[1] if config["gif_enabled"] else None
+                    
+                except asyncio.TimeoutError:
+                    print(f"Timeout generating content for {guild.name}")
+                    message = f"@{member.display_name} Random ping! Kya chal raha hai? 🎯"
+                    gif_url = None
+                
+                # Create embed if GIF available
+                embed = None
+                if gif_url:
+                    embed = discord.Embed(color=0x00FF41)
+                    embed.set_image(url=gif_url)
+                
+                ping_message = message.replace(f"@{member.display_name}", "").strip()
+                
+                try:
+                    if embed:
+                        await channel.send(content=f"{member.mention} {ping_message}", embed=embed)
+                    else:
+                        await channel.send(content=f"{member.mention} {ping_message}")
+                    print(f"Pinged {member.display_name} in {guild.name} with GIF: {bool(gif_url)}")
+                except Exception as e:
+                    print(f"Failed to send ping in {guild.name}: {e}")
+                
+                config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
+                
             except Exception as e:
-                print(f"Failed to send ping: {e}")
-            
-            # Update next ping time
-            config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
+                print(f"Error in ping loop for guild {guild.name}: {e}")
+                continue
     
     @ping_loop.before_loop
     async def before_ping_loop(self):
@@ -263,11 +301,13 @@ class AIPinger(commands.Cog):
         print("AI Pinger with GIF support is ready!")
     
     @app_commands.command(name="ping", description="Show smart pinger control panel")
-    @app_commands.describe()
     async def ping_status(self, interaction: discord.Interaction):
         """Smart pinger control panel"""
+        # Respond immediately to avoid timeout
+        await interaction.response.defer()
+        
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await interaction.followup.send("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -285,7 +325,6 @@ class AIPinger(commands.Cog):
         embed.add_field(name="⏱️ Interval", value=f"{config['interval_hours']} hours", inline=True)
         embed.add_field(name="🎭 GIF Source", value=config["gif_source"].title(), inline=True)
         
-        # Check API availability
         api_status = []
         if self.tenor_api_key:
             api_status.append("🎪 Tenor")
@@ -312,19 +351,19 @@ class AIPinger(commands.Cog):
             inline=False
         )
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="ping-enable", description="Enable the smart pinger")
     async def ping_enable(self, interaction: discord.Interaction):
         """Enable the pinger"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
         
         if not config["channels"]:
-            await interaction.response.send_message("❌ Add a channel first using `/ping-channel`", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ Add a channel first using `/ping-channel`", ephemeral=True)
             return
         
         config["enabled"] = True
@@ -338,13 +377,13 @@ class AIPinger(commands.Cog):
         embed.add_field(name="⏰ Next Ping", value=f"<t:{int(config['next_ping'])}:R>", inline=True)
         embed.add_field(name="🎬 GIF Support", value="✅ Enabled" if config["gif_enabled"] else "❌ Disabled", inline=True)
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-disable", description="Disable the smart pinger")
     async def ping_disable(self, interaction: discord.Interaction):
         """Disable the pinger"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -356,14 +395,14 @@ class AIPinger(commands.Cog):
             color=0xFF4444
         )
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-channel", description="Add or remove a channel from ping list")
     @app_commands.describe(channel="Channel to add/remove from ping list")
     async def ping_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Add/remove a channel"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -383,19 +422,19 @@ class AIPinger(commands.Cog):
                 color=0x00FF41
             )
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-now", description="Force an immediate ping")
     async def ping_now(self, interaction: discord.Interaction):
         """Force an immediate ping"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
         
         if not config["enabled"] or not config["channels"]:
-            await interaction.response.send_message("❌ Pinger is not enabled or no channels configured!", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ Pinger is not enabled or no channels configured!", ephemeral=True)
             return
         
         config["next_ping"] = datetime.datetime.utcnow().timestamp()
@@ -406,13 +445,13 @@ class AIPinger(commands.Cog):
             color=0x00FF41
         )
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-ai-toggle", description="Toggle AI message generation")
     async def ping_ai_toggle(self, interaction: discord.Interaction):
         """Toggle AI message generation"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -425,13 +464,13 @@ class AIPinger(commands.Cog):
             color=0x00FF41 if config["ai_enabled"] else 0xFF4444
         )
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-gif-toggle", description="Toggle GIF support")
     async def ping_gif_toggle(self, interaction: discord.Interaction):
         """Toggle GIF support"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -456,7 +495,7 @@ class AIPinger(commands.Cog):
             else:
                 embed.add_field(name="⚠️ Warning", value="No API keys configured! Add TENOR_API_KEY and/or GIPHY_API_KEY to environment variables.", inline=False)
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-gif-source", description="Set GIF source preference")
     @app_commands.describe(source="Choose GIF source: tenor, giphy, or both")
@@ -468,7 +507,7 @@ class AIPinger(commands.Cog):
     async def ping_gif_source(self, interaction: discord.Interaction, source: str):
         """Set GIF source preference"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         config = self.get_server_config(interaction.guild.id)
@@ -480,7 +519,6 @@ class AIPinger(commands.Cog):
             color=0x00FF41
         )
         
-        # Show available APIs
         api_status = []
         if source in ["tenor", "both"] and self.tenor_api_key:
             api_status.append("🎪 Tenor ✅")
@@ -495,18 +533,18 @@ class AIPinger(commands.Cog):
         if api_status:
             embed.add_field(name="🔑 API Status", value=" | ".join(api_status), inline=False)
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
     
     @app_commands.command(name="ping-interval", description="Set ping interval in hours")
     @app_commands.describe(hours="Interval in hours (1-24)")
     async def ping_interval(self, interaction: discord.Interaction, hours: int):
         """Set ping interval in hours"""
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ You need 'Manage Server' permission to use this command.", ephemeral=True)
             return
             
         if hours < 1 or hours > 24:
-            await interaction.response.send_message("❌ Interval must be between 1-24 hours", ephemeral=True)
+            await self.safe_interaction_response(interaction, "❌ Interval must be between 1-24 hours", ephemeral=True)
             return
         
         config = self.get_server_config(interaction.guild.id)
@@ -518,11 +556,9 @@ class AIPinger(commands.Cog):
             color=0x00FF41
         )
         
-        await interaction.response.send_message(embed=embed)
+        await self.safe_interaction_response(interaction, embed=embed)
 
-# Fix for the duplicate cog loading issue
 async def setup(bot):
-    # Check if the cog is already loaded
     if bot.get_cog("AIPinger"):
         print("AIPinger cog already loaded, skipping...")
         return
@@ -530,7 +566,6 @@ async def setup(bot):
     await bot.add_cog(AIPinger(bot))
     print("AIPinger cog loaded successfully!")
 
-# Add teardown function to properly unload the cog
 async def teardown(bot):
     cog = bot.get_cog("AIPinger")
     if cog:
