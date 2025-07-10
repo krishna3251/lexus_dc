@@ -18,16 +18,16 @@ class AIPinger(commands.Cog):
         
         # Predefined server configurations with guild IDs
         self.predefined_servers = {
-            # Replace YOUR_HOLLOW_HQ_GUILD_ID with actual guild ID
-            1273151341241307187: {  # Replace with Hollow HQ guild ID
+            # Hollow HQ Server
+            1273151341241307187: {
                 "name": "Hollow HQ",
                 "channel_id": 1273151342302724113,
                 "enabled": True,
                 "interval_hours": 6,
                 "next_ping": None
             },
-            # Replace YOUR_WEWAKE_GUILD_ID with actual guild ID  
-            1283419068656910386: {  # Replace with WeWake guild ID
+            # WeWake Server
+            1283419068656910386: {
                 "name": "WeWake",
                 "channel_id": 1323720347421511831,
                 "enabled": True,
@@ -38,36 +38,34 @@ class AIPinger(commands.Cog):
         
         # Message templates - add your own here
         self.message_templates = [
-    "lagta hai aaj aap nhi dikh rhe",
-    "kya baat hai, aaj gayab ho gaye",
-    "areh kahan chup gaye aap",
-    "lagta hai busy ho aaj",
-    "kya haal hai, dikhte nhi aaj",
-    "missing in action ho aaj",
-    "koi awaz nhi aarhi aapki",
-    "silent mode mein ho kya",
-    "online aake bhi offline jaise ho",
-    "aaj tumhari yaad aa rahi hai",
-    "tum ho kaha? server udaas hai",
-    "tumhare bina chat adhoori lagti hai",
-    "koi to bulao us bhatke hue ko",
-    "aaj koi vibes nhi aa rahi",
-    "bot bhi soch raha kaha ho aap",
-    "tumhare bina sab suna suna lagta hai",
-    "dil dhundta hai active members",
-    "ghost mode mein mat raho re",
-    "tumhare bina notification bhi boring hai",
-    "aaj server mein kuch kami si lag rahi"
-]
-
+            "lagta hai aaj aap nhi dikh rhe",
+            "kya baat hai, aaj gayab ho gaye",
+            "areh kahan chup gaye aap",
+            "lagta hai busy ho aaj",
+            "kya haal hai, dikhte nhi aaj",
+            "missing in action ho aaj",
+            "koi awaz nhi aarhi aapki",
+            "silent mode mein ho kya",
+            "online aake bhi offline jaise ho",
+            "aaj tumhari yaad aa rahi hai",
+            "tum ho kaha? server udaas hai",
+            "tumhare bina chat adhoori lagti hai",
+            "koi to bulao us bhatke hue ko",
+            "aaj koi vibes nhi aa rahi",
+            "bot bhi soch raha kaha ho aap",
+            "tumhare bina sab suna suna lagta hai",
+            "dil dhundta hai active members",
+            "ghost mode mein mat raho re",
+            "tumhare bina notification bhi boring hai",
+            "aaj server mein kuch kami si lag rahi"
+        ]
         
-      self.gif_terms = [
-    "missing", "where are you", "looking for", "searching", "absent",
-    "come back", "hiding", "disappeared", "invisible", "ghost",
-    "peekaboo", "lost friend", "sad bot", "pinging you", "lonely bot",
-    "miss you", "waiting", "anyone there", "wake up", "alert alert"
-]
-
+        self.gif_terms = [
+            "missing", "where are you", "looking for", "searching", "absent",
+            "come back", "hiding", "disappeared", "invisible", "ghost",
+            "peekaboo", "lost friend", "sad bot", "pinging you", "lonely bot",
+            "miss you", "waiting", "anyone there", "wake up", "alert alert"
+        ]
         
         self.ping_loop.start()
     
@@ -185,10 +183,6 @@ class AIPinger(commands.Cog):
         
         server_name = config["name"]
         
-        if not config["enabled"]:
-            await self.safe_respond(interaction, "❌ Pinger not enabled for this server!", ephemeral=True)
-            return
-        
         # Create embed for status
         embed = discord.Embed(
             title="🤖 Pinger Status",
@@ -283,6 +277,10 @@ class AIPinger(commands.Cog):
             return
         
         server_name = config["name"]
+        
+        if not config["enabled"]:
+            await self.safe_respond(interaction, "❌ Pinger not enabled for this server!", ephemeral=True)
+            return
         
         config["next_ping"] = datetime.datetime.utcnow().timestamp()
         
