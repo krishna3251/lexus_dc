@@ -3,754 +3,280 @@ from discord.ext import commands, tasks
 import random
 import asyncio
 import datetime
-from typing import Optional, Dict, List
 import json
 import os
+import aiohttp
+from typing import Dict, List, Optional
 
-class SarcasticPinger(commands.Cog):
-    """Ping random members with sarcastic comments every 6 hours"""
+class AIPinger(commands.Cog):
+    """AI-powered smart pinger that generates contextual messages"""
     
     def __init__(self, bot):
         self.bot = bot
-        self.config_dir = "data/sarcastic_pinger"
-        self.enabled_guilds = {}  # guild_id: next_ping_time
+        self.nvidia_api_key = os.getenv('NVIDIA_API_KEY')  # Set your NVIDIA API key as environment variable
+        self.nvidia_base_url = "https://integrate.api.nvidia.com/v1"
         
-        # Ensure config directory exists
-        os.makedirs(self.config_dir, exist_ok=True)
+        # Server-specific configurations stored in memory
+        self.server_configs = {}
         
-        # Start the pinger loop
-        self.pinger_loop.start()
-        
-        # Sarcastic ping messages and GIF URLs to be added by user
-        self.ping_messages = [
-    "@{member} Oye sab chup kyu ho gye? Group mute kr diya kya? 👀",
-    "@{member} Kya kar rahe ho sab? Ya mai hi sirf free hoon? 😅",
-    "@{member} Online toh ho, par bol koi nahi raha... ghost mode on hai kya? 👻",
-    "@{member} Itna sannata kyun hai bhai... koi to kuch bol do 😭",
-    "@{member} Group chat ya museum? Itna silence! 😐",
-    "@{member} Lagta hai sab Himalaya chale gaye meditation krne 🧘‍♂️",
-    "@{member} Ping ping... check 1 2 3... koi zinda hai kya idhar? 📡",
-    "@{member} Main message bhej ke dekh raha hoon ki group abhi bhi kaam kr raha hai ya nahi 😬",
-    "@{member} Aisa lag raha hai group me sirf mai hi hoon aur baaki log paid actors the 😭",
-    "@{member} Is group ka naam 'Silent Hill' rakh dete hain ab toh 😅",
-    "@{member} Chalo koi ek game ya bakchodi shuru karo, boring ho raha hai!",
-    "@{member} Vibe check kar raha hoon... alive ho ya bas story daal ke gaayab? 😂",
-    "@{member} Group ki hawa kaafi thandi ho gayi hai... thoda garam karo yaar 🔥",
-    "@{member} Aaj kis kis ka timepass mood on hai? Mujhe chat fight chahiye 😈"
-]
-# You'll add these yourself
-        self.gif_urls = [
-    "https://media.giphy.com/media/3og0IPxMM0erATueVW/giphy.gif",  # Hello? Anyone?
-    "https://media.giphy.com/media/l0MYB8Ory7Hqefo9a/giphy.gif",  # Crickets
-    "https://media.giphy.com/media/xT5LMzIK1AdZJ5I1So/giphy.gif",  # Ping!
-    "https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif",  # Waiting...
-    "https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif",  # Knock knock
-    "https://media.giphy.com/media/d2lcHJTG5Tscg/giphy.gif",       # Waving
-    "https://media.giphy.com/media/3oEduQAsYcJKQH2XsI/giphy.gif",  # Hello darkness...
-    "https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif",  # Where is everyone?
-    "https://media.giphy.com/media/l4EoTHjUqNjKaaz2w/giphy.gif",   # Ghost town
-    "https://media.giphy.com/media/3o6MbaZBc1BY6A2ZfO/giphy.gif"   # Come out come out...
-]
-# You'll add these yourself
-
+        # Start the ping loop
+        self.ping_loop.start()
+    
     def cog_unload(self):
-        """Cancel the task when the cog is unloaded"""
-        self.pinger_loop.cancel()
+        self.ping_loop.cancel()
     
-    def _load_guild_config(self, guild_id: int) -> Dict:
-        """Load configuration for a specific guild"""
-        config_path = f"{self.config_dir}/{guild_id}.json"
-        
-        if not os.path.exists(config_path):
-            return {
+    def get_server_config(self, guild_id: int) -> Dict:
+        """Get configuration for a specific server"""
+        if guild_id not in self.server_configs:
+            self.server_configs[guild_id] = {
                 "enabled": False,
                 "channels": [],
-                "last_ping": None,
                 "next_ping": None,
-                "ping_interval": 21600,  # 6 hours in seconds
-                "exclude_roles": []
+                "interval_hours": 6,
+                "excluded_roles": [],
+                "ai_enabled": True
             }
-            
-        try:
-            with open(config_path, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return {
-                "enabled": False,
-                "channels": [],
-                "last_ping": None,
-                "next_ping": None,
-                "ping_interval": 21600,
-                "exclude_roles": []
-            }
+        return self.server_configs[guild_id]
     
-    def _save_guild_config(self, guild_id: int, config: Dict) -> None:
-        """Save configuration for a specific guild"""
-        config_path = f"{self.config_dir}/{guild_id}.json"
+    async def generate_ai_message(self, guild_name: str, member_name: str) -> str:
+        """Generate AI-powered sarcastic message using NVIDIA API"""
+        if not self.nvidia_api_key:
+            # Fallback messages if no API key
+            fallback_messages = [
+                f"@{member_name} Kya baat hai, ghost mode on hai kya? 👻",
+                f"@{member_name} Server itna quiet kyun hai? Sab hibernation mein gaye? 😴",
+                f"@{member_name} Ping ping! Koi alive hai ya sab simulation hai? 🤖",
+                f"@{member_name} Group chat ya library? Itna silence! 📚",
+                f"@{member_name} Timepass ka mood hai kya? Let's chat! 💬"
+            ]
+            return random.choice(fallback_messages)
         
         try:
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=4)
-        except Exception as e:
-            print(f"Error saving config for guild {guild_id}: {e}")
-    
-    def _get_next_ping_time(self, config: Dict) -> Optional[datetime.datetime]:
-        """Calculate the next ping time based on config"""
-        if not config["enabled"]:
-            return None
+            headers = {
+                "Authorization": f"Bearer {self.nvidia_api_key}",
+                "Content-Type": "application/json"
+            }
             
-        now = datetime.datetime.utcnow()
-        
-        if config["next_ping"]:
-            try:
-                # Convert stored timestamp to datetime
-                next_time = datetime.datetime.fromtimestamp(config["next_ping"])
-                
-                # If it's in the past, calculate a new time
-                if next_time <= now:
-                    interval_seconds = config["ping_interval"]
-                    next_time = now + datetime.timedelta(seconds=interval_seconds)
-            except (ValueError, TypeError, OverflowError):
-                # Handle invalid timestamp
-                interval_seconds = config["ping_interval"]
-                next_time = now + datetime.timedelta(seconds=interval_seconds)
-                
-            return next_time
-        else:
-            # No next ping time set, calculate one
-            interval_seconds = config["ping_interval"]
-            return now + datetime.timedelta(seconds=interval_seconds)
-    
-    @tasks.loop(minutes=5)  # Reduced from 10 to 5 minutes to check more frequently
-    async def pinger_loop(self):
-        """Check and ping members on schedule"""
-        now = datetime.datetime.utcnow()
-        
-        for guild in self.bot.guilds:
-            # Load config for this guild
-            config = self._load_guild_config(guild.id)
+            prompt = f"""Generate a short, funny, and slightly sarcastic message in Hinglish (Hindi + English mix) to ping a Discord user named {member_name} in server '{guild_name}'. The message should be casual, friendly, and encourage conversation. Keep it under 100 characters. Don't include @ symbol, just the message text."""
             
-            if not config["enabled"]:
-                continue
-                
-            next_ping = self._get_next_ping_time(config)
+            payload = {
+                "model": "meta/llama-3.1-8b-instruct",
+                "messages": [
+                    {"role": "system", "content": "You are a witty Discord bot that creates funny, sarcastic Hinglish messages to ping users and start conversations."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.8,
+                "max_tokens": 100,
+                "stream": False
+            }
             
-            if not next_ping:
-                continue
-                
-            # Check if it's time to ping
-            if now >= next_ping:
-                # Get valid channels
-                valid_channels = []
-                for channel_id in config["channels"]:
-                    channel = guild.get_channel(channel_id)
-                    if channel and channel.permissions_for(guild.me).send_messages:
-                        valid_channels.append(channel)
-                
-                if not valid_channels:
-                    # No valid channels, disable pinging
-                    config["enabled"] = False
-                    self._save_guild_config(guild.id, config)
-                    print(f"Disabled pinger for guild {guild.id}: No valid channels")
-                    continue
-                
-                # Select random channel
-                channel = random.choice(valid_channels)
-                
-                # Get eligible members - excluding bots and members with excluded roles
-                # FIXED: Removed the offline status check that was preventing pings
-                exclude_role_ids = config["exclude_roles"]
-                eligible_members = []
-                
-                for member in guild.members:
-                    if member.bot:
-                        continue
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{self.nvidia_base_url}/chat/completions", 
+                                      headers=headers, json=payload, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        ai_message = data['choices'][0]['message']['content'].strip()
+                        return f"@{member_name} {ai_message}"
+                    else:
+                        raise Exception(f"API returned status {response.status}")
                         
-                    # Skip members with excluded roles
-                    if any(role.id in exclude_role_ids for role in member.roles):
-                        continue
-                    
-                    # IMPORTANT: Removed the offline status check to allow pinging all members
-                    eligible_members.append(member)
-                
-                if not eligible_members:
-                    print(f"No eligible members found in guild {guild.id}")
-                    
-                    # Update last ping time and calculate next ping despite no eligible members
-                    config["last_ping"] = now.timestamp()
-                    next_ping = now + datetime.timedelta(seconds=config["ping_interval"])
-                    config["next_ping"] = next_ping.timestamp()
-                    self._save_guild_config(guild.id, config)
-                    continue
-                
-                # Choose a random member
-                member = random.choice(eligible_members)
-                
-                # Ensure we have ping messages to use
-                if not self.ping_messages:
-                    message_content = "Random ping activated!"
-                else:
-                    # Choose a random message template and format it
-                    message_template = random.choice(self.ping_messages)
-                    message_content = message_template.replace("{member}", "")
-                
-                # Choose a random GIF if available
-                gif_url = None
-                if self.gif_urls:
-                    gif_url = random.choice(self.gif_urls)
-                
-                # Create embed
-                embed = discord.Embed(
-                    title="⚡ RANDOM MEMBER DETECTED ⚡",
-                    description=message_content,
-                    color=0x00FFFF,  # Cyan for futuristic look
-                    timestamp=now
-                )
-                
-                # Add a border-like effect with fields
-                embed.add_field(name="┌───────────────────┐", value="", inline=False)
-                embed.add_field(name="STATUS:", value="PING SUCCESSFUL", inline=True)
-                embed.add_field(name="PROTOCOL:", value="RANDOM_SELECT_v2.5", inline=True)
-                embed.add_field(name="└───────────────────┘", value="", inline=False)
-                
-                # Add the GIF if available
-                if gif_url:
-                    embed.set_image(url=gif_url)
-                
-                # Add futuristic footer
-                embed.set_footer(text=f"SYSTEM: Auto-Ping v3.0 | NEXT SEQUENCE: T+6h")
-                
-                try:
-                    # The member mention is now outside the embed in the message content
-                    await channel.send(content=member.mention, embed=embed)
-                    print(f"Successfully pinged {member.name} in guild {guild.id}")
-                except discord.HTTPException as e:
-                    print(f"Error sending ping in guild {guild.id}: {e}")
-                
-                # Update last ping time and calculate next ping
-                config["last_ping"] = now.timestamp()
-                next_ping = now + datetime.timedelta(seconds=config["ping_interval"])
-                config["next_ping"] = next_ping.timestamp()
-                self._save_guild_config(guild.id, config)
+        except Exception as e:
+            print(f"AI generation failed: {e}")
+            # Fallback to random message
+            fallback_messages = [
+                f"@{member_name} AI se message generate kar raha tha, but you're too special for AI! 🤖✨",
+                f"@{member_name} Server mein kya chal raha hai? Update chahiye! 📱",
+                f"@{member_name} Boring ho raha hai yaar, kuch interesting bolo! 🎭"
+            ]
+            return random.choice(fallback_messages)
     
-    @pinger_loop.before_loop
-    async def before_pinger_loop(self):
-        """Wait for the bot to be ready before starting the loop"""
-        await self.bot.wait_until_ready()
-        print("Pinger loop is ready")
+    @tasks.loop(minutes=10)
+    async def ping_loop(self):
+        """Main ping loop that checks all servers"""
+        now = datetime.datetime.utcnow()
         
-        # Load all guild configs
         for guild in self.bot.guilds:
-            config = self._load_guild_config(guild.id)
+            config = self.get_server_config(guild.id)
             
-            if config["enabled"]:
-                next_ping = self._get_next_ping_time(config)
-                if next_ping:
-                    # Update config with the calculated next ping time
-                    config["next_ping"] = next_ping.timestamp()
-                    self._save_guild_config(guild.id, config)
-                    print(f"Scheduled next ping for guild {guild.id} at {next_ping}")
+            if not config["enabled"] or not config["channels"]:
+                continue
+            
+            # Check if it's time to ping
+            if config["next_ping"] and now.timestamp() < config["next_ping"]:
+                continue
+            
+            # Get valid channels
+            valid_channels = [
+                guild.get_channel(ch_id) for ch_id in config["channels"]
+                if guild.get_channel(ch_id) and guild.get_channel(ch_id).permissions_for(guild.me).send_messages
+            ]
+            
+            if not valid_channels:
+                continue
+            
+            # Get eligible members
+            eligible_members = [
+                member for member in guild.members
+                if not member.bot and 
+                not any(role.id in config["excluded_roles"] for role in member.roles)
+            ]
+            
+            if not eligible_members:
+                # Update next ping time and continue
+                config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
+                continue
+            
+            # Select random channel and member
+            channel = random.choice(valid_channels)
+            member = random.choice(eligible_members)
+            
+            # Generate message
+            if config["ai_enabled"]:
+                message = await self.generate_ai_message(guild.name, member.display_name)
+            else:
+                message = f"@{member.display_name} Random ping! Kya chal raha hai? 🎯"
+            
+            # Create embed
+            embed = discord.Embed(
+                title="🎯 SMART PING ACTIVATED",
+                description=message.replace(f"@{member.display_name}", ""),
+                color=0x00FF41,
+                timestamp=now
+            )
+            embed.add_field(name="🤖 AI Status", value="✅ Active" if config["ai_enabled"] else "❌ Disabled", inline=True)
+            embed.add_field(name="⏰ Next Ping", value=f"<t:{int((now + datetime.timedelta(hours=config['interval_hours'])).timestamp())}:R>", inline=True)
+            embed.set_footer(text=f"Smart Pinger v4.0 | {guild.name}")
+            
+            try:
+                await channel.send(content=member.mention, embed=embed)
+                print(f"Pinged {member.display_name} in {guild.name}")
+            except Exception as e:
+                print(f"Failed to send ping: {e}")
+            
+            # Update next ping time
+            config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
     
-    @commands.group(name="pinger", invoke_without_command=True)
+    @ping_loop.before_loop
+    async def before_ping_loop(self):
+        await self.bot.wait_until_ready()
+        print("AI Pinger is ready!")
+    
+    @commands.group(name="ping", invoke_without_command=True)
     @commands.has_permissions(manage_guild=True)
-    async def pinger(self, ctx):
-        """Commands to manage the sarcastic member pinger"""
-        config = self._load_guild_config(ctx.guild.id)
+    async def ping_cmd(self, ctx):
+        """Smart pinger control panel"""
+        config = self.get_server_config(ctx.guild.id)
         
         embed = discord.Embed(
-            title="🔔 SARCASTIC PINGER CONTROL PANEL",
-            description="The sarcastic pinger randomly pings a server member with a sassy message every 6 hours.",
-            color=0x00FFFF,  # Cyan for futuristic look
+            title="🤖 SMART PINGER CONTROL",
+            description="AI-powered member pinger with contextual messages",
+            color=0x00FF41,
             timestamp=datetime.datetime.utcnow()
         )
         
-        status = "ONLINE ✅" if config["enabled"] else "OFFLINE ❌"
-        embed.add_field(name="SYSTEM STATUS", value=status, inline=True)
+        embed.add_field(name="📊 Status", value="🟢 Active" if config["enabled"] else "🔴 Inactive", inline=True)
+        embed.add_field(name="🤖 AI", value="✅ Enabled" if config["ai_enabled"] else "❌ Disabled", inline=True)
+        embed.add_field(name="⏱️ Interval", value=f"{config['interval_hours']} hours", inline=True)
         
-        if config["enabled"] and config["next_ping"]:
-            next_ping = datetime.datetime.fromtimestamp(config["next_ping"])
-            embed.add_field(
-                name="NEXT SCHEDULED PING", 
-                value=f"<t:{int(next_ping.timestamp())}:R>", 
-                inline=True
-            )
+        if config["next_ping"]:
+            embed.add_field(name="⏰ Next Ping", value=f"<t:{int(config['next_ping'])}:R>", inline=True)
         
-        channels = []
-        for channel_id in config["channels"]:
-            channel = ctx.guild.get_channel(channel_id)
-            if channel:
-                channels.append(channel.mention)
-        
-        if channels:
-            embed.add_field(
-                name="DESIGNATED CHANNELS",
-                value="\n".join(channels) if len(channels) <= 5 else "\n".join(channels[:5]) + f"\n...and {len(channels) - 5} more",
-                inline=False
-            )
-        else:
-            embed.add_field(name="DESIGNATED CHANNELS", value="No channels configured", inline=False)
-        
-        # Show excluded roles if any
-        exclude_roles = []
-        for role_id in config["exclude_roles"]:
-            role = ctx.guild.get_role(role_id)
-            if role:
-                exclude_roles.append(role.mention)
-        
-        if exclude_roles:
-            embed.add_field(
-                name="EXCLUDED ENTITIES",
-                value=", ".join(exclude_roles),
-                inline=False
-            )
-        
-        # Add a divider
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
+        channels = [ctx.guild.get_channel(ch_id).mention for ch_id in config["channels"] if ctx.guild.get_channel(ch_id)]
+        embed.add_field(name="📢 Channels", value="\n".join(channels) if channels else "None", inline=False)
         
         embed.add_field(
-            name="COMMAND INTERFACE",
-            value=f"`{ctx.prefix}pinger enable` - Activate system\n"
-                  f"`{ctx.prefix}pinger disable` - Deactivate system\n"
-                  f"`{ctx.prefix}pinger channel add #channel` - Add channel to network\n"
-                  f"`{ctx.prefix}pinger channel remove #channel` - Remove channel from network\n"
-                  f"`{ctx.prefix}pinger exclude @role` - Exclude role from ping protocol\n"
-                  f"`{ctx.prefix}pinger include @role` - Include previously excluded role\n"
-                  f"`{ctx.prefix}pinger test` - Test ping system",
+            name="🔧 Commands",
+            value=f"`{ctx.prefix}ping on` - Enable pinger\n"
+                  f"`{ctx.prefix}ping off` - Disable pinger\n"
+                  f"`{ctx.prefix}ping channel <#channel>` - Add channel\n"
+                  f"`{ctx.prefix}ping ai toggle` - Toggle AI messages\n"
+                  f"`{ctx.prefix}ping now` - Force ping now\n"
+                  f"`{ctx.prefix}ping interval <hours>` - Set interval",
             inline=False
         )
         
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        # Add futuristic footer
-        embed.set_footer(text="SARCASTIC PINGER v3.0 | Powered by Advanced AI")
-        
         await ctx.send(embed=embed)
     
-    @pinger.command(name="enable")
+    @ping_cmd.command(name="on")
     @commands.has_permissions(manage_guild=True)
-    async def pinger_enable(self, ctx):
-        """Enable the sarcastic pinger"""
-        config = self._load_guild_config(ctx.guild.id)
+    async def ping_on(self, ctx):
+        """Enable the pinger"""
+        config = self.get_server_config(ctx.guild.id)
         
         if not config["channels"]:
-            await ctx.send("⚠️ SYSTEM ERROR: No channels detected in configuration. Use `!pinger channel add #channel` to designate target areas.")
-            return
-        
-        if config["enabled"]:
-            await ctx.send("⚠️ NOTICE: Sarcastic pinger system is already active.")
+            await ctx.send("❌ Add a channel first: `!ping channel #channel`")
             return
         
         config["enabled"] = True
+        config["next_ping"] = (datetime.datetime.utcnow() + datetime.timedelta(hours=config["interval_hours"])).timestamp()
         
-        # Calculate next ping time (1 hour from now instead of 6 for faster testing)
-        next_ping = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-        config["next_ping"] = next_ping.timestamp()
-        
-        self._save_guild_config(ctx.guild.id, config)
-        
-        embed = discord.Embed(
-            title="✅ SYSTEM ACTIVATION SUCCESSFUL",
-            description="The sarcastic pinger protocol has been initialized and will ping members every 6 hours.",
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="FIRST SCHEDULED PING",
-            value=f"<t:{int(next_ping.timestamp())}:R>",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="SYSTEM STATUS",
-            value="ONLINE ✅",
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        # Add futuristic footer
-        embed.set_footer(text="SARCASTIC PINGER v3.0 | Initialization Complete")
-        
-        await ctx.send(embed=embed)
+        await ctx.send("✅ Smart pinger activated!")
     
-    @pinger.command(name="disable")
+    @ping_cmd.command(name="off")
     @commands.has_permissions(manage_guild=True)
-    async def pinger_disable(self, ctx):
-        """Disable the sarcastic pinger"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        if not config["enabled"]:
-            await ctx.send("⚠️ NOTICE: Sarcastic pinger system is already offline.")
-            return
-        
+    async def ping_off(self, ctx):
+        """Disable the pinger"""
+        config = self.get_server_config(ctx.guild.id)
         config["enabled"] = False
-        self._save_guild_config(ctx.guild.id, config)
-        
-        embed = discord.Embed(
-            title="🛑 SYSTEM DEACTIVATION COMPLETE",
-            description="The sarcastic pinger protocol has been disabled. All ping operations suspended.",
-            color=0xFF0000,  # Red for deactivation
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="SYSTEM STATUS",
-            value="OFFLINE ❌",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="PING PROTOCOLS",
-            value="SUSPENDED",
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        # Add futuristic footer
-        embed.set_footer(text="SARCASTIC PINGER v3.0 | System Shutdown Complete")
-        
-        await ctx.send(embed=embed)
+        await ctx.send("❌ Smart pinger deactivated!")
     
-    @pinger.group(name="channel", invoke_without_command=True)
+    @ping_cmd.command(name="channel")
     @commands.has_permissions(manage_guild=True)
-    async def pinger_channel(self, ctx):
-        """Manage channels where the pinger can send messages"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        channels = []
-        for channel_id in config["channels"]:
-            channel = ctx.guild.get_channel(channel_id)
-            if channel:
-                channels.append(channel.mention)
-        
-        embed = discord.Embed(
-            title="🔔 DESIGNATED COMMUNICATION CHANNELS",
-            description="These are the channels where the pinger can send messages:",
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        if channels:
-            embed.add_field(
-                name="ACTIVE CHANNELS",
-                value="\n".join(channels),
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="WARNING",
-                value="No channels configured yet. Use `!pinger channel add #channel` to designate communication nodes.",
-                inline=False
-            )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        embed.set_footer(text=f"Use {ctx.prefix}pinger channel add/remove to modify the network")
-        
-        await ctx.send(embed=embed)
-    
-    @pinger_channel.command(name="add")
-    @commands.has_permissions(manage_guild=True)
-    async def pinger_channel_add(self, ctx, channel: discord.TextChannel):
-        """Add a channel to the pinger's list"""
-        # Check if the bot has permissions to send messages in the channel
-        if not channel.permissions_for(ctx.guild.me).send_messages:
-            await ctx.send(f"⚠️ PERMISSION ERROR: Unable to access {channel.mention}. Communication protocols restricted.")
-            return
-        
-        config = self._load_guild_config(ctx.guild.id)
+    async def ping_channel(self, ctx, channel: discord.TextChannel):
+        """Add/remove a channel"""
+        config = self.get_server_config(ctx.guild.id)
         
         if channel.id in config["channels"]:
-            await ctx.send(f"⚠️ NOTICE: {channel.mention} is already connected to the pinger network.")
-            return
-        
-        config["channels"].append(channel.id)
-        self._save_guild_config(ctx.guild.id, config)
-        
-        embed = discord.Embed(
-            title="✅ CHANNEL INTEGRATION COMPLETE",
-            description=f"{channel.mention} has been successfully added to the pinger network.",
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="OPERATION",
-            value="CHANNEL_ADD",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="STATUS",
-            value="SUCCESS",
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        embed.set_footer(text="Channel connectivity established")
-        
-        await ctx.send(embed=embed)
-    
-    @pinger_channel.command(name="remove")
-    @commands.has_permissions(manage_guild=True)
-    async def pinger_channel_remove(self, ctx, channel: discord.TextChannel):
-        """Remove a channel from the pinger's list"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        if channel.id not in config["channels"]:
-            await ctx.send(f"⚠️ ERROR: {channel.mention} is not connected to the pinger network.")
-            return
-        
-        config["channels"].remove(channel.id)
-        self._save_guild_config(ctx.guild.id, config)
-        
-        # If no channels left, disable the pinger
-        if not config["channels"] and config["enabled"]:
-            config["enabled"] = False
-            self._save_guild_config(ctx.guild.id, config)
-            await ctx.send("⚠️ CRITICAL ALERT: All channels removed. The pinger has been automatically disabled.")
-        
-        embed = discord.Embed(
-            title="🗑️ CHANNEL REMOVED FROM NETWORK",
-            description=f"{channel.mention} has been disconnected from the pinger network.",
-            color=0xFF0000,  # Red for removal
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="OPERATION",
-            value="CHANNEL_REMOVE",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="STATUS",
-            value="SUCCESS",
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        embed.set_footer(text="Channel connectivity terminated")
-        
-        await ctx.send(embed=embed)
-    
-    @pinger.command(name="exclude")
-    @commands.has_permissions(manage_guild=True)
-    async def pinger_exclude(self, ctx, role: discord.Role):
-        """Exclude a role from receiving pings"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        if role.id in config["exclude_roles"]:
-            await ctx.send(f"⚠️ NOTICE: {role.mention} is already excluded from ping protocols.")
-            return
-        
-        config["exclude_roles"].append(role.id)
-        self._save_guild_config(ctx.guild.id, config)
-        
-        embed = discord.Embed(
-            title="🚫 ROLE EXCLUSION PROTOCOL ACTIVATED",
-            description=f"Members with {role.mention} will be excluded from the random ping algorithm.",
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="OPERATION",
-            value="ROLE_EXCLUDE",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="TARGET",
-            value=role.name,
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        embed.set_footer(text="Exclusion protocol active")
-        
-        await ctx.send(embed=embed)
-    
-    @pinger.command(name="include")
-    @commands.has_permissions(manage_guild=True)
-    async def pinger_include(self, ctx, role: discord.Role):
-        """Include a previously excluded role"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        if role.id not in config["exclude_roles"]:
-            await ctx.send(f"⚠️ ERROR: {role.mention} is not currently excluded from ping protocols.")
-            return
-        
-        config["exclude_roles"].remove(role.id)
-        self._save_guild_config(ctx.guild.id, config)
-        
-        embed = discord.Embed(
-            title="✅ ROLE INCLUSION PROTOCOL ACTIVATED",
-            description=f"Members with {role.mention} are now eligible for random pings.",
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="OPERATION",
-            value="ROLE_INCLUDE",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="TARGET",
-            value=role.name,
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        embed.set_footer(text="Inclusion protocol active")
-        
-        await ctx.send(embed=embed)
-    
-    @pinger.command(name="test")
-    @commands.has_permissions(manage_guild=True)
-    async def pinger_test(self, ctx):
-        """Test the pinger with a random message"""
-        config = self._load_guild_config(ctx.guild.id)
-        
-        if not config["channels"]:
-            await ctx.send("⚠️ CONFIGURATION ERROR: No channels detected. Use `!pinger channel add #channel` first.")
-            return
-        
-        # Get eligible members - excluding bots and members with excluded roles
-        # FIXED: Removed offline check for test command too
-        exclude_role_ids = config["exclude_roles"]
-        eligible_members = []
-        
-        for member in ctx.guild.members:
-            if member.bot:
-                continue
-                
-            # Skip members with excluded roles
-            if any(role.id in exclude_role_ids for role in member.roles):
-                continue
-            
-            # Allow all members regardless of status
-            eligible_members.append(member)
-        
-        if not eligible_members:
-            await ctx.send("⚠️ TARGET ERROR: No eligible members found for ping test.")
-            return
-        
-        # Choose a random member
-        member = random.choice(eligible_members)
-        
-        # Choose a random message template if available
-        if self.ping_messages:
-            message_template = random.choice(self.ping_messages)
-            message_content = message_template.replace("{member}", "")
+            config["channels"].remove(channel.id)
+            await ctx.send(f"➖ Removed {channel.mention} from ping channels")
         else:
-            message_content = "This is a test ping!"
-        
-        # Choose a random GIF if available
-        gif_url = None
-        if self.gif_urls:
-            gif_url = random.choice(self.gif_urls)
-        
-        # Create a test embed with futuristic styling
-        embed = discord.Embed(
-            title="⚡ TEST PING SEQUENCE INITIATED ⚡",
-            description=message_content,
-            color=0x00FFFF,  # Cyan for futuristic look
-            timestamp=datetime.datetime.utcnow()
-        )
-        
-        # Add a border-like effect with fields
-        embed.add_field(name="┌───────────────────┐", value="", inline=False)
-        
-        embed.add_field(
-            name="TEST TYPE",
-            value="PING_SIMULATION",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="STATUS",
-            value="EXECUTING",
-            inline=True
-        )
-        
-        # Add another divider
-        embed.add_field(name="└───────────────────┘", value="", inline=False)
-        
-        # Add the GIF if available
-        if gif_url:
-            embed.set_image(url=gif_url)
-        
-        # Add futuristic footer
-        embed.set_footer(text=f"TEST REQUEST: {ctx.author.name} | TIMESTAMP: {datetime.datetime.utcnow().strftime('%H:%M:%S')}")
-        
-        # Send the user mention outside the embed to trigger a notification
-        await ctx.send(content=member.mention, embed=embed)
-
-    @pinger.command(name="ping_now")
+            config["channels"].append(channel.id)
+            await ctx.send(f"➕ Added {channel.mention} to ping channels")
+    
+    @ping_cmd.command(name="now")
     @commands.has_permissions(manage_guild=True)
     async def ping_now(self, ctx):
         """Force an immediate ping"""
-        config = self._load_guild_config(ctx.guild.id)
+        config = self.get_server_config(ctx.guild.id)
         
-        if not config["enabled"]:
-            await ctx.send("⚠️ SYSTEM ERROR: Sarcastic pinger is currently offline. Enable it first with `!pinger enable`.")
+        if not config["enabled"] or not config["channels"]:
+            await ctx.send("❌ Pinger not configured properly!")
             return
-            
-        if not config["channels"]:
-            await ctx.send("⚠️ CONFIGURATION ERROR: No channels detected. Use `!pinger channel add #channel` first.")
-            return
-            
-        # Set next ping time to now to trigger immediate ping on next loop
+        
         config["next_ping"] = datetime.datetime.utcnow().timestamp()
-        self._save_guild_config(ctx.guild.id, config)
+        await ctx.send("⏰ Immediate ping scheduled!")
+    
+    @ping_cmd.group(name="ai")
+    @commands.has_permissions(manage_guild=True)
+    async def ping_ai(self, ctx):
+        """AI-related commands"""
+        if ctx.invoked_subcommand is None:
+            config = self.get_server_config(ctx.guild.id)
+            status = "✅ Enabled" if config["ai_enabled"] else "❌ Disabled"
+            await ctx.send(f"🤖 AI Messages: {status}")
+    
+    @ping_ai.command(name="toggle")
+    @commands.has_permissions(manage_guild=True)
+    async def ping_ai_toggle(self, ctx):
+        """Toggle AI message generation"""
+        config = self.get_server_config(ctx.guild.id)
+        config["ai_enabled"] = not config["ai_enabled"]
         
-        embed = discord.Embed(
-            title="⏱️ IMMEDIATE PING SCHEDULED",
-            description="A ping has been scheduled to execute on the next system cycle (within 5 minutes).",
-            color=0x00FFFF,
-            timestamp=datetime.datetime.utcnow()
-        )
-        embed.set_footer(text="Manual override accepted")
+        status = "enabled" if config["ai_enabled"] else "disabled"
+        await ctx.send(f"🤖 AI messages {status}!")
+    
+    @ping_cmd.command(name="interval")
+    @commands.has_permissions(manage_guild=True)
+    async def ping_interval(self, ctx, hours: int):
+        """Set ping interval in hours"""
+        if hours < 1 or hours > 24:
+            await ctx.send("❌ Interval must be between 1-24 hours")
+            return
         
-        await ctx.send(embed=embed)
+        config = self.get_server_config(ctx.guild.id)
+        config["interval_hours"] = hours
+        
+        await ctx.send(f"⏱️ Ping interval set to {hours} hours")
 
 async def setup(bot):
-    await bot.add_cog(SarcasticPinger(bot))
+    await bot.add_cog(AIPinger(bot))
