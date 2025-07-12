@@ -6,390 +6,480 @@ import asyncio
 import datetime
 import os
 import aiohttp
-from typing import Dict, Optional
+import json
+import logging
+from typing import Dict, Optional, List, Tuple
+from dataclasses import dataclass, asdict
+from enum import Enum
 
-class AIPinger(commands.Cog):
-    """Simple AI pinger with predefined server configs"""
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class ActivityLevel(Enum):
+    VERY_ACTIVE = "very_active"
+    ACTIVE = "active" 
+    MODERATE = "moderate"
+    INACTIVE = "inactive"
+    DEAD = "dead"
+
+@dataclass
+class ServerConfig:
+    name: str
+    channel_id: int
+    enabled: bool = True
+    min_interval_hours: int = 4
+    max_interval_hours: int = 12
+    next_ping: Optional[float] = None
+    activity_level: ActivityLevel = ActivityLevel.MODERATE
+    last_activity: Optional[float] = None
+    ping_count: int = 0
     
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+class SmartPinger(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.tenor_api_key = os.getenv('TENOR_API_KEY')
         self.giphy_api_key = os.getenv('GIPHY_API_KEY')
+        self.config_file = "pinger_config.json"
         
-        # Predefined server configurations with guild IDs
-        self.predefined_servers = {
-            # Hollow HQ Server
-            1273151341241307187: {
-                "name": "Hollow HQ",
-                "channel_id": 1273151342302724113,
-                "enabled": True,
-                "interval_hours": 6,
-                "next_ping": None
-            },
-            # WeWake Server
-            1283419068656910386: {
-                "name": "WeWake",
-                "channel_id": 1323720347421511831,
-                "enabled": True,
-                "interval_hours": 6,
-                "next_ping": None
-            }
+        # Load or initialize server configs
+        self.server_configs = self._load_configs()
+        
+        # Enhanced message templates with varying intensity
+        self.message_templates = {
+            ActivityLevel.VERY_ACTIVE: [
+                "server mein sb active hai, tu kahan gaya bro?",
+                "sab chat kar rahe, tu kyun missing hai?",
+                "active server mein tu ghost ban gaya?"
+            ],
+            ActivityLevel.ACTIVE: [
+                "tera toh scene hi off hai aaj",
+                "server mein aake statue kyun ban gaye?",
+                "tumhare bina server ka vibe zero hai bro"
+            ],
+            ActivityLevel.MODERATE: [
+                "ghost ban gaye ho kya? kahaan ho!",
+                "kya baat hai, discord ne tujhe block maar diya?",
+                "server ka missing person award tumhe hi milega"
+            ],
+            ActivityLevel.INACTIVE: [
+                "lagta hai aaj ka mute permanent ho gaya",
+                "sharam karo kabhi online bhi hua karo",
+                "beta online aake bhi kuch bolo toh sahi"
+            ],
+            ActivityLevel.DEAD: [
+                "server CPR ki zarurat hai, tu toh coma mein hai",
+                "tumhare reply ki speed dekh ke snail bhi sharma jaye",
+                "archaeology karnii padegi tumhe dhundne ke liye"
+            ]
         }
-        
-        # Message templates - add your own here
-        self.message_templates = [
-            "lagta hai aaj aap nhi dikh rhe",
-            "kya baat hai, aaj gayab ho gaye",
-            "areh kahan chup gaye aap",
-            "lagta hai busy ho aaj",
-            "kya haal hai, dikhte nhi aaj",
-            "missing in action ho aaj",
-            "koi awaz nhi aarhi aapki",
-            "silent mode mein ho kya",
-            "online aake bhi offline jaise ho",
-            "aaj tumhari yaad aa rahi hai",
-            "tum ho kaha? server udaas hai",
-            "tumhare bina chat adhoori lagti hai",
-            "koi to bulao us bhatke hue ko",
-            "aaj koi vibes nhi aa rahi",
-            "bot bhi soch raha kaha ho aap",
-            "tumhare bina sab suna suna lagta hai",
-            "dil dhundta hai active members",
-            "ghost mode mein mat raho re",
-            "tumhare bina notification bhi boring hai",
-            "aaj server mein kuch kami si lag rahi"
-        ]
         
         self.gif_terms = [
             "missing", "where are you", "looking for", "searching", "absent",
-            "come back", "hiding", "disappeared", "invisible", "ghost",
-            "peekaboo", "lost friend", "sad bot", "pinging you", "lonely bot",
-            "miss you", "waiting", "anyone there", "wake up", "alert alert"
+            "come back", "hiding", "disappeared", "wake up", "alert"
         ]
         
+        self.member_activity = {}  # Track member activity
+        self.ping_cooldowns = {}   # Individual member cooldowns
+        
         self.ping_loop.start()
-    
-    def cog_unload(self):
-        self.ping_loop.cancel()
-    
-    def get_server_config(self, guild_id: int) -> Optional[Dict]:
-        """Get predefined server config by guild ID"""
-        return self.predefined_servers.get(guild_id)
-    
-    async def safe_respond(self, interaction: discord.Interaction, content: str = None, 
-                          embed: discord.Embed = None, ephemeral: bool = False):
+        self.activity_tracker.start()
+
+    def _load_configs(self) -> Dict[int, ServerConfig]:
+        """Load server configurations from file or use defaults"""
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(content=content, embed=embed, ephemeral=ephemeral)
-            else:
-                await interaction.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    data = json.load(f)
+                    return {int(k): ServerConfig(**v) for k, v in data.items()}
         except Exception as e:
-            print(f"Response error: {e}")
-    
-    async def get_gif(self, search_term: str) -> Optional[str]:
-        """Get random GIF from available APIs"""
+            logger.error(f"Error loading config: {e}")
+        
+        # Default configurations
+        return {
+            1273151341241307187: ServerConfig(
+                name="Hollow HQ",
+                channel_id=1273151342302724113,
+                min_interval_hours=4,
+                max_interval_hours=8
+            ),
+            1283419068656910386: ServerConfig(
+                name="WeWake", 
+                channel_id=1323720347421511831,
+                min_interval_hours=6,
+                max_interval_hours=12
+            )
+        }
+
+    def _save_configs(self):
+        """Save server configurations to file"""
         try:
-            if self.tenor_api_key and random.choice([True, False]):
-                async with aiohttp.ClientSession() as session:
+            with open(self.config_file, 'w') as f:
+                json.dump({str(k): v.to_dict() for k, v in self.server_configs.items()}, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving config: {e}")
+
+    def _get_activity_level(self, guild_id: int) -> ActivityLevel:
+        """Determine server activity level based on recent messages"""
+        if guild_id not in self.member_activity:
+            return ActivityLevel.MODERATE
+        
+        now = datetime.datetime.utcnow().timestamp()
+        recent_activity = sum(1 for timestamp in self.member_activity[guild_id].values() 
+                             if now - timestamp < 3600)  # Last hour
+        
+        if recent_activity >= 20:
+            return ActivityLevel.VERY_ACTIVE
+        elif recent_activity >= 10:
+            return ActivityLevel.ACTIVE
+        elif recent_activity >= 5:
+            return ActivityLevel.MODERATE
+        elif recent_activity >= 1:
+            return ActivityLevel.INACTIVE
+        else:
+            return ActivityLevel.DEAD
+
+    def _select_random_member(self, guild: discord.Guild) -> Optional[discord.Member]:
+        """Smart member selection based on activity and cooldowns"""
+        try:
+            eligible_members = []
+            now = datetime.datetime.utcnow().timestamp()
+            
+            for member in guild.members:
+                if member.bot:
+                    continue
+                
+                # Check cooldown (minimum 2 hours between pings for same member)
+                member_key = f"{guild.id}_{member.id}"
+                if member_key in self.ping_cooldowns:
+                    if now - self.ping_cooldowns[member_key] < 7200:  # 2 hours
+                        continue
+                
+                # Prefer less active members
+                if guild.id in self.member_activity:
+                    last_activity = self.member_activity[guild.id].get(member.id, 0)
+                    # Higher weight for members who haven't been active recently
+                    weight = max(1, int((now - last_activity) / 3600))  # Weight by hours since last activity
+                    eligible_members.extend([member] * min(weight, 10))  # Cap weight at 10
+                else:
+                    eligible_members.append(member)
+            
+            if not eligible_members:
+                # Fallback to any non-bot member if all are on cooldown
+                eligible_members = [m for m in guild.members if not m.bot]
+            
+            return random.choice(eligible_members) if eligible_members else None
+            
+        except Exception as e:
+            logger.error(f"Error selecting member: {e}")
+            return None
+
+    async def _get_gif(self, search_term: str) -> Optional[str]:
+        """Fetch GIF from Tenor or Giphy with better error handling"""
+        try:
+            # Try Tenor first
+            if self.tenor_api_key:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                     url = "https://tenor.googleapis.com/v2/search"
-                    params = {"q": search_term, "key": self.tenor_api_key, "limit": 20}
-                    async with session.get(url, params=params, timeout=3) as resp:
+                    params = {"q": search_term, "key": self.tenor_api_key, "limit": 20, "contentfilter": "medium"}
+                    async with session.get(url, params=params) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             if data.get("results"):
                                 return random.choice(data["results"])["media_formats"]["gif"]["url"]
-            
+
+            # Fallback to Giphy
             if self.giphy_api_key:
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                     url = "https://api.giphy.com/v1/gifs/search"
-                    params = {"api_key": self.giphy_api_key, "q": search_term, "limit": 20}
-                    async with session.get(url, params=params, timeout=3) as resp:
+                    params = {"api_key": self.giphy_api_key, "q": search_term, "limit": 20, "rating": "pg"}
+                    async with session.get(url, params=params) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             if data.get("data"):
                                 return random.choice(data["data"])["images"]["original"]["url"]
+        
         except Exception as e:
-            print(f"GIF error: {e}")
-        return None
-    
-    @tasks.loop(minutes=1)  # Changed to 1 minute for instant response
+            logger.error(f"GIF fetch error: {e}")
+        
+        # Fallback GIF
+        return "https://media.tenor.com/1kGLOq1f39UAAAAd/hello-is-anybody-there.gif"
+
+    @tasks.loop(minutes=5)
     async def ping_loop(self):
-        """Main ping loop - instant pings"""
+        """Main ping loop with smart timing"""
         now = datetime.datetime.utcnow()
         
         for guild in self.bot.guilds:
             try:
-                # Get server config by guild ID
-                config = self.get_server_config(guild.id)
-                
-                if not config or not config["enabled"]:
+                config = self.server_configs.get(guild.id)
+                if not config or not config.enabled:
                     continue
-                
-                if config["next_ping"] and now.timestamp() < config["next_ping"]:
+
+                # Check if it's time to ping
+                if config.next_ping and now.timestamp() < config.next_ping:
                     continue
-                
-                # Get the specific channel
-                channel = guild.get_channel(config["channel_id"])
+
+                channel = guild.get_channel(config.channel_id)
                 if not channel or not channel.permissions_for(guild.me).send_messages:
+                    logger.warning(f"Cannot send messages in {guild.name}")
                     continue
-                
-                # Get random member
-                members = [m for m in guild.members if not m.bot]
-                if not members:
+
+                member = self._select_random_member(guild)
+                if not member:
                     continue
+
+                # Update activity level
+                activity_level = self._get_activity_level(guild.id)
+                config.activity_level = activity_level
                 
-                member = random.choice(members)
+                # Select appropriate message
+                messages = self.message_templates.get(activity_level, self.message_templates[ActivityLevel.MODERATE])
+                message = random.choice(messages)
                 
-                # Get random message and GIF
-                message = random.choice(self.message_templates)
-                gif_url = await self.get_gif(random.choice(self.gif_terms))
+                # Get GIF
+                gif_url = await self._get_gif(random.choice(self.gif_terms))
                 
-                # Send simple bold message with GIF (no embed)
-                try:
-                    content = f"**{member.mention} {message}**"
-                    
-                    if gif_url:
-                        content += f"\n{gif_url}"
-                    
-                    await channel.send(content=content)
-                    print(f"✅ Pinged {member.display_name} in {guild.name}")
-                except Exception as e:
-                    print(f"❌ Send error in {guild.name}: {e}")
+                # Send ping
+                content = f"**{member.mention} {message}**\n{gif_url}"
+                await channel.send(content=content)
                 
-                config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
+                # Update tracking
+                config.ping_count += 1
+                config.last_activity = now.timestamp()
+                self.ping_cooldowns[f"{guild.id}_{member.id}"] = now.timestamp()
+                
+                # Calculate next ping time (random interval based on activity)
+                base_interval = random.randint(config.min_interval_hours, config.max_interval_hours)
+                activity_multiplier = {
+                    ActivityLevel.VERY_ACTIVE: 1.5,
+                    ActivityLevel.ACTIVE: 1.2,
+                    ActivityLevel.MODERATE: 1.0,
+                    ActivityLevel.INACTIVE: 0.8,
+                    ActivityLevel.DEAD: 0.6
+                }.get(activity_level, 1.0)
+                
+                next_interval = base_interval * activity_multiplier
+                config.next_ping = (now + datetime.timedelta(hours=next_interval)).timestamp()
+                
+                logger.info(f"Pinged {member.display_name} in {guild.name} (Activity: {activity_level.value})")
                 
             except Exception as e:
-                print(f"Loop error for {guild.name}: {e}")
-    
+                logger.error(f"Ping loop error for {guild.name}: {e}")
+        
+        self._save_configs()
+
+    @tasks.loop(minutes=30)
+    async def activity_tracker(self):
+        """Track server activity levels"""
+        try:
+            for guild in self.bot.guilds:
+                if guild.id not in self.member_activity:
+                    self.member_activity[guild.id] = {}
+                
+                # Clean old activity data (older than 24 hours)
+                cutoff = datetime.datetime.utcnow().timestamp() - 86400
+                self.member_activity[guild.id] = {
+                    k: v for k, v in self.member_activity[guild.id].items() 
+                    if v > cutoff
+                }
+        except Exception as e:
+            logger.error(f"Activity tracker error: {e}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Track member activity"""
+        if message.author.bot or not message.guild:
+            return
+        
+        try:
+            guild_id = message.guild.id
+            if guild_id not in self.member_activity:
+                self.member_activity[guild_id] = {}
+            
+            self.member_activity[guild_id][message.author.id] = datetime.datetime.utcnow().timestamp()
+        except Exception as e:
+            logger.error(f"Activity tracking error: {e}")
+
     @ping_loop.before_loop
     async def before_ping_loop(self):
         await self.bot.wait_until_ready()
-        print("🤖 Simple Pinger is ready!")
-    
-    @app_commands.command(name="ping", description="Pinger status")
-    async def ping_status(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        
-        if not interaction.user.guild_permissions.manage_guild:
-            await interaction.followup.send("❌ Need 'Manage Server' permission", ephemeral=True)
-            return
-        
-        # Get server config
-        config = self.get_server_config(interaction.guild.id)
-        
-        if not config:
-            await interaction.followup.send("❌ Server not configured", ephemeral=True)
-            return
-        
-        server_name = config["name"]
-        
-        # Create embed for status
-        embed = discord.Embed(
-            title="🤖 Pinger Status",
-            color=0x00ff00 if config["enabled"] else 0xff0000
-        )
-        
-        embed.add_field(
-            name="Server",
-            value=server_name,
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Status",
-            value="🟢 ENABLED" if config["enabled"] else "🔴 DISABLED",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Interval",
-            value=f"{config['interval_hours']} hours",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Channel",
-            value=f"<#{config['channel_id']}>",
-            inline=True
-        )
-        
-        if config["next_ping"]:
-            embed.add_field(
-                name="Next Ping",
-                value=f"<t:{int(config['next_ping'])}:R>",
-                inline=True
-            )
-        
-        await interaction.followup.send(embed=embed)
-    
-    @app_commands.command(name="ping-toggle", description="Toggle pinger on/off")
-    async def ping_toggle(self, interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.manage_guild:
-            await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
-            return
-        
-        # Get server config
-        config = self.get_server_config(interaction.guild.id)
-        
-        if not config:
-            await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
-            return
-        
-        server_name = config["name"]
-        
-        config["enabled"] = not config["enabled"]
-        
-        if config["enabled"]:
-            config["next_ping"] = (datetime.datetime.utcnow() + 
-                                 datetime.timedelta(hours=config["interval_hours"])).timestamp()
-        
-        # Create embed response
-        embed = discord.Embed(
-            title="🤖 Pinger Toggle",
-            color=0x00ff00 if config["enabled"] else 0xff0000
-        )
-        
-        embed.add_field(
-            name="Server",
-            value=server_name,
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Status",
-            value="🟢 ENABLED" if config["enabled"] else "🔴 DISABLED",
-            inline=True
-        )
-        
-        await self.safe_respond(interaction, embed=embed)
-    
-    @app_commands.command(name="ping-now", description="Force ping now")
-    async def ping_now(self, interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.manage_guild:
-            await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
-            return
-        
-        # Get server config
-        config = self.get_server_config(interaction.guild.id)
-        
-        if not config:
-            await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
-            return
-        
-        server_name = config["name"]
-        
-        if not config["enabled"]:
-            await self.safe_respond(interaction, "❌ Pinger not enabled for this server!", ephemeral=True)
-            return
-        
-        config["next_ping"] = datetime.datetime.utcnow().timestamp()
-        
-        # Create embed response
-        embed = discord.Embed(
-            title="⏰ Ping Scheduled",
-            description="Ping will be sent in the next loop cycle!",
-            color=0x00ff00
-        )
-        
-        embed.add_field(
-            name="Server",
-            value=server_name,
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Channel",
-            value=f"<#{config['channel_id']}>",
-            inline=True
-        )
-        
-        await self.safe_respond(interaction, embed=embed)
-    
-    @app_commands.command(name="ping-interval", description="Set ping interval (1-24 hours)")
-    async def ping_interval(self, interaction: discord.Interaction, hours: int):
-        if not interaction.user.guild_permissions.manage_guild:
-            await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
-            return
-        
-        if not 1 <= hours <= 24:
-            await self.safe_respond(interaction, "❌ Hours must be 1-24", ephemeral=True)
-            return
-        
-        # Get server config
-        config = self.get_server_config(interaction.guild.id)
-        
-        if not config:
-            await self.safe_respond(interaction, "❌ Server not configured", ephemeral=True)
-            return
-        
-        server_name = config["name"]
-        
-        config["interval_hours"] = hours
-        
-        # Create embed response
-        embed = discord.Embed(
-            title="⏱️ Interval Updated",
-            color=0x00ff00
-        )
-        
-        embed.add_field(
-            name="Server",
-            value=server_name,
-            inline=True
-        )
-        
-        embed.add_field(
-            name="New Interval",
-            value=f"{hours} hours",
-            inline=True
-        )
-        
-        await self.safe_respond(interaction, embed=embed)
-    
+        logger.info("Smart Pinger is ready!")
+
+    def cog_unload(self):
+        self.ping_loop.cancel()
+        self.activity_tracker.cancel()
+        self._save_configs()
+
+    # Slash Commands
     @app_commands.command(name="ping-test", description="Test ping message")
     async def ping_test(self, interaction: discord.Interaction):
-        """Test ping message"""
-        if not interaction.user.guild_permissions.manage_guild:
-            await self.safe_respond(interaction, "❌ Need 'Manage Server' permission", ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        # Get test message and GIF
-        message = random.choice(self.message_templates)
-        gif_url = await self.get_gif(random.choice(self.gif_terms))
-        
-        # Create embed for test preview
-        embed = discord.Embed(
-            title="🧪 Test Ping Preview",
-            description="This is how the ping will look:",
-            color=0x0099ff
-        )
-        
-        test_content = f"**{interaction.user.mention} {message}**"
-        
-        embed.add_field(
-            name="Message",
-            value=test_content,
-            inline=False
-        )
-        
-        if gif_url:
-            embed.add_field(
-                name="GIF",
-                value=f"[Click to view GIF]({gif_url})",
-                inline=False
+        """Test the ping functionality"""
+        try:
+            if not interaction.user.guild_permissions.manage_guild:
+                await interaction.response.send_message("❌ Need 'Manage Server' permission", ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True)
+            
+            activity_level = self._get_activity_level(interaction.guild.id)
+            messages = self.message_templates.get(activity_level, self.message_templates[ActivityLevel.MODERATE])
+            message = random.choice(messages)
+            gif_url = await self._get_gif(random.choice(self.gif_terms))
+            
+            response = f"**{interaction.user.mention} {message}**\n{gif_url}\n\n*Activity Level: {activity_level.value}*"
+            await interaction.followup.send(content=response, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Ping test error: {e}")
+            await interaction.followup.send("❌ Error occurred during test", ephemeral=True)
+
+    @app_commands.command(name="ping-config", description="Configure ping settings")
+    @app_commands.describe(
+        enabled="Enable/disable pinging",
+        min_hours="Minimum hours between pings",
+        max_hours="Maximum hours between pings"
+    )
+    async def ping_config(self, interaction: discord.Interaction, enabled: bool = None, 
+                         min_hours: int = None, max_hours: int = None):
+        """Configure ping settings for the server"""
+        try:
+            if not interaction.user.guild_permissions.manage_guild:
+                await interaction.response.send_message("❌ Need 'Manage Server' permission", ephemeral=True)
+                return
+
+            guild_id = interaction.guild.id
+            config = self.server_configs.get(guild_id)
+            
+            if not config:
+                await interaction.response.send_message("❌ Server not configured for pinging", ephemeral=True)
+                return
+
+            changes = []
+            
+            if enabled is not None:
+                config.enabled = enabled
+                changes.append(f"Enabled: {enabled}")
+            
+            if min_hours is not None:
+                if min_hours < 1 or min_hours > 24:
+                    await interaction.response.send_message("❌ Min hours must be between 1-24", ephemeral=True)
+                    return
+                config.min_interval_hours = min_hours
+                changes.append(f"Min interval: {min_hours}h")
+            
+            if max_hours is not None:
+                if max_hours < 1 or max_hours > 48:
+                    await interaction.response.send_message("❌ Max hours must be between 1-48", ephemeral=True)
+                    return
+                config.max_interval_hours = max_hours
+                changes.append(f"Max interval: {max_hours}h")
+            
+            if config.min_interval_hours > config.max_interval_hours:
+                await interaction.response.send_message("❌ Min hours cannot be greater than max hours", ephemeral=True)
+                return
+
+            self._save_configs()
+            
+            if changes:
+                await interaction.response.send_message(f"✅ Updated: {', '.join(changes)}", ephemeral=True)
+            else:
+                await interaction.response.send_message("ℹ️ No changes made", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Config error: {e}")
+            await interaction.response.send_message("❌ Error updating config", ephemeral=True)
+
+    @app_commands.command(name="ping-stats", description="Show ping statistics")
+    async def ping_stats(self, interaction: discord.Interaction):
+        """Show ping statistics for the server"""
+        try:
+            guild_id = interaction.guild.id
+            config = self.server_configs.get(guild_id)
+            
+            if not config:
+                await interaction.response.send_message("❌ Server not configured for pinging", ephemeral=True)
+                return
+
+            activity_level = self._get_activity_level(guild_id)
+            next_ping = "Not scheduled"
+            
+            if config.next_ping:
+                next_ping_dt = datetime.datetime.fromtimestamp(config.next_ping)
+                next_ping = f"<t:{int(config.next_ping)}:R>"
+            
+            active_members = len(self.member_activity.get(guild_id, {}))
+            
+            stats = (
+                f"**Ping Statistics for {interaction.guild.name}**\n"
+                f"Status: {'✅ Enabled' if config.enabled else '❌ Disabled'}\n"
+                f"Total Pings: {config.ping_count}\n"
+                f"Activity Level: {activity_level.value.title()}\n"
+                f"Active Members: {active_members}\n"
+                f"Interval: {config.min_interval_hours}-{config.max_interval_hours} hours\n"
+                f"Next Ping: {next_ping}"
             )
-            embed.set_image(url=gif_url)
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            await interaction.response.send_message(stats, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Stats error: {e}")
+            await interaction.response.send_message("❌ Error fetching stats", ephemeral=True)
+
+    @app_commands.command(name="ping-now", description="Trigger immediate ping")
+    async def ping_now(self, interaction: discord.Interaction):
+        """Manually trigger a ping"""
+        try:
+            if not interaction.user.guild_permissions.manage_guild:
+                await interaction.response.send_message("❌ Need 'Manage Server' permission", ephemeral=True)
+                return
+
+            guild_id = interaction.guild.id
+            config = self.server_configs.get(guild_id)
+            
+            if not config or not config.enabled:
+                await interaction.response.send_message("❌ Pinging not enabled for this server", ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True)
+            
+            member = self._select_random_member(interaction.guild)
+            if not member:
+                await interaction.followup.send("❌ No eligible members to ping", ephemeral=True)
+                return
+
+            channel = interaction.guild.get_channel(config.channel_id)
+            if not channel:
+                await interaction.followup.send("❌ Ping channel not found", ephemeral=True)
+                return
+
+            activity_level = self._get_activity_level(guild_id)
+            messages = self.message_templates.get(activity_level, self.message_templates[ActivityLevel.MODERATE])
+            message = random.choice(messages)
+            gif_url = await self._get_gif(random.choice(self.gif_terms))
+            
+            content = f"**{member.mention} {message}**\n{gif_url}"
+            await channel.send(content=content)
+            
+            config.ping_count += 1
+            self.ping_cooldowns[f"{guild_id}_{member.id}"] = datetime.datetime.utcnow().timestamp()
+            self._save_configs()
+            
+            await interaction.followup.send(f"✅ Pinged {member.display_name}", ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Manual ping error: {e}")
+            await interaction.followup.send("❌ Error sending ping", ephemeral=True)
 
 async def setup(bot):
-    if not bot.get_cog("AIPinger"):
-        await bot.add_cog(AIPinger(bot))
-        print("✅ Simple Pinger loaded!")
+    if not bot.get_cog("SmartPinger"):
+        await bot.add_cog(SmartPinger(bot))
+        logger.info("Smart Pinger loaded successfully!")
 
 async def teardown(bot):
-    if bot.get_cog("AIPinger"):
-        await bot.remove_cog("AIPinger")
-        print("❌ Simple Pinger unloaded!")
+    if bot.get_cog("SmartPinger"):
+        await bot.remove_cog("SmartPinger")
+        logger.info("Smart Pinger unloaded!")
