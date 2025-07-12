@@ -36,7 +36,10 @@ class ServerConfig:
     ping_count: int = 0
     
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        # Convert enum to string for JSON serialization
+        data['activity_level'] = self.activity_level.value
+        return data
 
 class SmartPinger(commands.Cog):
     def __init__(self, bot):
@@ -94,7 +97,13 @@ class SmartPinger(commands.Cog):
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     data = json.load(f)
-                    return {int(k): ServerConfig(**v) for k, v in data.items()}
+                    configs = {}
+                    for k, v in data.items():
+                        # Convert string back to enum
+                        if 'activity_level' in v and isinstance(v['activity_level'], str):
+                            v['activity_level'] = ActivityLevel(v['activity_level'])
+                        configs[int(k)] = ServerConfig(**v)
+                    return configs
         except Exception as e:
             logger.error(f"Error loading config: {e}")
         
