@@ -15,10 +15,11 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class AntiNukeBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.all()
-        super().__init__(command_prefix='!', intents=intents)
+class AntiNukeCog(commands.Cog):
+    """Anti-nuke system that actually works, unlike your last attempt"""
+    
+    def __init__(self, bot):
+        self.bot = bot
         
         # Track violations like we're the Discord police
         self.violations: Dict[int, List[datetime]] = {}
@@ -35,14 +36,6 @@ class AntiNukeBot(commands.Bot):
             "https://tenor.com/view/you-have-been-banned-ban-gif-18150788",
             "https://tenor.com/view/no-nope-wrong-gif-15791964"
         ]
-
-    async def on_ready(self):
-        print(f"🚀 {self.user} is online and ready to ruin some nuke attempts!")
-        try:
-            synced = await self.tree.sync()
-            print(f"Synced {len(synced)} slash commands. Democracy is overrated anyway.")
-        except Exception as e:
-            logger.error(f"Failed to sync commands: {e}")
 
     def is_whitelisted(self, member: discord.Member) -> bool:
         """Check if user is too cool to be punished"""
@@ -163,20 +156,6 @@ class AntiNukeBot(commands.Bot):
         else:
             await interaction.response.send_message(f"🤷 {user.mention} is already whitelisted. Pay attention.")
 
-    @discord.app_commands.command(name="antinuke_config", description="Show current anti-nuke settings")
-    async def antinuke_config(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🛡️ Anti-Nuke Configuration",
-            description="Current settings for keeping idiots in line",
-            color=0x00FF00
-        )
-        embed.add_field(name="Max Actions", value=f"{self.MAX_ACTIONS} actions", inline=True)
-        embed.add_field(name="Time Window", value=f"{self.TIME_WINDOW} seconds", inline=True)
-        embed.add_field(name="Whitelisted Roles", value=f"{len(self.whitelisted_roles)} roles", inline=True)
-        embed.add_field(name="Whitelisted Users", value=f"{len(self.whitelisted_users)} users", inline=True)
-        
-        await interaction.response.send_message(embed=embed)
-
     @discord.app_commands.command(name="remove_whitelist_role", description="Remove a role from whitelist")
     @discord.app_commands.describe(role="The role to remove from whitelist")
     async def remove_whitelist_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -229,6 +208,20 @@ class AntiNukeBot(commands.Bot):
             f"{'Strict mode engaged!' if max_actions <= 2 else 'Reasonable settings.'}"
         )
 
+    @discord.app_commands.command(name="antinuke_config", description="Show current anti-nuke settings")
+    async def antinuke_config(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="🛡️ Anti-Nuke Configuration",
+            description="Current settings for keeping idiots in line",
+            color=0x00FF00
+        )
+        embed.add_field(name="Max Actions", value=f"{self.MAX_ACTIONS} actions", inline=True)
+        embed.add_field(name="Time Window", value=f"{self.TIME_WINDOW} seconds", inline=True)
+        embed.add_field(name="Whitelisted Roles", value=f"{len(self.whitelisted_roles)} roles", inline=True)
+        embed.add_field(name="Whitelisted Users", value=f"{len(self.whitelisted_users)} users", inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+
     @discord.app_commands.command(name="check_violations", description="Check violation history for a user")
     @discord.app_commands.describe(user="User to check violations for")
     async def check_violations(self, interaction: discord.Interaction, user: discord.Member):
@@ -280,21 +273,8 @@ class AntiNukeBot(commands.Bot):
         else:
             await interaction.response.send_message(f"🤷 {user.mention} has no violations to clear. They're already clean.")
 
-# Run this bad boy
-if __name__ == "__main__":
-    # Get bot token from environment variables like a pro
-    bot_token = os.getenv('DISCORD_BOT_TOKEN')
-    
-    if not bot_token:
-        logger.error("DISCORD_BOT_TOKEN not found in environment variables. Did you forget to set it?")
-        exit(1)
-    
-    bot = AntiNukeBot()
-    
-    try:
-        bot.run(bot_token)
-    except discord.LoginFailure:
-        logger.error("Invalid bot token. Check your DISCORD_BOT_TOKEN environment variable.")
-    except Exception as e:
-        logger.error(f"Bot crashed: {e}")
-        raise
+# This is the setup function your cog loader is crying about
+async def setup(bot):
+    """Load the cog like a functioning human being"""
+    await bot.add_cog(AntiNukeCog(bot))
+    print("🛡️ Anti-Nuke cog loaded successfully. Server raiders beware!")
