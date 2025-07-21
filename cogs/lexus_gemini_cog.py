@@ -167,7 +167,7 @@ class LexusAIChatbot(commands.Cog):
         embed.set_footer(text="Single mode, maximum swag!")
         await ctx.send(embed=embed)
     
-    @commands.command(name="clearmemory")
+    @commands.command(name="lexclearmemory")
     async def clear_memory(self, ctx):
         user_id = ctx.author.id
         
