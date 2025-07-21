@@ -53,66 +53,65 @@ class SmartPinger(commands.Cog):
         
         # Enhanced message templates with varying intensity
         self.message_templates = {
-    ActivityLevel.VERY_ACTIVE: [
-        "server mein sb active hai, tu kahan gaya bro?",
-        "sab chat kar rahe, tu kyun missing hai?",
-        "active server mein tu ghost ban gaya?",
-        "tere bina toh lagta hai party incomplete hai!",
-        "sab tere intezaar mein thak gaye hai",
-        "bro tujhe NASA ne space mein bhej diya kya?",
-        "kya tere keyboard pe ice age aa gaya?",
-        "tere bina chat desert ban gaya hai",
-        "server mein aaj silence ka reason tu hai",
-        "jaise train mein sab aaye, conductor tu reh gaya"
-    ],
-    ActivityLevel.ACTIVE: [
-        "tera toh scene hi off hai aaj",
-        "server mein aake statue kyun ban gaye?",
-        "tumhare bina server ka vibe zero hai bro",
-        "teri typing dekhne ko aankhein taras gayi",
-        "kya kar rahe ho bhai, meditation?",
-        "lagta hai tu sirf online aata hai ghost banne",
-        "teri online presence aur network kabhi milte nahi",
-        "server ki light tu hi toh tha, fuse ho gaya kya?"
-    ],
-    ActivityLevel.MODERATE: [
-        "ghost ban gaye ho kya? kahaan ho!",
-        "kya baat hai, discord ne tujhe block maar diya?",
-        "server ka missing person award tumhe hi milega",
-        "chat mein aake bas ek 'hi' bolde bhai",
-        "tu toh lagta hai spy ban gaya hai",
-        "server mein tu hai ya bas illusion hai?",
-        "tu aata hai sirf presence dikhane jaise politician"
-    ],
-    ActivityLevel.INACTIVE: [
-        "lagta hai aaj ka mute permanent ho gaya",
-        "sharam karo kabhi online bhi hua karo",
-        "beta online aake bhi kuch bolo toh sahi",
-        "teri profile pe cobweb lag gaye",
-        "kya tujhe login karna allowed nahi ghar pe?",
-        "isse toh better AI bhi reply kar dete",
-        "tera mic aur keyboard dono retirement pe gaye kya?"
-    ],
-    ActivityLevel.DEAD: [
-        "server CPR ki zarurat hai, tu toh coma mein hai",
-        "tumhare reply ki speed dekh ke snail bhi sharma jaye",
-        "archaeology karnii padegi tumhe dhundne ke liye",
-        "aakhri baar tujhe kab dekha tha... 1998 mein?",
-        "tera ping Mars se aa raha kya?",
-        "server tujhse zyada zinda lagta hai",
-        "tere status pe likha hona chahiye 'Lost in Time'",
-        "kya tere Discord pe museum ban gaya hai?"
-    ]
-}
+            ActivityLevel.VERY_ACTIVE: [
+                "server mein sb active hai, tu kahan gaya bro?",
+                "sab chat kar rahe, tu kyun missing hai?",
+                "active server mein tu ghost ban gaya?",
+                "tere bina toh lagta hai party incomplete hai!",
+                "sab tere intezaar mein thak gaye hai",
+                "bro tujhe NASA ne space mein bhej diya kya?",
+                "kya tere keyboard pe ice age aa gaya?",
+                "tere bina chat desert ban gaya hai",
+                "server mein aaj silence ka reason tu hai",
+                "jaise train mein sab aaye, conductor tu reh gaya"
+            ],
+            ActivityLevel.ACTIVE: [
+                "tera toh scene hi off hai aaj",
+                "server mein aake statue kyun ban gaye?",
+                "tumhare bina server ka vibe zero hai bro",
+                "teri typing dekhne ko aankhein taras gayi",
+                "kya kar rahe ho bhai, meditation?",
+                "lagta hai tu sirf online aata hai ghost banne",
+                "teri online presence aur network kabhi milte nahi",
+                "server ki light tu hi toh tha, fuse ho gaya kya?"
+            ],
+            ActivityLevel.MODERATE: [
+                "ghost ban gaye ho kya? kahaan ho!",
+                "kya baat hai, discord ne tujhe block maar diya?",
+                "server ka missing person award tumhe hi milega",
+                "chat mein aake bas ek 'hi' bolde bhai",
+                "tu toh lagta hai spy ban gaya hai",
+                "server mein tu hai ya bas illusion hai?",
+                "tu aata hai sirf presence dikhane jaise politician"
+            ],
+            ActivityLevel.INACTIVE: [
+                "lagta hai aaj ka mute permanent ho gaya",
+                "sharam karo kabhi online bhi hua karo",
+                "beta online aake bhi kuch bolo toh sahi",
+                "teri profile pe cobweb lag gaye",
+                "kya tujhe login karna allowed nahi ghar pe?",
+                "isse toh better AI bhi reply kar dete",
+                "tera mic aur keyboard dono retirement pe gaye kya?"
+            ],
+            ActivityLevel.DEAD: [
+                "server CPR ki zarurat hai, tu toh coma mein hai",
+                "tumhare reply ki speed dekh ke snail bhi sharma jaye",
+                "archaeology karnii padegi tumhe dhundne ke liye",
+                "aakhri baar tujhe kab dekha tha... 1998 mein?",
+                "tera ping Mars se aa raha kya?",
+                "server tujhse zyada zinda lagta hai",
+                "tere status pe likha hona chahiye 'Lost in Time'",
+                "kya tere Discord pe museum ban gaya hai?"
+            ]
+        }
 
-self.gif_terms = [
-    "missing", "where are you", "looking for", "searching", "absent",
-    "come back", "hiding", "disappeared", "wake up", "alert",
-    "ghost mode", "not seen", "gone", "vanished", "invisible",
-    "waiting", "lonely", "offline too long", "nobody home", "hello?",
-    "please respond", "dino fossil", "sleeping beauty", "mission lost"
-]
-
+        self.gif_terms = [
+            "missing", "where are you", "looking for", "searching", "absent",
+            "come back", "hiding", "disappeared", "wake up", "alert",
+            "ghost mode", "not seen", "gone", "vanished", "invisible",
+            "waiting", "lonely", "offline too long", "nobody home", "hello?",
+            "please respond", "dino fossil", "sleeping beauty", "mission lost"
+        ]
         
         self.member_activity = {}  # Track member activity
         self.ping_cooldowns = {}   # Individual member cooldowns
