@@ -11,75 +11,38 @@ from openai import OpenAI
 load_dotenv()
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 
-# Check if API key is available
-if not NVIDIA_API_KEY:
-    print("WARNING: No NVIDIA_API_KEY found in environment variables")
-else:
-    print("NVIDIA API key found, initializing client")
-
 class LexusAIChatbot(commands.Cog):
-    """Beautiful AI chatbot using Llama 3.1 Nemotron Ultra with clean embeds"""
+    """Hyderabadi AI chatbot with swag and style"""
     
     def __init__(self, bot):
         self.bot = bot
-        self.chat_history = {}  # Store chat history per user
+        self.chat_history = {}
         
-        # Initialize Llama model client
-        if NVIDIA_API_KEY:
-            self.client = OpenAI(
-                base_url="https://integrate.api.nvidia.com/v1",
-                api_key=NVIDIA_API_KEY
-            )
-            print("Llama model client initialized successfully")
-        else:
-            self.client = None
-            print("WARNING: Model client not initialized due to missing API key")
+        # Initialize client
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=NVIDIA_API_KEY
+        ) if NVIDIA_API_KEY else None
         
-        # Chat personas - keeping all modes
-        self.chat_personas = {
-            "helper": "You are Lexus, a helpful AI assistant. Give direct, clear answers with occasional emojis. Be friendly and professional.",
-            "anime": "You are Lexus-chan, an anime-style AI with Naruto and Luffy's personality. Be cheerful, energetic, and use expressions like 'dattebayo!' and 'let's gooo!'",
-            "therapist": "You are Lexus, a compassionate AI therapist. Respond with empathy, ask thoughtful questions, and provide emotional support. Use gentle, caring language.",
-            "friend": "You are Lexus, a casual friend. Use relaxed language, slang, and be conversational. Share opinions naturally and be supportive.",
-            "expert": "You are Lexus, an expert-level AI. Provide detailed, technically accurate information with professional terminology. Be thorough yet clear."
-        }
+        # Hyderabadi persona
+        self.system_prompt = """You are Lexus anna , a Hyderabadi AI with total swag. Speak like a cool Hyderabadi - mix English, Hindi, and Urdu naturally. Use words like 'anna', 'bhai', 'bas karo', 'kya baat hai', 'hauwle', 'baigan'. Be confident, friendly, and have that Hyderabadi charm. Keep responses natural and conversational."""
         
-        # User chat modes
-        self.chat_modes = {}
-        self.default_mode = "helper"
+        # Colors for embeds
+        self.colors = [0xFF6B35, 0xF7931E, 0xFFD23F, 0x06FFA5, 0x3F8AE0, 0x9B59B6, 0xE74C3C]
         
-        # Beautiful embed colors
-        self.colors = {
-            "default": 0x2196F3,    # Blue
-            "success": 0x4CAF50,    # Green
-            "error": 0xF44336,      # Red
-            "warning": 0xFF9800,    # Orange
-            "info": 0x607D8B,       # Blue Grey
-            "anime": 0xE91E63,      # Pink
-            "therapist": 0x9C27B0,  # Purple
-            "friend": 0x00BCD4,     # Cyan
-            "expert": 0x795548      # Brown
-        }
-        
-        # Cooldown settings
+        # Settings
         self.user_cooldowns = {}
-        self.COOLDOWN_SECONDS = 1.5
-        
-        # History settings
-        self.MAX_HISTORY = 5
-        self.MAX_EMBED_LENGTH = 4096  # Discord embed description limit
+        self.COOLDOWN = 1.5
+        self.MAX_HISTORY = 4
         
     def check_cooldown(self, user_id):
-        """Check if user is on cooldown"""
         current_time = time.time()
-        if user_id in self.user_cooldowns:
-            if current_time - self.user_cooldowns[user_id] < self.COOLDOWN_SECONDS:
-                return False
+        if user_id in self.user_cooldowns and current_time - self.user_cooldowns[user_id] < self.COOLDOWN:
+            return False
         self.user_cooldowns[user_id] = current_time
         return True
     
-    def get_chat_context(self, user_id):
-        """Get recent chat history for context"""
+    def get_context(self, user_id):
         if user_id not in self.chat_history or not self.chat_history[user_id]:
             return ""
         
@@ -87,101 +50,73 @@ class LexusAIChatbot(commands.Cog):
         context = []
         for entry in recent:
             context.append(f"User: {entry['user']}")
-            context.append(f"Assistant: {entry['assistant']}")
-        
+            context.append(f"Lexus: {entry['bot']}")
         return "\n".join(context)
     
-    def create_embed(self, title, description, color_type="default", footer=None):
-        """Create a beautiful, clean embed"""
-        color = self.colors.get(color_type, self.colors["default"])
-        
+    def create_embed(self, response, user_name):
         embed = discord.Embed(
-            title=title,
-            description=description,
-            color=color,
+            description=f"**{response}**",
+            color=self.colors[hash(user_name) % len(self.colors)],
             timestamp=datetime.datetime.now()
         )
-        
-        if footer:
-            embed.set_footer(text=footer)
-        
+        embed.set_author(name="🔥 Lexus AI", icon_url="https://cdn.discordapp.com/emojis/1234567890123456789.png")
+        embed.set_footer(text="Hyderabadi Style • Made with ❤️")
         return embed
     
-    async def get_ai_response(self, prompt: str, user_id: int) -> str:
-        """Get response from Llama API"""
+    async def get_ai_response(self, prompt, user_id):
+        if not self.client:
+            return "Yaar, kuch technical problem hai. API check karo!"
+        
         try:
-            if not self.client:
-                return "❌ I'm having connection issues. Please check the API configuration."
+            context = self.get_context(user_id)
+            full_prompt = f"{context}\n\nUser: {prompt}" if context else prompt
             
-            # Get user's chat mode
-            mode = self.chat_modes.get(user_id, self.default_mode)
-            system_prompt = self.chat_personas.get(mode, self.chat_personas[self.default_mode])
-            
-            # Get conversation context
-            context = self.get_chat_context(user_id)
-            
-            # Create messages
-            messages = [
-                {"role": "system", "content": system_prompt}
-            ]
-            
-            # Add context if available
-            if context:
-                full_context = f"Previous conversation:\n{context}\n\nCurrent message: {prompt}"
-                messages.append({"role": "user", "content": full_context})
-            else:
-                messages.append({"role": "user", "content": prompt})
-            
-            # Get response from API
             response = await asyncio.to_thread(
                 self.client.chat.completions.create,
                 model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=800,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": full_prompt}
+                ],
+                temperature=0.8,
+                max_tokens=600,
                 top_p=0.9
             )
             
             return response.choices[0].message.content
-                
+            
         except Exception as e:
-            print(f"Error getting AI response: {e}")
-            return f"🔧 Sorry, I encountered an error: {type(e).__name__}. Please try again."
+            return f"Bas yaar, kuch gadbad hai: {type(e).__name__}. Dobara try karo!"
     
-    def store_conversation(self, user_id, user_msg, ai_response):
-        """Store conversation in history"""
+    def store_conversation(self, user_id, user_msg, bot_response):
         if user_id not in self.chat_history:
             self.chat_history[user_id] = []
         
         self.chat_history[user_id].append({
             "user": user_msg,
-            "assistant": ai_response,
-            "timestamp": time.time()
+            "bot": bot_response,
+            "time": time.time()
         })
         
-        # Keep only recent conversations
-        if len(self.chat_history[user_id]) > 20:
+        # Keep only recent 15 messages
+        if len(self.chat_history[user_id]) > 15:
             self.chat_history[user_id].pop(0)
     
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Handle incoming messages"""
-        # Ignore bot messages
         if message.author.bot:
             return
             
         content = message.content.strip()
         user_id = message.author.id
         
-        # Check cooldown
         if not self.check_cooldown(user_id):
             return
-            
-        # Flexible triggers
-        triggers = ["lexus", "hey lexus", "yo lexus", "lex", "hi lexus", "hello lexus"]
+        
+        # Check triggers
+        triggers = ["lexus", "hey lexus", "yo lexus", "lex"]
         bot_mentioned = self.bot.user in message.mentions if message.guild else False
         
-        # Check if message is for Lexus
         should_respond = False
         clean_content = content
         
@@ -196,189 +131,87 @@ class LexusAIChatbot(commands.Cog):
             clean_content = content.replace(f'<@{self.bot.user.id}>', '').strip()
         
         if should_respond:
-            await self.process_message(message, clean_content)
-            
-        await self.bot.process_commands(message)
+            await self.handle_message(message, clean_content)
     
-    async def process_message(self, message, content):
-        """Process user message and respond with beautiful embed"""
-        user_id = message.author.id
-        
-        # Handle empty messages
+    async def handle_message(self, message, content):
         if not content:
-            embed = self.create_embed(
-                title="👋 Hello!",
-                description="How can I help you today?",
-                color_type="info"
-            )
+            embed = self.create_embed("Kya baat hai bhai! Kuch pucho na! 😄", message.author.display_name)
             await message.reply(embed=embed)
             return
         
-        # Show typing indicator
         async with message.channel.typing():
-            # Get AI response
-            response = await self.get_ai_response(content, user_id)
+            response = await self.get_ai_response(content, message.author.id)
+            self.store_conversation(message.author.id, content, response)
             
-            # Store conversation
-            self.store_conversation(user_id, content, response)
-            
-            # Get user's current mode for embed styling
-            mode = self.chat_modes.get(user_id, self.default_mode)
-            
-            # Create beautiful embed response
-            if len(response) <= self.MAX_EMBED_LENGTH:
-                embed = self.create_embed(
-                    title="🤖 Lexus AI",
-                    description=response,
-                    color_type=mode,
-                    footer=f"Mode: {mode.capitalize()}"
-                )
-                await message.reply(embed=embed)
-            else:
-                # Split long responses into multiple embeds
-                parts = []
-                remaining = response
-                
-                while remaining:
-                    if len(remaining) <= self.MAX_EMBED_LENGTH:
-                        parts.append(remaining)
-                        break
-                    
-                    # Find good split point
-                    split_point = remaining[:self.MAX_EMBED_LENGTH].rfind('\n\n')
-                    if split_point == -1:
-                        split_point = remaining[:self.MAX_EMBED_LENGTH].rfind('\n')
-                    if split_point == -1:
-                        split_point = remaining[:self.MAX_EMBED_LENGTH].rfind('. ')
-                    if split_point == -1:
-                        split_point = self.MAX_EMBED_LENGTH - 1
-                    
-                    parts.append(remaining[:split_point])
-                    remaining = remaining[split_point:].lstrip()
-                
-                # Send parts as separate embeds
+            # Split long responses if needed
+            if len(response) > 4000:
+                parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
                 for i, part in enumerate(parts):
-                    title = f"🤖 Lexus AI - Part {i+1}/{len(parts)}" if len(parts) > 1 else "🤖 Lexus AI"
-                    embed = self.create_embed(
-                        title=title,
-                        description=part,
-                        color_type=mode,
-                        footer=f"Mode: {mode.capitalize()}"
-                    )
-                    
+                    embed = self.create_embed(part, message.author.display_name)
                     if i == 0:
                         await message.reply(embed=embed)
                     else:
                         await message.channel.send(embed=embed)
+            else:
+                embed = self.create_embed(response, message.author.display_name)
+                await message.reply(embed=embed)
     
     @commands.command(name="chatmode")
     async def set_chat_mode(self, ctx, mode: str = None):
-        """Set the chat persona mode"""
-        if not mode:
-            # Show current mode and available modes
-            current_mode = self.chat_modes.get(ctx.author.id, self.default_mode)
-            
-            modes_desc = ""
-            for name, desc in self.chat_personas.items():
-                modes_desc += f"**{name}**: {desc[:80]}...\n"
-            
-            embed = self.create_embed(
-                title="🎭 Chat Modes",
-                description=f"**Current mode:** {current_mode}\n\n**Available modes:**\n{modes_desc}",
-                color_type="info",
-                footer="Use /chatmode [mode] to change"
-            )
-            
-            await ctx.send(embed=embed)
-            return
-            
-        mode = mode.lower()
-        if mode in self.chat_personas:
-            self.chat_modes[ctx.author.id] = mode
-            
-            embed = self.create_embed(
-                title="✅ Mode Changed",
-                description=f"Chat mode updated to: **{mode}**",
-                color_type="success"
-            )
-            
-            await ctx.send(embed=embed)
-        else:
-            available = ", ".join(self.chat_personas.keys())
-            embed = self.create_embed(
-                title="❌ Invalid Mode",
-                description=f"Available modes: {available}",
-                color_type="error"
-            )
-            
-            await ctx.send(embed=embed)
+        embed = discord.Embed(
+            title="🎭 Chat Mode",
+            description="**Current Style:** Hyderabadi Swag Mode\n\nBas ek hi mode hai yaar - pure Hyderabadi style! 🔥\nMix of English, Hindi, Urdu with full confidence!",
+            color=0xFF6B35,
+            timestamp=datetime.datetime.now()
+        )
+        embed.set_footer(text="Single mode, maximum swag!")
+        await ctx.send(embed=embed)
     
     @commands.command(name="clearmemory")
     async def clear_memory(self, ctx):
-        """Clear conversation history"""
         user_id = ctx.author.id
         
         if user_id in self.chat_history:
             self.chat_history[user_id] = []
-            embed = self.create_embed(
-                title="🗑️ Memory Cleared",
-                description="Your conversation history has been cleared.",
-                color_type="success"
-            )
+            description = "Sab memory clear ho gayi bhai! Fresh start! 🗑️"
+            color = 0x06FFA5
         else:
-            embed = self.create_embed(
-                title="ℹ️ No Memory",
-                description="No conversation history to clear.",
-                color_type="info"
-            )
+            description = "Kuch memory hai hi nahi clear karne ko! 😅"
+            color = 0xF7931E
         
+        embed = discord.Embed(
+            description=f"**{description}**",
+            color=color,
+            timestamp=datetime.datetime.now()
+        )
+        embed.set_author(name="🧠 Memory Status")
         await ctx.send(embed=embed)
     
     @commands.command(name="lexhelp")
     async def help_command(self, ctx):
-        """Show help information"""
-        help_desc = """**💬 How to Chat:**
-        • Start with `lexus`, `hey lexus`, or mention me
-        • I remember our conversations for context
-        
-        **🎭 Modes:**
-        • `/chatmode` - View/change personality modes
-        • Available: helper, anime, therapist, friend, expert
+        help_text = """**💬 Kaise baat karein:**
+        • `lexus` ya `hey lexus` likh kar start karo
+        • Ya phir mujhe mention karo
         
         **🛠️ Commands:**
-        • `/clearmemory` - Clear conversation history
-        • `/lexhelp` - Show this help
+        • `/chatmode` - Style dekho (Hyderabadi only!)
+        • `/clearmemory` - Memory clear karo
+        • `/lexhelp` - Ye help
         
         **✨ Features:**
-        • Context-aware responses
-        • Multiple personality modes
-        • Beautiful embed formatting
-        • Smart conversation memory"""
+        • Full Hyderabadi swag with mix languages
+        • Conversation yaad rakhta hun
+        • Colorful embeds with style
+        • Fast responses bhai!"""
         
-        embed = self.create_embed(
-            title="🤖 Lexus AI Help",
-            description=help_desc,
-            color_type="info",
-            footer="Powered by Llama 3.1 Nemotron Ultra"
+        embed = discord.Embed(
+            title="🤖 Lexus AI - Hyderabadi Edition",
+            description=help_text,
+            color=0x9B59B6,
+            timestamp=datetime.datetime.now()
         )
-        
+        embed.set_footer(text="Made in Hyderabad with ❤️ ")
         await ctx.send(embed=embed)
-    
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        """Handle command errors"""
-        if isinstance(error, commands.CommandNotFound):
-            return
-        
-        embed = self.create_embed(
-            title="⚠️ Error",
-            description=f"An error occurred: {str(error)}",
-            color_type="error"
-        )
-        
-        await ctx.send(embed=embed)
-        print(f"Command error: {error}")
 
-# Setup function
 async def setup(bot):
     await bot.add_cog(LexusAIChatbot(bot))
