@@ -7,294 +7,460 @@ import aiohttp
 import os
 import logging
 from datetime import datetime
+import json
 
-# Enhanced emoji set with futuristic theme
-CATEGORY_EMOJIS = {
-    "Music": "🎧",
-    "Moderation": "🛡️",
-    "Fun": "✨",
-    "Utility": "⚙️",
-    "GifCog": "📱",
-    "SarcasticPinger": "📡",
-    "SlashCommandsCog": "⚡",
-    "General": "🔮",
-    "Economy": "💠",
-    "AI": "🤖",
-    "Gaming": "🎮",
-    "Stats": "📊"
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+# Sarcastic color scheme because why not
+COLORS = {
+    "primary": discord.Color.from_rgb(114, 137, 218),
+    "success": discord.Color.from_rgb(87, 242, 135),
+    "warning": discord.Color.from_rgb(255, 149, 0),
+    "error": discord.Color.from_rgb(255, 89, 89),
+    "info": discord.Color.from_rgb(59, 165, 255),
+    "cyber": discord.Color.from_rgb(0, 255, 240),
+    "sarcasm": discord.Color.from_rgb(170, 0, 255)
 }
 
-# Modern animated GIFs for help command
-HELP_GIFS = [
-    "https://media.tenor.com/5LWyJ6I_8KIAAAAd/xtreme-bot-help.gif",
-    "https://media.tenor.com/Tz_GALR2e-QAAAAC/discord-help.gif",
-    "https://media.tenor.com/OWU8NpyjTksAAAAC/bot-help-help.gif",
-    "https://media.tenor.com/8QzhY8J8RjcAAAAC/help-command-discord.gif"
+# Emojis for the peasants who need visual cues
+EMOJIS = {
+    "Music": "🎵", "Moderation": "🚔", "Fun": "🎪", "Utility": "🔧",
+    "GifCog": "📸", "SarcasticPinger": "📡", "SlashCommandsCog": "⚡",
+    "General": "💼", "Economy": "💰", "AI": "🤖", "Gaming": "🎮",
+    "Stats": "📈", "Help": "❓"
+}
+
+# Sarcastic responses because regular help is too mainstream
+SARCASTIC_RESPONSES = [
+    "Oh look, another person who can't figure out commands...",
+    "Wow, using help? Revolutionary thinking right there!",
+    "Let me guess, you tried clicking random buttons first?",
+    "Amazing! Someone actually reading documentation in 2025!",
+    "Help menu activated. Prepare for enlightenment... or disappointment.",
+    "Here's your participation trophy for using help.",
+    "Congrats! You've discovered the ancient art of RTFM!"
 ]
 
-# Consistent color scheme
-COLORS = {
-    "primary": discord.Color.from_rgb(114, 137, 218),  # Discord blurple
-    "secondary": discord.Color.from_rgb(88, 101, 242),  # New Discord blurple
-    "success": discord.Color.from_rgb(87, 242, 135),   # Neon green
-    "warning": discord.Color.from_rgb(255, 149, 0),    # Cyberpunk orange
-    "error": discord.Color.from_rgb(255, 89, 89),      # Neon red
-    "info": discord.Color.from_rgb(59, 165, 255),      # Holographic blue
-    "tech": discord.Color.from_rgb(32, 34, 37)         # Discord dark
-}
+# AI sarcasm because regular AI is too polite
+AI_SARCASM = [
+    "The AI thinks your question is... interesting.",
+    "Processing your 'brilliant' query through neural networks...",
+    "AI response incoming. Brace for impact.",
+    "The machines are judging your question right now...",
+    "Loading AI wisdom (this might take a while for you)..."
+]
 
-# Load webhook URL from environment or use default for testing
-WEBHOOK_URL = os.getenv("HELP_WEBHOOK_URL", "")
-
-async def send_webhook_message(content):
-    if not WEBHOOK_URL:
-        logging.info(f"Would send webhook: {content}")
-        return
+class SarcasticHelpCog(commands.Cog, name="Help"):
+    """The help system you never knew you didn't want"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        self.api_key = os.getenv("NVIDIA_API_KEY", "")
+        self.ai_client = None
+        self.command_cache = {}
         
-    try:
-        async with aiohttp.ClientSession() as session:
-            webhook = discord.Webhook.from_url(WEBHOOK_URL, session=session)
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            formatted_content = f"[{timestamp}] {content}"
-            await webhook.send(formatted_content, username="NeoHelpLogger")
-    except Exception as e:
-        logging.error(f"Failed to send webhook: {e}")
+        if self.api_key and OPENAI_AVAILABLE:
+            self._init_ai()
+        
+        logging.info("🎭  Help System Online - Humanity is doomed")
+    
+    def _init_ai(self):
+        """Initialize AI because humans need artificial help"""
+        try:
+            self.ai_client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=self.api_key
+            )
+        except Exception as e:
+            logging.error(f"AI failed to initialize. Typical. {e}")
+    
+    def _build_command_cache(self):
+        """Cache commands because loading them every time is for peasants"""
+        if self.command_cache:
+            return self.command_cache
+        
+        cache = {}
+        for cog_name, cog in self.bot.cogs.items():
+            if cog_name == "Help":
+                continue
+                
+            commands = []
+            for cmd in cog.get_commands():
+                commands.append({
+                    "name": cmd.name,
+                    "help": cmd.help or "Description MIA (typical)",
+                    "usage": f"lx {cmd.name}",
+                    "aliases": getattr(cmd, 'aliases', [])
+                })
+            
+            # Add slash commands if they exist
+            if hasattr(cog, 'get_app_commands'):
+                for app_cmd in cog.get_app_commands():
+                    commands.append({
+                        "name": app_cmd.name,
+                        "help": app_cmd.description or "Another undocumented command",
+                        "usage": f"/{app_cmd.name}",
+                        "aliases": []
+                    })
+            
+            if commands:
+                cache[cog_name] = commands
+        
+        self.command_cache = cache
+        return cache
+    
+    async def _get_ai_response(self, query):
+        """Get AI response with extra sarcasm"""
+        if not self.ai_client or not OPENAI_AVAILABLE:
+            return "AI is sleeping. Try thinking for yourself for once."
+        
+        try:
+            system_prompt = """You are a sarcastic Discord bot assistant. 
+            Keep responses SHORT (max 200 chars), helpful but snarky. 
+            Don't be mean, just playfully sarcastic."""
+            
+            completion = await asyncio.to_thread(
+                lambda: self.ai_client.chat.completions.create(
+                    model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": query}
+                    ],
+                    max_tokens=100,
+                    temperature=0.8
+                )
+            )
+            
+            return completion.choices[0].message.content[:200]
+        except:
+            return "AI had an existential crisis. Try again later."
 
 class CategorySelect(discord.ui.Select):
-    def __init__(self, bot, help_view):
-        self.bot = bot
-        self.help_view = help_view
-
+    """Dropdown for people who can't remember command names"""
+    
+    def __init__(self, help_cog):
+        self.help_cog = help_cog
+        
+        # Build options with extra sass
         options = []
-        for cog_name, cog in bot.cogs.items():
-            if cog_name.lower() == "help":
-                continue
-            emoji = CATEGORY_EMOJIS.get(cog_name, "🔷")
+        cache = help_cog._build_command_cache()
+        
+        for cog_name in sorted(cache.keys()):
+            emoji = EMOJIS.get(cog_name, "🤷")
+            cmd_count = len(cache[cog_name])
             options.append(discord.SelectOption(
                 label=cog_name,
                 value=cog_name,
                 emoji=emoji,
-                description=f"Explore {cog_name} module"
+                description=f"{cmd_count} commands (good luck)"
             ))
-
-        # If no cogs found or only Help cog, add a default option
+        
         if not options:
             options.append(discord.SelectOption(
-                label="No Modules",
-                value="none",
-                emoji="❓",
-                description="No command modules available"
+                label="Nothing here",
+                value="empty",
+                emoji="🗿",
+                description="Absolutely nothing to see"
             ))
-
-        super().__init__(
-            placeholder="⚡ SELECT COMMAND MODULE",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        selected = self.values[0]
         
-        if selected == "none":
+        super().__init__(
+            placeholder="🎯 Pick your poison...",
+            options=options[:25]  # Discord limit
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        """Handle category selection with style"""
+        category = self.values[0]
+        
+        if category == "empty":
             embed = discord.Embed(
-                title="⚠️ NO MODULES DETECTED",
-                description="No command modules are currently loaded in the system.",
+                title="🗿 VOID DETECTED",
+                description="Congratulations! You found nothing.",
                 color=COLORS["warning"]
             )
-            embed.set_footer(text=f"SYSTEM SCAN COMPLETE • {datetime.now().strftime('%H:%M:%S')}")
-            await interaction.response.edit_message(embed=embed, view=self.help_view)
+            await interaction.response.edit_message(embed=embed)
             return
-            
-        cog = self.bot.get_cog(selected)
-        if not cog:
+        
+        cache = self.help_cog._build_command_cache()
+        commands = cache.get(category, [])
+        
+        if not commands:
             embed = discord.Embed(
-                title="❌ MODULE NOT FOUND",
-                description=f"The module '{selected}' could not be located in the system database.",
+                title="🔍 404: COMMANDS NOT FOUND",
+                description=f"The '{category}' module is emptier than my patience.",
                 color=COLORS["error"]
             )
-            embed.set_footer(text=f"ERROR CODE: 404-MODULE-NOT-FOUND • {datetime.now().strftime('%H:%M:%S')}")
-            await interaction.response.edit_message(embed=embed, view=self.help_view)
+            await interaction.response.edit_message(embed=embed)
             return
-
+        
+        # Create compact command list
         embed = discord.Embed(
-            title=f"{CATEGORY_EMOJIS.get(selected, '🔷')} {selected.upper()} MODULE",
-            description="Available commands in this module:",
+            title=f"{EMOJIS.get(category, '📦')} {category.upper()}",
+            description=f"*{random.choice(['Here we go again...', 'Buckle up buttercup', 'Another module exploration', 'Let the confusion begin'])}*",
             color=COLORS["primary"]
         )
         
-        # Get commands from cog
-        commands_list = cog.get_commands()
+        # Group commands efficiently
+        cmd_lines = []
+        for cmd in commands[:15]:  # Limit to prevent embed bloat
+            aliases = f" ({', '.join(cmd['aliases'])})" if cmd['aliases'] else ""
+            cmd_lines.append(f"`{cmd['usage']}`{aliases} - {cmd['help'][:50]}{'...' if len(cmd['help']) > 50 else ''}")
         
-        if not commands_list:
-            embed.description = "No commands registered in this module."
-            embed.color = COLORS["warning"]
-        else:
-            # Fixed line - use default prefix directly since command_prefix is a function
-            prefix = "lx "  # Default prefix
-            
-            # Add cool divider
-            embed.description = f"Available commands in this module:\n```yaml\n{'='*40}```"
-            
-            for cmd in commands_list:
-                cmd_help = cmd.help or "No description available."
-                embed.add_field(
-                    name=f"⌨️ `{prefix}{cmd.name}`",
-                    value=f"> {cmd_help}",
-                    inline=False
-                )
-            
-            # Add cool ending divider
+        embed.add_field(
+            name=f"📋 Commands ({len(commands)} total)",
+            value="\n".join(cmd_lines) if cmd_lines else "Empty. Shocking.",
+            inline=False
+        )
+        
+        if len(commands) > 15:
             embed.add_field(
-                name=f"```yaml\n{'='*40}```",
-                value=f"Total commands: {len(commands_list)}",
+                name="⚠️ Truncated",
+                value=f"Showing 15/{len(commands)} commands. Use AI help for more.",
                 inline=False
             )
-
-        embed.set_footer(text=f"Module: {selected} • System: Online • {datetime.now().strftime('%H:%M:%S')}")
-        await interaction.response.edit_message(embed=embed, view=self.help_view)
+        
+        embed.set_footer(text=f"Module: {category} • {datetime.now().strftime('%H:%M')} • Try not to break anything")
+        await interaction.response.edit_message(embed=embed)
 
 class HelpView(discord.ui.View):
-    def __init__(self, bot, timeout=60):
-        super().__init__(timeout=timeout)
-        self.bot = bot
-        self.message = None
-        self.select_menu = CategorySelect(bot, self)
-        self.add_item(self.select_menu)
+    """Interactive view for the terminally confused"""
+    
+    def __init__(self, help_cog):
+        super().__init__(timeout=60)
+        self.help_cog = help_cog
+        self.add_item(CategorySelect(help_cog))
+    
+    @discord.ui.button(label="🏠 HOME", style=discord.ButtonStyle.primary)
+    async def home_button(self, interaction: discord.Interaction, button):
+        """Return to main menu because people get lost"""
+        embed = self._create_main_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    @discord.ui.button(label="🤖 ASK AI", style=discord.ButtonStyle.secondary)
+    async def ai_button(self, interaction: discord.Interaction, button):
+        """AI button for the truly desperate"""
+        embed = discord.Embed(
+            title="🤖 AI CONSULTATION",
+            description=f"{random.choice(AI_SARCASM)}\n\nUse `/lex your question here` or `lx  your question`",
+            color=COLORS["cyber"]
+        )
+        
+        if not OPENAI_AVAILABLE:
+            embed.add_field(
+                name="❌ AI Unavailable",
+                value="Install OpenAI module first: `pip install openai`",
+                inline=False
+            )
+        elif not self.help_cog.api_key:
+            embed.add_field(
+                name="🔑 No API Key",
+                value="Set NVIDIA_API_KEY environment variable",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="✅  Status",
+                value="Ready to judge your questions",
+                inline=False
+            )
+        
+        embed.set_footer(text="AI responses may contain traces of sarcasm")
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    def _create_main_embed(self):
+        """Create the main help embed with maximum sass"""
+        cache = self.help_cog._build_command_cache()
+        total_commands = sum(len(cmds) for cmds in cache.values())
+        
+        embed = discord.Embed(
+            title="🎭 HELP SYSTEM ",
+            description=f"*{random.choice(SARCASTIC_RESPONSES)}*\n\n"
+                       f"**{total_commands}** commands across **{len(cache)}** modules.",
+            color=COLORS["sarcasm"]
+        )
+        
+        # Quick stats
+        embed.add_field(
+            name="📊 Quick Stats",
+            value=f"```yaml\nBot: {self.help_cog.bot.user.name}\n"
+                  f"Latency: {round(self.help_cog.bot.latency * 1000)}ms\n"
+                  f"Commands: {total_commands}\n"
+                  f"Modules: {len(cache)}```",
+            inline=True
+        )
+        
+        # Top modules
+        top_modules = sorted(cache.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+        module_list = "\n".join([f"{EMOJIS.get(name, '📦')} {name}: {len(cmds)} cmds" 
+                                for name, cmds in top_modules])
+        
+        embed.add_field(
+            name="🏆 Top Modules",
+            value=module_list or "Nothing here",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="💡 Pro Tips",
+            value="• Use dropdown to browse\n• Ask AI for complex help\n• RTFM occasionally",
+            inline=False
+        )
+        
+        embed.set_footer(text=f"⏰ Auto-timeout: 60s • {datetime.now().strftime('%H:%M')}")
+        
+        if self.help_cog.bot.user.display_avatar:
+            embed.set_thumbnail(url=self.help_cog.bot.user.display_avatar.url)
+        
+        return embed
 
     async def on_timeout(self):
-        if self.message:
-            try:
-                # Update message to show timeout instead of deleting
-                embed = discord.Embed(
-                    title="⏰ SYSTEM TIMEOUT",
-                    description="Help interface has timed out due to inactivity.",
-                    color=COLORS["tech"]
-                )
-                embed.set_footer(text="Use the help command again to restart the interface")
-                await self.message.edit(embed=embed, view=None)
-            except:
-                # If editing fails, try to delete
-                try:
-                    await self.message.delete()
-                except:
-                    pass
-
-    @discord.ui.button(label="◀️ MAIN MENU", style=discord.ButtonStyle.primary, custom_id="main_menu", row=1)
-    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="🌐 LEXUS COMMAND INTERFACE",
-            description="Welcome to the interactive help system.\nSelect a module from the dropdown menu to explore commands.",
-            color=COLORS["primary"]
-        )
-        
-        # Add version info
-        embed.add_field(
-            name="🔧 SYSTEM INFO",
-            value=f"```yaml\nBot: {self.bot.user.name}\nVersion: 2.0.1\nStatus: Online\nLatency: {round(self.bot.latency * 1000)}ms```",
-            inline=False
-        )
-        
-        embed.set_footer(text=f"Interface active • {datetime.now().strftime('%H:%M:%S')} • Auto-sleep in 60s")
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        embed.set_image(url=random.choice(HELP_GIFS))
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="❓ ABOUT", style=discord.ButtonStyle.secondary, custom_id="about_button", row=1)
-    async def about_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="ℹ️ ABOUT THIS BOT",
-            description="This advanced Discord bot provides various utilities and features to enhance your server experience.",
-            color=COLORS["info"]
-        )
-        
-        embed.add_field(
-            name="🤖 CORE FEATURES",
-            value="• Moderation tools\n• Music playback\n• Utility commands\n• Fun interactions\n• And much more!",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📋 USAGE",
-            value="Use `lx help` or `/help` to access this interface.\nSelect categories from the dropdown to explore commands.",
-            inline=False
-        )
-        
-        embed.set_footer(text=f"Interface active • {datetime.now().strftime('%H:%M:%S')} • Auto-sleep in 60s")
-        await interaction.response.edit_message(embed=embed, view=self)
-
-class Help(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        logging.info("Help cog initialized")
-
-    @app_commands.command(name="help", description="📜 Opens the advanced help interface with interactive modules")
-    async def help_slash(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🌐 LEXUS COMMAND INTERFACE",
-            description="Welcome to the interactive help system.\nSelect a module from the dropdown menu to explore commands.",
-            color=COLORS["primary"]
-        )
-        
-        # Add version info
-        embed.add_field(
-            name="🔧 SYSTEM INFO",
-            value=f"```yaml\nBot: {self.bot.user.name}\nVersion: 2.0.1\nStatus: Online\nLatency: {round(self.bot.latency * 1000)}ms```",
-            inline=False
-        )
-        
-        embed.set_footer(text=f"Interface active • {datetime.now().strftime('%H:%M:%S')} • Auto-sleep in 60s")
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        embed.set_image(url=random.choice(HELP_GIFS))
-
-        view = HelpView(self.bot)
-        
-        # Use deferred response to prevent timeout
-        await interaction.response.defer()
-        followup = await interaction.followup.send(embed=embed, view=view)
-        view.message = followup
-        
-        # Log help command usage if logging is enabled
-        guild_name = interaction.guild.name if interaction.guild else "DM"
-        await send_webhook_message(f"📬 {interaction.user} accessed help interface in {guild_name}.")
-
-    @commands.command(name="help", help="📜 Opens the advanced help interface with interactive modules")
-    async def help_prefix(self, ctx):
-        embed = discord.Embed(
-            title="🌐 NEXUS COMMAND INTERFACE",
-            description="Welcome to the interactive help system.\nSelect a module from the dropdown menu to explore commands.",
-            color=COLORS["primary"]
-        )
-        
-        # Add version info
-        embed.add_field(
-            name="🔧 SYSTEM INFO",
-            value=f"```yaml\nBot: {ctx.bot.user.name}\nVersion: 2.0.1\nStatus: Online\nLatency: {round(ctx.bot.latency * 1000)}ms```",
-            inline=False
-        )
-        
-        embed.set_footer(text=f"Interface active • {datetime.now().strftime('%H:%M:%S')} • Auto-sleep in 60s")
-        embed.set_thumbnail(url=ctx.bot.user.display_avatar.url)
-        embed.set_image(url=random.choice(HELP_GIFS))
-
-        view = HelpView(self.bot)
-        msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-        
-        # Log help command usage if logging is enabled
-        guild_name = ctx.guild.name if ctx.guild else "DM"
-        await send_webhook_message(f"📬 {ctx.author} accessed help interface in {guild_name}.")
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        logging.info("Help cog is ready")
+        """Handle timeout with style"""
         try:
-            # Syncing is now done in main.py, so we don't need this
-            # But we'll keep it here for visibility
-            logging.info("Help cog doesn't need to sync commands - already done in main.py")
-        except Exception as e:
-            logging.error(f"❌ Error in Help cog on_ready: {e}")
+            embed = discord.Embed(
+                title="⏰ TIMEOUT",
+                description="Help interface died from neglect.\nUse help command to resurrect it.",
+                color=COLORS["warning"]
+            )
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(embed=embed, view=None)
+        except:
+            pass
+
+# Main Help Commands
+class SarcasticHelpCog(SarcasticHelpCog):
+    """The help system you never knew you didn't want"""
+    
+    @app_commands.command(name="help", description="🎭 Interactive help system with attitude")
+    async def help_slash(self, interaction: discord.Interaction):
+        view = HelpView(self)
+        embed = view._create_main_embed()
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
+        view.message = await interaction.original_response()
+    
+    @commands.command(name="help", help="🎭 Interactive help system with maximum sass")
+    async def help_prefix(self, ctx):
+        view = HelpView(self)
+        embed = view._create_main_embed()
+        
+        message = await ctx.send(embed=embed, view=view)
+        view.message = message
+    
+    # AI Commands with sarcasm
+    @app_commands.command(name="ai", description="🤖 Ask about commands (if you dare)")
+    async def ai_slash(self, interaction: discord.Interaction, query: str):
+        if not OPENAI_AVAILABLE:
+            await interaction.response.send_message("AI is MIA. Install OpenAI module.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        response = await self._get_ai_response(query)
+        
+        embed = discord.Embed(
+            title="🤖  VERDICT",
+            description=f"**Query:** {query[:100]}{'...' if len(query) > 100 else ''}\n\n**Response:** {response}",
+            color=COLORS["cyber"]
+        )
+        embed.set_footer(text=f"User: {interaction.user} • {datetime.now().strftime('%H:%M')}")
+        
+        await interaction.followup.send(embed=embed)
+    
+    @commands.command(name="ai", help="🤖 Ask AI about bot features")
+    async def ai_prefix(self, ctx, *, query=None):
+        if not query:
+            embed = discord.Embed(
+                title="🤖  CONSULTATION",
+                description="Usage: `lexus  your question here`\n\nExample: `lx ai how do moderation commands work?`",
+                color=COLORS["info"]
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        if not OPENAI_AVAILABLE:
+            await ctx.send("AI is taking a nap. Install OpenAI module first.")
+            return
+        
+        async with ctx.typing():
+            response = await self._get_ai_response(query)
+        
+        embed = discord.Embed(
+            title="🤖 RESULT",
+            description=f"**Your Question:** {query[:150]}{'...' if len(query) > 150 else ''}\n\n**AI Response:** {response}",
+            color=COLORS["cyber"]
+        )
+        embed.set_footer(text=f"Consulted by: {ctx.author} • {datetime.now().strftime('%H:%M')}")
+        
+        await ctx.send(embed=embed)
+    
+    # Quick commands for lazy people
+    @commands.command(name="commands", help="📝 Quick command list without the interface")
+    async def quick_commands(self, ctx, category=None):
+        cache = self._build_command_cache()
+        
+        if not category:
+            # List all categories
+            categories = list(cache.keys())
+            embed = discord.Embed(
+                title="📝 COMMAND CATEGORIES",
+                description=f"Available categories: `{'`, `'.join(categories)}`\n\nUsage: `lx commands <category>`",
+                color=COLORS["info"]
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Find matching category (case insensitive)
+        matching_cat = None
+        for cat in cache.keys():
+            if cat.lower() == category.lower():
+                matching_cat = cat
+                break
+        
+        if not matching_cat:
+            await ctx.send(f"Category '{category}' not found. Use `lx commands` to see available categories.")
+            return
+        
+        commands = cache[matching_cat]
+        cmd_list = "\n".join([f"`{cmd['usage']}` - {cmd['help'][:60]}{'...' if len(cmd['help']) > 60 else ''}" 
+                             for cmd in commands[:20]])
+        
+        embed = discord.Embed(
+            title=f"📋 {matching_cat.upper()} COMMANDS",
+            description=cmd_list or "Empty category (shocking)",
+            color=COLORS["primary"]
+        )
+        
+        if len(commands) > 20:
+            embed.set_footer(text=f"Showing 20/{len(commands)} commands")
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name="refreshhelp", help="🔄 Refresh command cache", hidden=True)
+    @commands.is_owner()
+    async def refresh_cache(self, ctx):
+        """Owner-only command to refresh the cache"""
+        old_count = sum(len(cmds) for cmds in self.command_cache.values()) if self.command_cache else 0
+        self.command_cache.clear()
+        new_cache = self._build_command_cache()
+        new_count = sum(len(cmds) for cmds in new_cache.values())
+        
+        embed = discord.Embed(
+            title="🔄 CACHE REFRESHED",
+            description=f"Command cache updated successfully.",
+            color=COLORS["success"]
+        )
+        embed.add_field(
+            name="📊 Stats",
+            value=f"Before: {old_count} commands\nAfter: {new_count} commands",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
 
 async def setup(bot):
-    await bot.add_cog(Help(bot))
-    logging.info("Help cog has been added to the bot")
+    await bot.add_cog(SarcasticHelpCog(bot))
+    logging.info("🎭 Aap ke liye hazir mailk")
