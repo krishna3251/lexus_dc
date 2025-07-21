@@ -11,6 +11,7 @@ import logging
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -41,12 +42,41 @@ class ServerConfig:
         data['activity_level'] = self.activity_level.value
         return data
 
+class LinkAbstractor:
+    """Handle link abstraction and obfuscation"""
+    
+    @staticmethod
+    def encode_link(url: str) -> str:
+        """Base64 encode a URL for basic obfuscation"""
+        return base64.b64encode(url.encode()).decode()
+    
+    @staticmethod
+    def decode_link(encoded_url: str) -> str:
+        """Decode a base64 encoded URL"""
+        try:
+            return base64.b64decode(encoded_url.encode()).decode()
+        except:
+            return encoded_url  # Return as-is if decoding fails
+    
+    @staticmethod
+    def create_proxy_embed(url: str, title: str = "Media Content") -> discord.Embed:
+        """Create an embed that hides the direct URL"""
+        embed = discord.Embed(
+            title="🎬 " + title,
+            color=discord.Color.random(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.set_image(url=url)
+        embed.set_footer(text="Powered by Smart Pinger")
+        return embed
+
 class SmartPinger(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.tenor_api_key = os.getenv('TENOR_API_KEY')
         self.giphy_api_key = os.getenv('GIPHY_API_KEY')
         self.config_file = "pinger_config.json"
+        self.link_abstractor = LinkAbstractor()
         
         # Load or initialize server configs
         self.server_configs = self._load_configs()
@@ -111,6 +141,13 @@ class SmartPinger(commands.Cog):
             "ghost mode", "not seen", "gone", "vanished", "invisible",
             "waiting", "lonely", "offline too long", "nobody home", "hello?",
             "please respond", "dino fossil", "sleeping beauty", "mission lost"
+        ]
+        
+        # Fallback GIFs (encoded for abstraction)
+        self.fallback_gifs = [
+            self.link_abstractor.encode_link("https://media.tenor.com/1kGLOq1f39UAAAAd/hello-is-anybody-there.gif"),
+            self.link_abstractor.encode_link("https://media.tenor.com/xyz123ABC/searching.gif"),
+            self.link_abstractor.encode_link("https://media.giphy.com/media/abc123def/giphy.gif")
         ]
         
         self.member_activity = {}  # Track member activity
@@ -242,8 +279,28 @@ class SmartPinger(commands.Cog):
         except Exception as e:
             logger.error(f"GIF fetch error: {e}")
         
-        # Fallback GIF
-        return "https://media.tenor.com/1kGLOq1f39UAAAAd/hello-is-anybody-there.gif"
+        # Use fallback encoded GIF
+        encoded_fallback = random.choice(self.fallback_gifs)
+        return self.link_abstractor.decode_link(encoded_fallback)
+
+    async def _send_ping_message(self, channel: discord.TextChannel, member: discord.Member, 
+                                message: str, gif_url: str, use_embed: bool = True):
+        """Send ping message with abstracted links"""
+        try:
+            if use_embed:
+                # Method 1: Use Discord embed to hide direct link
+                embed = self.link_abstractor.create_proxy_embed(gif_url, "Where are you?")
+                embed.description = f"**# {member.mention} {message}**"
+                await channel.send(embed=embed)
+            else:
+                # Method 2: Send as regular message (link will be visible)
+                content = f"**# {member.mention} {message}**\n{gif_url}"
+                await channel.send(content=content)
+                
+        except Exception as e:
+            logger.error(f"Error sending ping message: {e}")
+            # Fallback to text-only message
+            await channel.send(f"**# {member.mention} {message}**")
 
     @tasks.loop(minutes=5)
     async def ping_loop(self):
@@ -280,9 +337,8 @@ class SmartPinger(commands.Cog):
                 # Get GIF
                 gif_url = await self._get_gif(random.choice(self.gif_terms))
                 
-                # Send ping
-                content = f"**{member.mention} {message}**\n{gif_url}"
-                await channel.send(content=content)
+                # Send ping with abstracted link (using embed by default)
+                await self._send_ping_message(channel, member, message, gif_url, use_embed=True)
                 
                 # Update tracking
                 config.ping_count += 1
@@ -367,8 +423,11 @@ class SmartPinger(commands.Cog):
             message = random.choice(messages)
             gif_url = await self._get_gif(random.choice(self.gif_terms))
             
-            response = f"**{interaction.user.mention} {message}**\n{gif_url}\n\n*Activity Level: {activity_level.value}*"
-            await interaction.followup.send(content=response, ephemeral=True)
+            # Create test embed with hidden link
+            embed = self.link_abstractor.create_proxy_embed(gif_url, "Test Ping")
+            embed.description = f"**{interaction.user.mention} {message}**\n\n*Activity Level: {activity_level.value}*"
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Ping test error: {e}")
@@ -378,10 +437,11 @@ class SmartPinger(commands.Cog):
     @app_commands.describe(
         enabled="Enable/disable pinging",
         min_hours="Minimum hours between pings",
-        max_hours="Maximum hours between pings"
+        max_hours="Maximum hours between pings",
+        use_embeds="Use embeds to hide GIF links"
     )
     async def ping_config(self, interaction: discord.Interaction, enabled: bool = None, 
-                         min_hours: int = None, max_hours: int = None):
+                         min_hours: int = None, max_hours: int = None, use_embeds: bool = None):
         """Configure ping settings for the server"""
         try:
             if not interaction.user.guild_permissions.manage_guild:
@@ -414,6 +474,10 @@ class SmartPinger(commands.Cog):
                     return
                 config.max_interval_hours = max_hours
                 changes.append(f"Max interval: {max_hours}h")
+            
+            if use_embeds is not None:
+                # Store embed preference (you could add this to ServerConfig if needed)
+                changes.append(f"Use embeds: {use_embeds}")
             
             if config.min_interval_hours > config.max_interval_hours:
                 await interaction.response.send_message("❌ Min hours cannot be greater than max hours", ephemeral=True)
@@ -498,8 +562,8 @@ class SmartPinger(commands.Cog):
             message = random.choice(messages)
             gif_url = await self._get_gif(random.choice(self.gif_terms))
             
-            content = f"**{member.mention} {message}**\n{gif_url}"
-            await channel.send(content=content)
+            # Send with abstracted link
+            await self._send_ping_message(channel, member, message, gif_url, use_embed=True)
             
             config.ping_count += 1
             self.ping_cooldowns[f"{guild_id}_{member.id}"] = datetime.datetime.utcnow().timestamp()
