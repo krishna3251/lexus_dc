@@ -84,54 +84,54 @@ class SmartPinger(commands.Cog):
         # Enhanced message templates with varying intensity
         self.message_templates = {
             ActivityLevel.VERY_ACTIVE: [
-                "server mein sb active hai, tu kahan gaya bro?",
-                "sab chat kar rahe, tu kyun missing hai?",
-                "active server mein tu ghost ban gaya?",
-                "tere bina toh lagta hai party incomplete hai!",
-                "sab tere intezaar mein thak gaye hai",
-                "bro tujhe NASA ne space mein bhej diya kya?",
-                "kya tere keyboard pe ice age aa gaya?",
-                "tere bina chat desert ban gaya hai",
-                "server mein aaj silence ka reason tu hai",
-                "jaise train mein sab aaye, conductor tu reh gaya"
+                "Server pe sab full mast an miya, tu kaiku ghaib ho gaya bey?",
+                "Sab log zabardast chat maar rahe bey, tu kaiku nakko bol re?",
+                "Server pe tu bhoot ban ke ghoom raha bey, kaiku hawa le raha miya?",
+                "Tere bina ye party ka maza hi nakko re miya!",
+                "Sab tere intezaar mein lag gaya full bore hau miya!",
+                "Bey miya, NASA tujhe space mein le gaya kya re?",
+                "Tere keyboard pe baraf gir gaya kya bey, typing ka naam-o-nishan hi nai!",
+                "Tere bina chat poora registan ban gaya bey, ekdum sukh gaya!",
+                "Server pe aaj ka silence ka asli paap tu hi hai miya!",
+                "Train mein sab chadh gaye bey, conductor tu hi reh gaya station pe!"
             ],
             ActivityLevel.ACTIVE: [
-                "tera toh scene hi off hai aaj",
-                "server mein aake statue kyun ban gaye?",
-                "tumhare bina server ka vibe zero hai bro",
-                "teri typing dekhne ko aankhein taras gayi",
-                "kya kar rahe ho bhai, meditation?",
-                "lagta hai tu sirf online aata hai ghost banne",
-                "teri online presence aur network kabhi milte nahi",
-                "server ki light tu hi toh tha, fuse ho gaya kya?"
+                "Tera scene hi off pada bey aaj miya!",
+                "Server pe aake moorti ban ke kyun khade ho gaya bey?",
+                "Tere bina server ka vibe ekdum zero re bey!",
+                "Teri typing dekhne ko aankhein taras gayi miya!",
+                "Kaiku kar re bey, dhyaan baithna chalaya kya?",
+                "Lagta hai tu aake sirf ghost mode on kar deta miya!",
+                "Teri online presence ka network milta hi nakko bey!",
+                "Server ki light tu hi rehta tha bey, fuse udd gaya kya?"
             ],
             ActivityLevel.MODERATE: [
-                "ghost ban gaye ho kya? kahaan ho!",
-                "kya baat hai, discord ne tujhe block maar diya?",
-                "server ka missing person award tumhe hi milega",
-                "chat mein aake bas ek 'hi' bolde bhai",
-                "tu toh lagta hai spy ban gaya hai",
-                "server mein tu hai ya bas illusion hai?",
-                "tu aata hai sirf presence dikhane jaise politician"
+                 "Ghost ban gaye kya bey, kahan ho miya?",
+                "Kya re baat hai, Discord ne tujhe block maar diya kya?",
+                "Server ka Missing Person Award bas tujhe hi milega bey!",
+                "Chat pe aake ek ‘hi’ bolde miya, nakko shy hona!",
+                "Tu toh lagta hai spy ban gaya bey, kaiku chup rehta?",
+                "Server mein tu hai ki illusion hai miya, dikhta hi nakko!",
+                "Tu aata hai sirf presence dikhane jaise politician bey!"
             ],
             ActivityLevel.INACTIVE: [
-                "lagta hai aaj ka mute permanent ho gaya",
-                "sharam karo kabhi online bhi hua karo",
-                "beta online aake bhi kuch bolo toh sahi",
-                "teri profile pe cobweb lag gaye",
-                "kya tujhe login karna allowed nahi ghar pe?",
-                "isse toh better AI bhi reply kar dete",
-                "tera mic aur keyboard dono retirement pe gaye kya?"
+                "Lagta re aaj teri mute ka scene permanent ho gaya bey!",
+                "Sharam karre miya, kabhi online bhi dikh jao nakko kya?",
+                "Beta online aake kuch bol bhi duh bey, chup ka kya karega?",
+                "Teri profile pe to full jaal lag gaya miya, cobweb pad gayi!",
+                "Tujhe login karna allowed hi nakko kya ghar pe bey?",
+                "Isse to better AI bhi reply maar deti miya!",
+                "Tera mic aur keyboard dono retirement pe chala gaya kya bey?"
             ],
             ActivityLevel.DEAD: [
-                "server CPR ki zarurat hai, tu toh coma mein hai",
-                "tumhare reply ki speed dekh ke snail bhi sharma jaye",
-                "archaeology karnii padegi tumhe dhundne ke liye",
-                "aakhri baar tujhe kab dekha tha... 1998 mein?",
-                "tera ping Mars se aa raha kya?",
-                "server tujhse zyada zinda lagta hai",
-                "tere status pe likha hona chahiye 'Lost in Time'",
-                "kya tere Discord pe museum ban gaya hai?"
+                "Server ko CPR ki zarurat hai bey, tu toh coma mein palaat gaya miya!",
+                "Tumhare reply ki speed dekh ke snail bhi sharma jaye bey!",
+                "Tujhe dhundne ko toh pura archaeology karni padegi miya nakko?",
+                "Aakhri baar tujhe dekha tha... 1998 mein kya re bey?",
+                "Tera ping Mars se aa raha kya miya, full slow-motion?",
+                "Server tujhse zyada zinda lagta bey, tu nakko heartbeat hai!",
+                "Tere status pe likha hona chahiye 'Lost in Time' miya nakko?",
+                "Tere Discord pe museum ban gaya kya bey, sab exhibit ho gaya?"
             ]
         }
 
