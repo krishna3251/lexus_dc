@@ -107,7 +107,7 @@ class ComfortBot(commands.Cog):
 
     def build_system_prompt(self, session: UserSession, crisis_level: int = 0) -> str:
         """Dynamic system prompt based on user state."""
-        base_prompt = """You are Alex, a compassionate AI mental health companion. You communicate naturally and warmly, like talking to a trusted friend.
+        base_prompt = """You are Lexus, a compassionate AI mental health companion. You communicate naturally and warmly, like talking to a trusted friend.
 
 Core principles:
 - Be genuinely empathetic and supportive
