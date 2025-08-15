@@ -32,7 +32,7 @@ class ComfortBot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.session: Optional[aiohttp.ClientSession] = None
-        self.nvidia_api_key = os.getenv('NGC_API_KEY')  # Using your env variable
+        self.nvidia_api_key = os.getenv('NVIDIA_API_KEY') or os.getenv('NGC_API_KEY')  # Try both common names
         self.sessions: Dict[int, UserSession] = {}
         self.ai_channels: Set[int] = set()
         self.mod_channels: Set[int] = set()
@@ -107,7 +107,7 @@ class ComfortBot(commands.Cog):
 
     def build_system_prompt(self, session: UserSession, crisis_level: int = 0) -> str:
         """Dynamic system prompt based on user state."""
-        base_prompt = """You are Lexus, a compassionate AI mental health companion. You communicate naturally and warmly, like talking to a trusted friend.
+        base_prompt = """You are Alex, a compassionate AI mental health companion. You communicate naturally and warmly, like talking to a trusted friend.
 
 Core principles:
 - Be genuinely empathetic and supportive
@@ -286,7 +286,26 @@ Core principles:
         await ctx.send(f"✅ {channel.mention} will receive crisis alerts.")
 
     @comfort.command()
-    async def status(self, ctx):
+    async def debug(self, ctx):
+        """Debug API key configuration."""
+        if not ctx.author.guild_permissions.administrator:
+            return
+            
+        env_vars = ['NVIDIA_API_KEY', 'NGC_API_KEY', 'NVAPI_KEY', 'NVIDIA_KEY']
+        found_keys = []
+        
+        for var in env_vars:
+            value = os.getenv(var)
+            if value:
+                # Show first 10 and last 4 characters for security
+                masked = f"{value[:10]}...{value[-4:]}" if len(value) > 14 else "***"
+                found_keys.append(f"`{var}`: {masked}")
+        
+        embed = discord.Embed(title="🔧 Debug Info", color=discord.Color.yellow())
+        embed.add_field(name="Found API Keys", value="\n".join(found_keys) or "None found", inline=False)
+        embed.add_field(name="Current Key Status", value="✅ Loaded" if self.nvidia_api_key else "❌ Missing", inline=False)
+        
+        await ctx.send(embed=embed)
         """View bot configuration."""
         embed = discord.Embed(title="📊 Bot Status", color=discord.Color.green())
         embed.add_field(name="AI Channels", value=f"{len(self.ai_channels)} configured", inline=True)
