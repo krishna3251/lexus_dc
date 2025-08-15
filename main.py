@@ -6,6 +6,7 @@ import time
 import asyncio
 import psutil
 import platform
+import random
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from keep_alive import keep_alive
@@ -61,6 +62,15 @@ class Bot(commands.Bot):
 
     async def setup_hook(self):
         logging.info("Setting up bot extensions...")
+        
+        # Load connection handler FIRST
+        try:
+            await self.load_extension('connection_handler')
+            logging.info("✅ Loaded connection handler")
+        except Exception as e:
+            logging.error(f"❌ Failed to load connection handler: {e}")
+        
+        # Then load cogs from cogs directory
         if not os.path.exists("cogs"):
             os.makedirs("cogs")
             logging.warning("Created missing cogs directory")
@@ -88,6 +98,17 @@ class Bot(commands.Bot):
 
     def uptime(self):
         return int(time.time() - self.start_time)
+
+    async def handle_rate_limit_error(self, error):
+        """Handle rate limit errors during startup"""
+        if hasattr(error, 'response') and error.response:
+            retry_after = error.response.headers.get('Retry-After')
+            if retry_after:
+                wait_time = float(retry_after) + random.uniform(1, 5)
+                logging.warning(f"Rate limited during startup. Waiting {wait_time:.2f} seconds...")
+                await asyncio.sleep(wait_time)
+                return True
+        return False
 
     @tasks.loop(minutes=5)
     async def status_rotation(self):
@@ -276,11 +297,59 @@ async def shutdown_handler():
     logging.info("🛑 Shutting down bot...")
     await bot.close()
 
+# === Enhanced Bot Startup with Rate Limit Handling ===
+async def start_bot_with_retry():
+    """Start bot with automatic retry logic for rate limits"""
+    max_startup_attempts = 5
+    startup_attempt = 0
+    
+    while startup_attempt < max_startup_attempts:
+        try:
+            startup_attempt += 1
+            logging.info(f"Starting LX Bot (attempt {startup_attempt}/{max_startup_attempts})")
+            
+            await bot.start(TOKEN)
+            break  # If successful, break the loop
+            
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                retry_after = getattr(e.response.headers, 'get', lambda x, y=60: y)('Retry-After', 60)
+                wait_time = float(retry_after) + random.uniform(5, 15)
+                logging.warning(f"Rate limited during startup. Waiting {wait_time:.2f} seconds...")
+                await asyncio.sleep(wait_time)
+            
+            elif e.status in [502, 503, 504]:  # Server errors
+                wait_time = min(30 * startup_attempt, 300)  # Max 5 minutes
+                logging.warning(f"Discord server error {e.status}. Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+            
+            else:
+                logging.error(f"HTTP Exception during startup: {e}")
+                if startup_attempt >= max_startup_attempts:
+                    logging.critical("Max startup attempts reached. Exiting.")
+                    raise
+                await asyncio.sleep(10 * startup_attempt)
+        
+        except discord.LoginFailure:
+            logging.critical("Invalid bot token. Please check your DISCORD_TOKEN.")
+            return
+        
+        except Exception as e:
+            logging.error(f"Unexpected error during startup: {e}")
+            if startup_attempt >= max_startup_attempts:
+                logging.critical("Max startup attempts reached. Exiting.")
+                raise
+            wait_time = min(10 * startup_attempt, 60)
+            await asyncio.sleep(wait_time)
+    
+    else:
+        logging.critical("Failed to start bot after maximum attempts.")
+
 # === Run the bot ===
 if __name__ == "__main__":
     try:
-        logging.info("Starting LX Bot...")
-        asyncio.run(bot.start(TOKEN))
+        logging.info("Initializing LX Bot with enhanced connection handling...")
+        asyncio.run(start_bot_with_retry())
     except KeyboardInterrupt:
         logging.info("Bot shutdown initiated by keyboard interrupt")
         asyncio.run(shutdown_handler())
