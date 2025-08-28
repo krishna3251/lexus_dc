@@ -33,5 +33,5 @@ MIT License — free to use, modify, and share.
 
 ## 💡 Author
 Made with ❤️ by **Krishna**  
-- Discord: *your_tag_here*  
+- Discord: *luffyanna*  
 - GitHub: [@krishna3251](https://github.com/krishna3251)
