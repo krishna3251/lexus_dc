@@ -1,7 +1,7 @@
 # 🤖 Lexus Discord Bot
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Discord.py](https://img.shields.io/badge/discord.py-2.3.2-blueviolet) 
+![Discord.py](https://img.shields.io/badge/discord-2.3.2-blueviolet) 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/status-active-success)
 
