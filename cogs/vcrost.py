@@ -289,47 +289,6 @@ class RoastBot(commands.Cog):
         
         await interaction.followup.send(f"{recipient.mention}", embed=embed)
 
-    @app_commands.command(name="help", description="Show all available roast commands")
-    async def roast_help(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🤖 Roast Bot Commands", 
-            description="Your personal AI roast machine!",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(
-            name="🎤 Voice Commands",
-            value="`/join` - Join your voice channel\n`/leave` - Leave voice channel",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🔥 Roast Commands", 
-            value="`/roast [user] [public]` - Roast someone\n`/battle <user1> <user2>` - Epic roast battle\n`/compliment [user]` - Be nice for once",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="⚙️ Settings",
-            value="`/style <style>` - Change personality\n`/intensity <level>` - Set roast intensity\n`/stats [user]` - View roast statistics",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🎭 Available Styles",
-            value=f"`{', '.join(ROAST_STYLES.keys())}`",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🌶️ Intensity Levels", 
-            value="`mild` - Family friendly\n`spicy` - Just right\n`nuclear` - No mercy",
-            inline=False
-        )
-        
-        embed.set_footer(text=f"Current: {self.current_style.title()} style, {self.intensity.title()} intensity")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
     @app_commands.command(name="random", description="Get a completely random roast")
     async def random_roast(self, interaction: discord.Interaction):
         await interaction.response.defer()
