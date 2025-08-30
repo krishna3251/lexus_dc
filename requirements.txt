@@ -1,4 +1,4 @@
-
+google-generativeai>=0.3.0
 gtts
 psutil
 aiohappyeyeballs==2.6.1
@@ -42,4 +42,4 @@ yarl==1.19.0
 openai
 requests
 yt-dlp==2025.3.31
-google-generativeai>=0.3.0
+
