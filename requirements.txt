@@ -1,3 +1,5 @@
+discord.py[voice]
+gtts
 psutil
 aiohappyeyeballs==2.6.1
 aiohttp==3.11.16
