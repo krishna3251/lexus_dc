@@ -42,4 +42,3 @@ yarl==1.19.0
 openai
 requests
 yt-dlp==2025.3.31
-
