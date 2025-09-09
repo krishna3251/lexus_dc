@@ -41,4 +41,4 @@ Werkzeug==3.1.3
 yarl==1.19.0
 openai
 requests
-yt-dlp==2025.3.31
+yt-dlp
