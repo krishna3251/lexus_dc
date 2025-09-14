@@ -37,6 +37,10 @@ SQLAlchemy==2.0.40
 typing_extensions==4.13.2
 urllib3==2.4.0
 wavelink==3.4.1
+motor 
+apscheduler 
+python-dateutil 
+icalendar
 Werkzeug==3.1.3
 yarl==1.19.0
 openai
