@@ -1,5 +1,4 @@
 # cogs/calendar.py
-
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -14,18 +13,11 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
 from bson import ObjectId
-import pytz
+import sys
 from typing import Optional, Dict, Any, List
 import traceback
 
-# Setup logging
-log = logging.getLogger("calendar")
-log.setLevel(logging.INFO)
-
-# Constants
-CALENDARIFIC_API = os.getenv("CALENDARIFIC_API")
-MONGO_URI = os.getenv("MONGO_URI")
-TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Kolkata"))
+# Handle timezone imports - prefer zoneinfo (
 MAX_REMINDERS_PER_USER = 50
 MAX_TASK_LENGTH = 500
 BACKUP_INTERVAL_HOURS = 6
@@ -149,6 +141,10 @@ class Calendar(commands.Cog):
             # Validation
             if len(task) > MAX_TASK_LENGTH:
                 return await interaction.followup.send(f"❌ Task description too long (max {MAX_TASK_LENGTH} characters)")
+
+            # Check if database is available
+            if not self.reminders:
+                return await interaction.followup.send("❌ Database not available. Reminders cannot be saved persistently.")
 
             # Check user's reminder count
             user_reminders = await self.reminders.count_documents({"user_id": interaction.user.id})
