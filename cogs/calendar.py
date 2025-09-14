@@ -515,22 +515,30 @@ class Calendar(commands.Cog):
                     time_part = time_str.split("tomorrow")[-1].strip().lstrip("at").strip()
                     try:
                         time_obj = parse_date(f"tomorrow {time_part}", dayfirst=True)
-                        return time_obj.astimezone(TIMEZONE)
+                        return self._ensure_timezone(time_obj)
                     except:
                         pass
                 return tomorrow.replace(hour=12, minute=0, second=0, microsecond=0)
             
             # Default parsing
             parsed = parse_date(time_str, dayfirst=True)
-            if parsed.tzinfo is None:
-                parsed = TIMEZONE.localize(parsed)
-            else:
-                parsed = parsed.astimezone(TIMEZONE)
-                
-            return parsed
+            return self._ensure_timezone(parsed)
             
         except Exception as e:
             raise ValueError(f"Could not parse time '{time_str}': {e}")
+
+    def _ensure_timezone(self, dt: datetime) -> datetime:
+        """Ensure datetime has timezone info"""
+        if dt.tzinfo is None:
+            # Handle different timezone types
+            if hasattr(TIMEZONE, 'localize'):
+                # pytz timezone
+                return TIMEZONE.localize(dt)
+            else:
+                # zoneinfo or basic timezone
+                return dt.replace(tzinfo=TIMEZONE)
+        else:
+            return dt.astimezone(TIMEZONE)
 
     async def _schedule_reminder(self, reminder_id: ObjectId, reminder: Dict[str, Any]):
         """Schedule a reminder with the job scheduler"""
