@@ -447,6 +447,7 @@ class RoomSystem(commands.Cog):
         self.bot = bot
         self.db_manager = DatabaseManager()
         self.cleanup_rooms.start()
+        self.creator_channel_id = None  # Store the creator channel ID
 
     def cog_unload(self):
         """Clean shutdown of the cog"""
@@ -530,6 +531,9 @@ class RoomSystem(commands.Cog):
                                 logger.warning(f"Cannot set permissions for role {role.name}")
                 
                 logger.info(f"Created category in {guild.name}")
+                
+                # Create the "Create Room" voice channel
+                await self.create_creator_channel(guild, category)
             else:
                 # Verify bot has permissions in existing category
                 bot_perms = category.permissions_for(guild.me)
@@ -548,6 +552,14 @@ class RoomSystem(commands.Cog):
                             logger.info(f"Added bot permissions to existing category")
                         except discord.Forbidden:
                             logger.error(f"Cannot add bot permissions to category")
+                
+                # Check if creator channel exists, if not create it
+                creator_channel = discord.utils.get(
+                    category.voice_channels,
+                    name=CREATOR_CHANNEL_NAME
+                )
+                if not creator_channel:
+                    await self.create_creator_channel(guild, category)
             
             return category
             
@@ -559,6 +571,43 @@ class RoomSystem(commands.Cog):
             return None
         except Exception as e:
             logger.error(f"Unexpected error creating category: {e}")
+            return None
+
+    async def create_creator_channel(
+        self, 
+        guild: discord.Guild, 
+        category: discord.CategoryChannel
+    ) -> Optional[discord.VoiceChannel]:
+        """Create the special 'Create Room' voice channel"""
+        try:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True,
+                    speak=False  # Users can't speak in creator channel
+                ),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True,
+                    manage_channels=True,
+                    move_members=True,
+                    connect=True
+                )
+            }
+            
+            creator_channel = await guild.create_voice_channel(
+                CREATOR_CHANNEL_NAME,
+                category=category,
+                overwrites=overwrites,
+                user_limit=0,  # No limit
+                reason="Room creator channel for Lexus Room System"
+            )
+            
+            self.creator_channel_id = creator_channel.id
+            logger.info(f"Created creator channel in {guild.name}")
+            return creator_channel
+            
+        except Exception as e:
+            logger.error(f"Failed to create creator channel: {e}")
             return None
 
     async def get_log_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
@@ -676,16 +725,26 @@ class RoomSystem(commands.Cog):
                     f"Room creation may fail without these permissions!"
                 )
             
+            # Ensure category and creator channel exist
+            category = await self.get_or_create_category(interaction.guild)
+            
             embed = discord.Embed(
                 title="🎮 Create Your Game Room",
                 description=(
-                    "Press the button below to instantly create your own private room!\n"
-                    "You'll get full control through Lexus buttons inside your channel.\n\n"
+                    "**Two ways to create your room:**\n\n"
+                    f"**Method 1:** Join the **{CREATOR_CHANNEL_NAME}** voice channel\n"
+                    f"• Instant room creation\n"
+                    f"• Auto-moved to your room\n"
+                    f"• Controls sent via DM\n\n"
+                    f"**Method 2:** Click the button below\n"
+                    f"• Manual room creation\n"
+                    f"• Controls in voice channel thread\n\n"
                     f"**Features:**\n"
-                    f"• Lock/Unlock your room\n"
-                    f"• Rename your room\n"
-                    f"• Kick users\n"
-                    f"• Auto-cleanup after {CLEANUP_DELAY_MINUTES} minutes of inactivity"
+                    f"• 🔒 Lock/Unlock your room\n"
+                    f"• ✏️ Rename your room\n"
+                    f"• 🦶 Kick users\n"
+                    f"• 🗑️ End room anytime\n"
+                    f"• ⏰ Auto-cleanup after {CLEANUP_DELAY_MINUTES} minutes of inactivity"
                     f"{warning_text}"
                 ),
                 color=discord.Color.blurple() if not missing_perms else discord.Color.orange()
@@ -698,6 +757,14 @@ class RoomSystem(commands.Cog):
             await interaction.channel.send(embed=embed, view=view)
             
             success_msg = "✅ Room Creator panel created successfully!"
+            if category:
+                creator_channel = discord.utils.get(
+                    category.voice_channels,
+                    name=CREATOR_CHANNEL_NAME
+                )
+                if creator_channel:
+                    success_msg += f"\n\n🎤 Creator channel: {creator_channel.mention}"
+            
             if missing_perms:
                 success_msg += (
                     f"\n\n⚠️ **Bot is missing permissions:**\n"
@@ -743,7 +810,8 @@ class RoomSystem(commands.Cog):
     async def create_room_for_user(
         self, 
         user: discord.Member, 
-        guild: discord.Guild
+        guild: discord.Guild,
+        send_controls_dm: bool = False
     ) -> Optional[discord.VoiceChannel]:
         """Create a private room for user with comprehensive error handling"""
         
@@ -870,22 +938,46 @@ class RoomSystem(commands.Cog):
             )
             control_embed.set_footer(text="Lexus Room System")
             
-            # Create control thread
+            # Create control view
             view = RoomButtons(self.bot, user.id, voice_channel)
             
-            try:
-                control_thread = await voice_channel.create_thread(
-                    name="Room Controls",
-                    auto_archive_duration=60
-                )
-                await control_thread.send(embed=control_embed, view=view)
-            except Exception as e:
-                logger.warning(f"Failed to create thread, trying text channel: {e}")
-                # Fallback: Send in a text channel or DM
+            # Send controls based on preference
+            if send_controls_dm:
+                # Send via DM when user joins creator channel
                 try:
-                    await user.send(embed=control_embed, view=view)
-                except:
-                    logger.error("Failed to send controls via DM")
+                    await user.send(
+                        f"✅ Your room **{voice_channel.name}** has been created!\n"
+                        f"Join it here: {voice_channel.mention}",
+                        embed=control_embed,
+                        view=view
+                    )
+                    logger.info(f"Sent controls via DM to {user.name}")
+                except discord.Forbidden:
+                    logger.warning(f"Cannot send DM to {user.name}, trying thread fallback")
+                    # Fallback to thread if DM fails
+                    try:
+                        control_thread = await voice_channel.create_thread(
+                            name="Room Controls",
+                            auto_archive_duration=60
+                        )
+                        await control_thread.send(embed=control_embed, view=view)
+                    except:
+                        logger.error("Failed to create thread after DM failure")
+            else:
+                # Send via thread (button click method)
+                try:
+                    control_thread = await voice_channel.create_thread(
+                        name="Room Controls",
+                        auto_archive_duration=60
+                    )
+                    await control_thread.send(embed=control_embed, view=view)
+                except Exception as e:
+                    logger.warning(f"Failed to create thread: {e}")
+                    # Fallback to DM
+                    try:
+                        await user.send(embed=control_embed, view=view)
+                    except:
+                        logger.error("Failed to send controls via DM")
 
             # Save to database
             now = datetime.now().isoformat()
@@ -932,6 +1024,76 @@ class RoomSystem(commands.Cog):
         except Exception as e:
             logger.error(f"Unexpected error creating room: {e}")
             raise Exception(str(e) if "permission" in str(e).lower() else "An unexpected error occurred!")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self, 
+        member: discord.Member, 
+        before: discord.VoiceState, 
+        after: discord.VoiceState
+    ):
+        """Listen for users joining the creator channel"""
+        try:
+            # Ignore bot actions
+            if member.bot:
+                return
+            
+            # Check if user joined a voice channel
+            if after.channel and not before.channel:
+                # User joined a channel
+                if after.channel.name == CREATOR_CHANNEL_NAME:
+                    # User joined the creator channel
+                    logger.info(f"{member.name} joined creator channel")
+                    
+                    try:
+                        # Create room for the user
+                        voice_channel = await self.create_room_for_user(
+                            member,
+                            member.guild,
+                            send_controls_dm=True  # Send controls via DM
+                        )
+                        
+                        if voice_channel:
+                            # Move user to their new room
+                            try:
+                                await member.move_to(voice_channel)
+                                logger.info(f"Moved {member.name} to their new room")
+                            except discord.Forbidden:
+                                logger.error(f"Cannot move {member.name} - missing permission")
+                                # Send a message instead
+                                try:
+                                    await member.send(
+                                        f"⚠️ I couldn't move you automatically. "
+                                        f"Please join your room manually: {voice_channel.mention}"
+                                    )
+                                except:
+                                    pass
+                            except discord.HTTPException as e:
+                                logger.error(f"HTTP error moving user: {e}")
+                    
+                    except ValueError as e:
+                        # User has too many rooms
+                        try:
+                            await member.send(f"❌ {str(e)}")
+                            # Disconnect them from creator channel
+                            await member.move_to(None)
+                        except:
+                            logger.error(f"Failed to notify {member.name} about error")
+                    
+                    except Exception as e:
+                        logger.error(f"Error creating room for {member.name}: {e}")
+                        try:
+                            await member.send(
+                                f"❌ Failed to create room: {str(e)}\n"
+                                f"Please try again or contact an administrator."
+                            )
+                            # Disconnect them from creator channel
+                            await member.move_to(None)
+                        except:
+                            pass
+        
+        except Exception as e:
+            logger.error(f"Error in on_voice_state_update: {e}")
 
     @tasks.loop(minutes=1)
     async def cleanup_rooms(self):
@@ -1048,7 +1210,8 @@ class CreateRoomButton(ui.Button):
             # Create room
             voice_channel = await cog.create_room_for_user(
                 interaction.user,
-                interaction.guild
+                interaction.guild,
+                send_controls_dm=False  # Use thread for button clicks
             )
             
             if voice_channel:
