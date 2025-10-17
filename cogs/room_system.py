@@ -453,9 +453,34 @@ class RoomSystem(commands.Cog):
         self.cleanup_rooms.cancel()
         self.db_manager.close()
 
+    def check_bot_permissions(self, guild: discord.Guild) -> dict:
+        """Check what permissions the bot has in the guild"""
+        bot_member = guild.me
+        permissions = bot_member.guild_permissions
+        
+        required_perms = {
+            'manage_channels': permissions.manage_channels,
+            'manage_roles': permissions.manage_roles,
+            'move_members': permissions.move_members,
+            'mute_members': permissions.mute_members,
+            'deafen_members': permissions.deafen_members,
+            'view_channel': permissions.view_channel,
+            'send_messages': permissions.send_messages,
+            'administrator': permissions.administrator
+        }
+        
+        return required_perms
+
     async def get_or_create_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """Get or create the game rooms category with error handling"""
         try:
+            # Check bot permissions first
+            perms = self.check_bot_permissions(guild)
+            
+            if not perms['manage_channels'] and not perms['administrator']:
+                logger.error(f"Bot lacks Manage Channels permission in {guild.name}")
+                return None
+            
             category = discord.utils.get(guild.categories, name="🎮 Game Rooms")
             
             if not category:
@@ -469,26 +494,65 @@ class RoomSystem(commands.Cog):
                     reason="Auto-created by Lexus Room System"
                 )
                 
-                # Set permissions
+                # Set base permissions for everyone
                 await category.set_permissions(
                     guild.default_role,
-                    manage_channels=False
+                    manage_channels=False,
+                    view_channel=True
                 )
                 
-                # Give admins permission
-                for role in guild.roles:
-                    if role.permissions.administrator:
-                        await category.set_permissions(
-                            role,
-                            manage_channels=True
-                        )
+                # Give bot full permissions if not admin
+                if not perms['administrator']:
+                    await category.set_permissions(
+                        guild.me,
+                        manage_channels=True,
+                        manage_permissions=True,
+                        manage_roles=True,
+                        move_members=True,
+                        mute_members=True,
+                        deafen_members=True,
+                        view_channel=True,
+                        connect=True
+                    )
+                
+                # Give admin roles permission
+                if perms['manage_roles'] or perms['administrator']:
+                    for role in guild.roles:
+                        if role.permissions.administrator:
+                            try:
+                                await category.set_permissions(
+                                    role,
+                                    manage_channels=True,
+                                    manage_permissions=True,
+                                    view_channel=True
+                                )
+                            except discord.Forbidden:
+                                logger.warning(f"Cannot set permissions for role {role.name}")
                 
                 logger.info(f"Created category in {guild.name}")
+            else:
+                # Verify bot has permissions in existing category
+                bot_perms = category.permissions_for(guild.me)
+                if not bot_perms.manage_channels and not perms['administrator']:
+                    logger.warning(f"Bot lacks permissions in existing category in {guild.name}")
+                    # Try to add permissions
+                    if perms['manage_roles'] or perms['administrator']:
+                        try:
+                            await category.set_permissions(
+                                guild.me,
+                                manage_channels=True,
+                                manage_permissions=True,
+                                move_members=True,
+                                view_channel=True
+                            )
+                            logger.info(f"Added bot permissions to existing category")
+                        except discord.Forbidden:
+                            logger.error(f"Cannot add bot permissions to category")
             
             return category
             
         except discord.Forbidden:
-            logger.error(f"No permission to create category in {guild.name}")
+            logger.error(f"No permission to create/modify category in {guild.name}")
             return None
         except discord.HTTPException as e:
             logger.error(f"HTTP error creating category: {e}")
@@ -500,6 +564,13 @@ class RoomSystem(commands.Cog):
     async def get_log_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
         """Get or create log channel with error handling"""
         try:
+            # Check bot permissions
+            perms = self.check_bot_permissions(guild)
+            
+            if not perms['manage_channels'] and not perms['administrator']:
+                logger.error(f"Bot lacks Manage Channels permission in {guild.name}")
+                return None
+            
             log_channel = discord.utils.get(guild.text_channels, name="room-logs")
             
             if not log_channel:
@@ -507,11 +578,54 @@ class RoomSystem(commands.Cog):
                     logger.warning(f"Cannot create log channel in {guild.name} - channel limit reached")
                     return None
                 
+                # Create channel with proper permissions
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(
+                        send_messages=False,
+                        view_channel=True
+                    ),
+                    guild.me: discord.PermissionOverwrite(
+                        send_messages=True,
+                        view_channel=True,
+                        manage_channels=True
+                    )
+                }
+                
+                # Give admin roles permission to view and manage
+                if perms['manage_roles'] or perms['administrator']:
+                    for role in guild.roles:
+                        if role.permissions.administrator:
+                            try:
+                                overwrites[role] = discord.PermissionOverwrite(
+                                    send_messages=True,
+                                    view_channel=True,
+                                    manage_channels=True
+                                )
+                            except:
+                                pass
+                
                 log_channel = await guild.create_text_channel(
                     "room-logs",
+                    overwrites=overwrites,
                     reason="Auto-created for Lexus Room System logs"
                 )
                 logger.info(f"Created log channel in {guild.name}")
+            else:
+                # Verify bot has permissions in existing log channel
+                bot_perms = log_channel.permissions_for(guild.me)
+                if not bot_perms.send_messages:
+                    logger.warning(f"Bot lacks send permission in log channel")
+                    # Try to add permissions
+                    if perms['manage_roles'] or perms['administrator']:
+                        try:
+                            await log_channel.set_permissions(
+                                guild.me,
+                                send_messages=True,
+                                view_channel=True
+                            )
+                            logger.info(f"Added bot permissions to log channel")
+                        except discord.Forbidden:
+                            logger.error(f"Cannot add bot permissions to log channel")
             
             return log_channel
             
@@ -541,6 +655,27 @@ class RoomSystem(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_room_panel(self, interaction: discord.Interaction):
         try:
+            # Defer the response first to prevent timeout
+            await interaction.response.defer(ephemeral=True)
+            
+            # Check bot permissions
+            perms = self.check_bot_permissions(interaction.guild)
+            
+            # Build permission warning if needed
+            missing_perms = []
+            if not perms['manage_channels'] and not perms['administrator']:
+                missing_perms.append("Manage Channels")
+            if not perms['move_members'] and not perms['administrator']:
+                missing_perms.append("Move Members")
+            
+            warning_text = ""
+            if missing_perms:
+                warning_text = (
+                    f"\n\n⚠️ **Warning:** Bot is missing permissions:\n"
+                    f"• {', '.join(missing_perms)}\n"
+                    f"Room creation may fail without these permissions!"
+                )
+            
             embed = discord.Embed(
                 title="🎮 Create Your Game Room",
                 description=(
@@ -551,8 +686,9 @@ class RoomSystem(commands.Cog):
                     f"• Rename your room\n"
                     f"• Kick users\n"
                     f"• Auto-cleanup after {CLEANUP_DELAY_MINUTES} minutes of inactivity"
+                    f"{warning_text}"
                 ),
-                color=discord.Color.blurple()
+                color=discord.Color.blurple() if not missing_perms else discord.Color.orange()
             )
             embed.set_footer(text="Lexus Room System • Secure & Easy")
 
@@ -560,27 +696,49 @@ class RoomSystem(commands.Cog):
             view.add_item(CreateRoomButton(self.bot))
             
             await interaction.channel.send(embed=embed, view=view)
-            await interaction.response.send_message(
-                "✅ Room Creator panel created successfully!",
-                ephemeral=True
-            )
+            
+            success_msg = "✅ Room Creator panel created successfully!"
+            if missing_perms:
+                success_msg += (
+                    f"\n\n⚠️ **Bot is missing permissions:**\n"
+                    f"• {', '.join(missing_perms)}\n\n"
+                    f"Please grant these permissions for full functionality."
+                )
+            
+            await interaction.followup.send(success_msg, ephemeral=True)
             
         except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I don't have permission to send messages in this channel!",
-                ephemeral=True
-            )
+            try:
+                await interaction.followup.send(
+                    "❌ I don't have permission to send messages in this channel!\n"
+                    "Please grant me **Send Messages** and **Embed Links** permissions.",
+                    ephemeral=True
+                )
+            except:
+                logger.error("Failed to send error message - interaction already failed")
         except discord.HTTPException as e:
-            await interaction.response.send_message(
-                f"❌ Failed to create panel: {str(e)}",
-                ephemeral=True
-            )
+            try:
+                await interaction.followup.send(
+                    f"❌ Failed to create panel: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                logger.error(f"HTTPException and failed to send error: {e}")
         except Exception as e:
             logger.error(f"Error in setup_room_panel: {e}")
-            await interaction.response.send_message(
-                "❌ An unexpected error occurred!",
-                ephemeral=True
-            )
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "❌ An unexpected error occurred!",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "❌ An unexpected error occurred!",
+                        ephemeral=True
+                    )
+            except:
+                logger.error("Failed to send error message")
 
     async def create_room_for_user(
         self, 
@@ -590,6 +748,21 @@ class RoomSystem(commands.Cog):
         """Create a private room for user with comprehensive error handling"""
         
         try:
+            # Check bot permissions first
+            perms = self.check_bot_permissions(guild)
+            
+            if not perms['manage_channels'] and not perms['administrator']:
+                raise Exception(
+                    "I need **Manage Channels** permission to create rooms!\n"
+                    "Please ask an administrator to grant me this permission."
+                )
+            
+            if not perms['move_members'] and not perms['administrator']:
+                raise Exception(
+                    "I need **Move Members** permission to manage rooms!\n"
+                    "Please ask an administrator to grant me this permission."
+                )
+            
             # Check room limit per user
             user_rooms = self.get_user_room_count(user.id, guild.id)
             if user_rooms >= MAX_ROOMS_PER_USER:
@@ -616,16 +789,35 @@ class RoomSystem(commands.Cog):
                     view_channel=True,
                     connect=True,
                     speak=True,
-                    stream=True
-                ),
-                guild.me: discord.PermissionOverwrite(
+                    stream=True,
+                    use_voice_activation=True
+                )
+            }
+            
+            # Add bot permissions if not administrator
+            if perms['administrator']:
+                # Bot is admin, will have all permissions automatically
+                overwrites[guild.me] = discord.PermissionOverwrite(
+                    view_channel=True,
                     manage_channels=True,
+                    manage_permissions=True,
                     move_members=True,
                     mute_members=True,
                     deafen_members=True,
-                    view_channel=True
+                    connect=True
                 )
-            }
+            else:
+                # Bot is not admin, explicitly grant necessary permissions
+                overwrites[guild.me] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    manage_channels=True,
+                    manage_permissions=True,
+                    move_members=True,
+                    mute_members=True,
+                    deafen_members=True,
+                    connect=True,
+                    speak=True
+                )
 
             # Create voice channel
             voice_channel = await guild.create_voice_channel(
@@ -634,6 +826,22 @@ class RoomSystem(commands.Cog):
                 category=category,
                 reason=f"Private room created for {user.name}"
             )
+            
+            # Verify bot can manage the channel
+            bot_channel_perms = voice_channel.permissions_for(guild.me)
+            if not bot_channel_perms.manage_channels and not perms['administrator']:
+                logger.warning(f"Bot may lack permissions in created channel {voice_channel.name}")
+                # Try to fix permissions
+                try:
+                    await voice_channel.set_permissions(
+                        guild.me,
+                        manage_channels=True,
+                        manage_permissions=True,
+                        move_members=True,
+                        view_channel=True
+                    )
+                except:
+                    logger.error("Failed to set bot permissions on channel")
             
             # Create control embed
             control_embed = discord.Embed(
@@ -711,13 +919,19 @@ class RoomSystem(commands.Cog):
             raise
         except discord.Forbidden:
             logger.error(f"Permission error creating room for {user.name}")
-            raise Exception("I don't have permission to create rooms!")
+            raise Exception(
+                "I don't have permission to create rooms!\n"
+                "Please ask an administrator to grant me:\n"
+                "• **Manage Channels**\n"
+                "• **Move Members**\n"
+                "• **Manage Roles** (optional)"
+            )
         except discord.HTTPException as e:
             logger.error(f"Discord HTTP error creating room: {e}")
             raise Exception(f"Discord error: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error creating room: {e}")
-            raise Exception("An unexpected error occurred!")
+            raise Exception(str(e) if "permission" in str(e).lower() else "An unexpected error occurred!")
 
     @tasks.loop(minutes=1)
     async def cleanup_rooms(self):
