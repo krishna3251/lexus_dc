@@ -1,4 +1,122 @@
-import discord
+async def create_room_for_user(self, user: discord.Member, guild: discord.Guild, send_controls_dm: bool = False) -> Optional[discord.VoiceChannel]:
+        try:
+            perms = self.check_bot_permissions(guild)
+            
+            if not perms['manage_channels'] and not perms['administrator']:
+                raise Exception("I need **Manage Channels** permission to create rooms!")
+            
+            if not perms['move_members'] and not perms['administrator']:
+                raise Exception("I need **Move Members** permission to manage rooms!")
+            
+            user_rooms = self.get_user_room_count(user.id, guild.id)
+            if user_rooms >= MAX_ROOMS_PER_USER:
+                raise ValueError(f"You can only have {MAX_ROOMS_PER_USER} active rooms at a time!")
+            
+            category = await self.get_or_create_category(guild)
+            if not category:
+                raise Exception("Failed to create or access category")
+            
+            if len(category.channels) >= 50:
+                raise ValueError("Room category is full! Please contact an administrator.")
+            
+            # Permissions for voice channel
+            voice_overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
+                user: discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, stream=True, use_voice_activation=True),
+                guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_permissions=True, move_members=True, mute_members=True, deafen_members=True, connect=True, speak=True)
+            }
+
+            # Create voice channel
+            voice_channel = await guild.create_voice_channel(
+                f"🎤│{user.name}'s Room", 
+                overwrites=voice_overwrites, 
+                category=category, 
+                reason=f"Private room created for {user.name}"
+            )
+            
+            # Permissions for text channel (same as voice)
+            text_overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False, read_messages=False),
+                user: discord.PermissionOverwrite(
+                    view_channel=True, 
+                    read_messages=True, 
+                    send_messages=True, 
+                    embed_links=True, 
+                    attach_files=True,
+                    read_message_history=True,
+                    use_external_emojis=True,
+                    add_reactions=True
+                ),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True, 
+                    read_messages=True,
+                    send_messages=True, 
+                    manage_channels=True, 
+                    manage_messages=True,
+                    embed_links=True,
+                    attach_files=True
+                )
+            }
+            
+            # Create text channel for controls and chat
+            text_channel = await guild.create_text_channel(
+                f"💬│{user.name}-chat",
+                overwrites=text_overwrites,
+                category=category,
+                topic=f"Private chat for {user.name}'s room | Voice: {voice_channel.mention}",
+                reason=f"Private text channel for {user.name}'s room"
+            )
+            
+            # Create control embed
+            control_embed = discord.Embed(
+                title=f"🎮 {user.name}'s Room Controls",
+                description=(
+                    f"**Welcome to your private room!**\n\n"
+                    f"🎤 Voice Channel: {voice_channel.mention}\n"
+                    f"💬 Text Channel: {text_channel.mention}\n\n"
+                    f"Use the buttons below to manage your room.\n\n"
+                    f"**⚠️ Auto-Delete:** Room will be deleted after {CLEANUP_DELAY_MINUTES} minutes of inactivity."
+                ),
+                color=discord.Color.green()
+            )
+            control_embed.add_field(name="🔒 Lock/Unlock", value="Control who can join", inline=True)
+            control_embed.add_field(name="✏️ Rename", value="Change room name", inline=True)
+            control_embed.add_field(name="🦶 Kick", value="Remove users", inline=True)
+            control_embed.set_footer(text="Lexus Room System • Your Private Space")
+            
+            view = RoomButtons(self.bot, user.id, voice_channel)
+            
+            # Send controls to text channel
+            try:
+                await text_channel.send(f"{user.mention} Welcome to your private room!", embed=control_embed, view=view)
+                logger.info(f"Sent controls to text channel for {user.name}")
+            except Exception as e:
+                logger.error(f"Failed to send controls to text channel: {e}")
+            
+            # Send DM notification if requested
+            if send_controls_dm:
+                try:
+                    dm_embed = discord.Embed(
+                        title="🎮 Your Room is Ready!",
+                        description=(
+                            f"Your private room has been created!\n\n"
+                            f"🎤 Voice: {voice_channel.mention}\n"
+                            f"💬 Chat: {text_channel.mention}\n\n"
+                            f"Use the text channel to control your room."
+                        ),
+                        color=discord.Color.blurple()
+                    )
+                    await user.send(embed=dm_embed)
+                except discord.Forbidden:
+                    logger.warning(f"Cannot send DM to {user.name}")
+                except Exception as e:
+                    logger.error(f"Failed to send DM: {e}")
+
+            # Save to database (store both channels)
+            now = datetime.now().isoformat()
+            self.db_manager.execute_with_retry(
+                "INSERT OR REPLACE INTO rooms (channel_id, owner_id, created_at, last_active, guild_id) VALUES (?, ?, ?, ?, ?)", 
+                (voice_channel.id, user.id, now,import discord
 from discord.ext import commands, tasks
 from discord import app_commands, ui
 import sqlite3
@@ -132,6 +250,10 @@ class RoomButtons(ui.View):
                 await interaction.response.send_message("❌ Voice channel no longer exists!", ephemeral=True)
                 return
             
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+                return
+            
             await self.voice_channel.set_permissions(interaction.guild.default_role, connect=False)
             await interaction.response.send_message("🔒 Room locked!", ephemeral=True)
             await self.send_log(interaction.guild, f"🔒 {interaction.user.mention} locked **{self.voice_channel.name}**")
@@ -142,13 +264,20 @@ class RoomButtons(ui.View):
             await interaction.response.send_message(f"❌ Failed to lock room: {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"Unexpected error in lock_room: {e}")
-            await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            except:
+                pass
 
     @ui.button(label="Unlock Room", style=discord.ButtonStyle.success, emoji="🔓")
     async def unlock_room(self, interaction: discord.Interaction, button: ui.Button):
         try:
             if not self.voice_channel:
                 await interaction.response.send_message("❌ Voice channel no longer exists!", ephemeral=True)
+                return
+            
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
                 return
             
             await self.voice_channel.set_permissions(interaction.guild.default_role, connect=True)
@@ -161,7 +290,10 @@ class RoomButtons(ui.View):
             await interaction.response.send_message(f"❌ Failed to unlock room: {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"Unexpected error in unlock_room: {e}")
-            await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            except:
+                pass
 
     @ui.button(label="Rename Room", style=discord.ButtonStyle.primary, emoji="✏️")
     async def rename_room(self, interaction: discord.Interaction, button: ui.Button):
@@ -169,16 +301,28 @@ class RoomButtons(ui.View):
             if not self.voice_channel:
                 await interaction.response.send_message("❌ Voice channel no longer exists!", ephemeral=True)
                 return
+            
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+                return
+            
             await interaction.response.send_modal(RenameModal(self.voice_channel))
         except Exception as e:
             logger.error(f"Error showing rename modal: {e}")
-            await interaction.response.send_message("❌ Failed to open rename dialog!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ Failed to open rename dialog!", ephemeral=True)
+            except:
+                pass
 
     @ui.button(label="Kick User", style=discord.ButtonStyle.secondary, emoji="🦶")
     async def kick_user(self, interaction: discord.Interaction, button: ui.Button):
         try:
             if not self.voice_channel:
                 await interaction.response.send_message("❌ Voice channel no longer exists!", ephemeral=True)
+                return
+            
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
                 return
             
             if len(self.voice_channel.members) == 0:
@@ -188,13 +332,20 @@ class RoomButtons(ui.View):
             await interaction.response.send_modal(KickModal(self.voice_channel))
         except Exception as e:
             logger.error(f"Error showing kick modal: {e}")
-            await interaction.response.send_message("❌ Failed to open kick dialog!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ Failed to open kick dialog!", ephemeral=True)
+            except:
+                pass
 
     @ui.button(label="End Room", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def end_room(self, interaction: discord.Interaction, button: ui.Button):
         try:
             if not self.voice_channel:
                 await interaction.response.send_message("❌ Voice channel no longer exists!", ephemeral=True)
+                return
+            
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
                 return
             
             channel_name = self.voice_channel.name
@@ -207,9 +358,15 @@ class RoomButtons(ui.View):
             
             await self.voice_channel.delete()
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I don't have permission to delete this room!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ I don't have permission to delete this room!", ephemeral=True)
+            except:
+                pass
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Failed to delete room: {str(e)}", ephemeral=True)
+            try:
+                await interaction.response.send_message(f"❌ Failed to delete room: {str(e)}", ephemeral=True)
+            except:
+                pass
         except Exception as e:
             logger.error(f"Unexpected error in end_room: {e}")
             try:
@@ -227,6 +384,10 @@ class RenameModal(ui.Modal, title="Rename Your Room"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+                return
+            
             new_name = self.new_name.value.strip()
             if not new_name:
                 await interaction.response.send_message("❌ Room name cannot be empty!", ephemeral=True)
@@ -240,12 +401,21 @@ class RenameModal(ui.Modal, title="Rename Your Room"):
             await self.voice_channel.edit(name=f"🎮│{new_name}")
             await interaction.response.send_message(f"✅ Room renamed to **{new_name}**", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I don't have permission to rename this room!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ I don't have permission to rename this room!", ephemeral=True)
+            except:
+                pass
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Failed to rename room: {str(e)}", ephemeral=True)
+            try:
+                await interaction.response.send_message(f"❌ Failed to rename room: {str(e)}", ephemeral=True)
+            except:
+                pass
         except Exception as e:
             logger.error(f"Unexpected error in rename modal: {e}")
-            await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            except:
+                pass
 
 
 class KickModal(ui.Modal, title="Kick a User From Room"):
@@ -257,6 +427,10 @@ class KickModal(ui.Modal, title="Kick a User From Room"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            if not interaction.guild:
+                await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+                return
+            
             search_name = self.member_name.value.strip().replace("@", "").lower()
             if not search_name:
                 await interaction.response.send_message("❌ Please enter a valid username!", ephemeral=True)
@@ -279,12 +453,21 @@ class KickModal(ui.Modal, title="Kick a User From Room"):
             await member.move_to(None)
             await interaction.response.send_message(f"🦶 {member.mention} kicked from the room!", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I don't have permission to kick users!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ I don't have permission to kick users!", ephemeral=True)
+            except:
+                pass
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Failed to kick user: {str(e)}", ephemeral=True)
+            try:
+                await interaction.response.send_message(f"❌ Failed to kick user: {str(e)}", ephemeral=True)
+            except:
+                pass
         except Exception as e:
             logger.error(f"Unexpected error in kick modal: {e}")
-            await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ An unexpected error occurred!", ephemeral=True)
+            except:
+                pass
 
 
 class RoomSystem(commands.Cog):
@@ -370,7 +553,86 @@ class RoomSystem(commands.Cog):
             logger.error(f"Unexpected error creating category: {e}")
             return None
 
-    async def get_log_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
+    async def get_or_create_threads_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
+        """Get or create the threads text channel"""
+        try:
+            perms = self.check_bot_permissions(guild)
+            
+            if not perms['manage_channels'] and not perms['administrator']:
+                logger.error(f"Bot lacks Manage Channels permission in {guild.name}")
+                return None
+            
+            threads_channel = discord.utils.get(guild.text_channels, name="threads")
+            
+            if not threads_channel:
+                if len(guild.channels) >= 500:
+                    logger.warning(f"Cannot create threads channel in {guild.name} - channel limit reached")
+                    return None
+                
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(
+                        view_channel=True,
+                        send_messages=False,
+                        read_messages=True,
+                        create_public_threads=False,
+                        create_private_threads=False
+                    ),
+                    guild.me: discord.PermissionOverwrite(
+                        view_channel=True,
+                        send_messages=True,
+                        manage_channels=True,
+                        manage_threads=True,
+                        create_public_threads=True,
+                        create_private_threads=True
+                    )
+                }
+                
+                if perms['manage_roles'] or perms['administrator']:
+                    for role in guild.roles:
+                        if role.permissions.administrator:
+                            try:
+                                overwrites[role] = discord.PermissionOverwrite(
+                                    view_channel=True,
+                                    send_messages=True,
+                                    manage_channels=True,
+                                    manage_threads=True,
+                                    read_messages=True
+                                )
+                            except:
+                                pass
+                
+                threads_channel = await guild.create_text_channel(
+                    "threads",
+                    overwrites=overwrites,
+                    topic="🎮 Private room control threads are created here",
+                    reason="Auto-created for Lexus Room System threads"
+                )
+                logger.info(f"Created threads channel in {guild.name}")
+            else:
+                bot_perms = threads_channel.permissions_for(guild.me)
+                if not bot_perms.manage_threads:
+                    logger.warning(f"Bot lacks manage threads permission")
+                    if perms['manage_roles'] or perms['administrator']:
+                        try:
+                            await threads_channel.set_permissions(
+                                guild.me,
+                                view_channel=True,
+                                send_messages=True,
+                                manage_threads=True,
+                                create_private_threads=True
+                            )
+                            logger.info(f"Added bot permissions to threads channel")
+                        except discord.Forbidden:
+                            logger.error(f"Cannot add bot permissions to threads channel")
+            
+            return threads_channel
+            
+        except discord.Forbidden:
+            logger.warning(f"No permission to create threads channel in {guild.name}")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting/creating threads channel: {e}")
+            return None
         try:
             log_channel = discord.utils.get(guild.text_channels, name="room-logs")
             if not log_channel:
@@ -422,36 +684,80 @@ class RoomSystem(commands.Cog):
 
             voice_channel = await guild.create_voice_channel(f"🎮│{user.name}'s Room", overwrites=overwrites, category=category, reason=f"Private room created for {user.name}")
             
-            control_embed = discord.Embed(
-                title=f"🎮 {user.name}'s Room Controls",
-                description=f"Use the buttons below to manage your private room.\n\n**⚠️ Auto-Delete:** Room will be deleted after {CLEANUP_DELAY_MINUTES} minutes of inactivity.",
-                color=discord.Color.green()
-            )
-            control_embed.add_field(name="🔒 Lock/Unlock", value="Control who can join your room", inline=True)
-            control_embed.add_field(name="✏️ Rename", value="Change your room name", inline=True)
-            control_embed.add_field(name="🦶 Kick", value="Remove unwanted users", inline=True)
-            control_embed.set_footer(text="Lexus Room System")
+            # Get or create threads channel
+            threads_channel = await self.get_or_create_threads_channel(guild)
             
-            view = RoomButtons(self.bot, user.id, voice_channel)
-            
-            if send_controls_dm:
+            if threads_channel:
                 try:
-                    await user.send(f"✅ Your room **{voice_channel.name}** has been created!\nJoin it here: {voice_channel.mention}", embed=control_embed, view=view)
-                except discord.Forbidden:
+                    # Create a starter message for the thread
+                    starter_message = await threads_channel.send(f"🎮 Room created for {user.mention}")
+                    
+                    # Create private thread
+                    thread = await starter_message.create_thread(
+                        name=f"🎮 {user.name}'s Controls",
+                        auto_archive_duration=60
+                    )
+                    
+                    # Add the user to the thread
+                    await thread.add_user(user)
+                    
+                    # Add all admins to the thread
+                    for member in guild.members:
+                        if member.guild_permissions.administrator and not member.bot:
+                            try:
+                                await thread.add_user(member)
+                            except:
+                                pass
+                    
+                    # Create control embed
+                    control_embed = discord.Embed(
+                        title=f"🎮 {user.name}'s Room Controls",
+                        description=(
+                            f"**Welcome to your private room!**\n\n"
+                            f"🎤 Voice Channel: {voice_channel.mention}\n\n"
+                            f"Use the buttons below to manage your room.\n\n"
+                            f"**⚠️ Auto-Delete:** Room will be deleted after {CLEANUP_DELAY_MINUTES} minutes of inactivity."
+                        ),
+                        color=discord.Color.green()
+                    )
+                    control_embed.add_field(name="🔒 Lock/Unlock", value="Control who can join", inline=True)
+                    control_embed.add_field(name="✏️ Rename", value="Change room name", inline=True)
+                    control_embed.add_field(name="🦶 Kick", value="Remove users", inline=True)
+                    control_embed.set_footer(text="Lexus Room System • Private Controls")
+                    
+                    view = RoomButtons(self.bot, user.id, voice_channel)
+                    
+                    await thread.send(embed=control_embed, view=view)
+                    logger.info(f"Created private thread for {user.name}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create private thread: {e}")
+                    # Fallback to DM
                     try:
-                        control_thread = await voice_channel.create_thread(name="Room Controls", auto_archive_duration=60)
-                        await control_thread.send(embed=control_embed, view=view)
-                    except:
-                        pass
-            else:
-                try:
-                    control_thread = await voice_channel.create_thread(name="Room Controls", auto_archive_duration=60)
-                    await control_thread.send(embed=control_embed, view=view)
-                except:
-                    try:
+                        control_embed = discord.Embed(
+                            title=f"🎮 {user.name}'s Room Controls",
+                            description=(
+                                f"Your room: {voice_channel.mention}\n\n"
+                                f"⚠️ Could not create thread. Use these controls here."
+                            ),
+                            color=discord.Color.green()
+                        )
+                        view = RoomButtons(self.bot, user.id, voice_channel)
                         await user.send(embed=control_embed, view=view)
                     except:
-                        pass
+                        logger.error("Failed DM fallback")
+            else:
+                # Fallback to DM if threads channel doesn't exist
+                try:
+                    control_embed = discord.Embed(
+                        title=f"🎮 {user.name}'s Room Controls",
+                        description=f"Your room: {voice_channel.mention}",
+                        color=discord.Color.green()
+                    )
+                    view = RoomButtons(self.bot, user.id, voice_channel)
+                    await user.send(embed=control_embed, view=view)
+                except:
+                    pass
 
             now = datetime.now().isoformat()
             self.db_manager.execute_with_retry("INSERT OR REPLACE INTO rooms (channel_id, owner_id, created_at, last_active, guild_id) VALUES (?, ?, ?, ?, ?)", (voice_channel.id, user.id, now, now, guild.id))
