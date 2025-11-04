@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 # API Configuration
 INWORLD_BASE = "https://api.inworld.ai/llm/v1alpha/completions:completeChat"
 INWORLD_AUTH = os.getenv("INWORLD_RUNTIME_BASIC")
-INWORLD_MODEL = os.getenv("INWORLD_MODEL", "inworld-llm-chat")
+INWORLD_MODEL = os.getenv("INWORLD_MODEL", "llama-3.1-8b-instant")
+INWORLD_PROVIDER = os.getenv("INWORLD_PROVIDER", "SERVICE_PROVIDER_GROQ")
 
 # Limits and Timeouts
 REQ_TIMEOUT = 30
@@ -120,7 +121,7 @@ class LexusCog(commands.Cog):
             "servingId": {
                 "modelId": {
                     "model": INWORLD_MODEL,
-                    "serviceProvider": "SERVICE_PROVIDER_UNSPECIFIED"
+                    "serviceProvider": INWORLD_PROVIDER
                 },
                 "userId": str(user_id),
                 "sessionId": str(session_id),
@@ -397,16 +398,28 @@ class LexusCog(commands.Cog):
     ):
         """Handle command errors."""
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                "❌ You need 'Manage Server' permission to use this command.",
-                ephemeral=True
-            )
+            # Check if response is already sent
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ You need 'Manage Server' permission to use this command.",
+                    ephemeral=True
+                )
         else:
             logger.exception(f"Command error: {error}")
-            await interaction.response.send_message(
-                "❌ An error occurred while executing the command.",
-                ephemeral=True
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ An error occurred while executing the command.",
+                    ephemeral=True
+                )
+            else:
+                # Try to follow up if response was already sent
+                try:
+                    await interaction.followup.send(
+                        "❌ An error occurred.",
+                        ephemeral=True
+                    )
+                except Exception:
+                    pass  # Give up gracefully
 
     # ========== Message Listener ==========
 
