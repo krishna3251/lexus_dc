@@ -109,13 +109,25 @@ class LexusCog(commands.Cog):
         hist = self.history.get(channel_id, [])
         system_text = build_persona_prompt(hist)
 
-        messages = [{"role": "system", "content": system_text}]
+        # Build messages array - ensure only role and content fields
+        messages = [
+            {
+                "role": "system",
+                "content": str(system_text)
+            }
+        ]
         
         # Include recent conversation history
         for role, content in hist[-(MAX_TURNS - 1):]:
-            messages.append({"role": role, "content": content})
+            messages.append({
+                "role": str(role),
+                "content": str(content)
+            })
         
-        messages.append({"role": "user", "content": user_text})
+        messages.append({
+            "role": "user",
+            "content": str(user_text)
+        })
 
         return {
             "servingId": {
@@ -155,6 +167,10 @@ class LexusCog(commands.Cog):
             user_text=user_text,
             channel_id=channel_id
         )
+
+        # Debug logging
+        logger.debug(f"Payload messages count: {len(payload['messages'])}")
+        logger.debug(f"First message keys: {list(payload['messages'][0].keys())}")
 
         headers = {
             "Authorization": INWORLD_AUTH,
@@ -486,3 +502,4 @@ class LexusCog(commands.Cog):
 async def setup(bot: commands.Bot):
     """Load the cog."""
     await bot.add_cog(LexusCog(bot))
+    
