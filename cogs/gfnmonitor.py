@@ -1,7 +1,10 @@
-import discord, asyncio, time, random
-from discord.ext import commands, tasks
-from typing import Optional, Dict, List
+import discord
+import asyncio
+import time
+import random
 import logging
+from discord.ext import commands
+from typing import Optional, Dict, List
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -39,11 +42,16 @@ CACHED_DATA = None
 
 # Mood ladder
 def mood_for(q):
-    if q <= 30:   return ("🟢", "BREEZE", 0x00FF7F)
-    if q <= 70:   return ("🟡", "MEH", 0xFFD700)
-    if q <= 150:  return ("🟠", "STRUGGLE", 0xFFA500)
-    if q <= 300:  return ("🔴", "PAIN", 0xFF4500)
-    if q <= 500:  return ("🟣", "DEATH", 0x8A2BE2)
+    if q <= 30:
+        return ("🟢", "BREEZE", 0x00FF7F)
+    if q <= 70:
+        return ("🟡", "MEH", 0xFFD700)
+    if q <= 150:
+        return ("🟠", "STRUGGLE", 0xFFA500)
+    if q <= 300:
+        return ("🔴", "PAIN", 0xFF4500)
+    if q <= 500:
+        return ("🟣", "DEATH", 0x8A2BE2)
     return ("⚫", "VOID", 0x000000)
 
 BANNERS = [
@@ -69,7 +77,7 @@ class GFNMonitor(commands.Cog):
         self.bot = bot
         self.channel_id = None
         self.message = None
-        self.interval = 120  # seconds
+        self.interval = 120
         self.task = None
         self.is_running = False
         self.consecutive_errors = 0
@@ -77,19 +85,14 @@ class GFNMonitor(commands.Cog):
         self.last_successful_fetch = None
         self.using_fallback = False
 
-    # -----------------------------
-    # Command to start live monitor
-    # -----------------------------
     @commands.hybrid_command(name="gfnlive", description="Start live GeForce NOW queue monitor.")
-    async def gfn_live(self, ctx: commands.Context):
+    async def gfn_live(self, ctx):
         """Start the live monitor with error handling"""
         try:
-            # Check if already running
             if self.is_running:
                 await ctx.reply("⚠️ Monitor is already running! Use `/gfnstop` to stop it first.", ephemeral=True)
                 return
 
-            # Validate channel permissions
             if not ctx.channel.permissions_for(ctx.guild.me).send_messages:
                 await ctx.reply("❌ I don't have permission to send messages in this channel!", ephemeral=True)
                 return
@@ -104,7 +107,6 @@ class GFNMonitor(commands.Cog):
             
             await ctx.reply("✅ Starting live GeForce NOW queue monitor ⏱️\n*Updates every 2 minutes*")
             
-            # Start the background task
             self.task = self.bot.loop.create_task(self.live_loop())
             
         except Exception as e:
@@ -112,11 +114,8 @@ class GFNMonitor(commands.Cog):
             await ctx.reply(f"❌ Failed to start monitor: {str(e)}", ephemeral=True)
             self.is_running = False
 
-    # -----------------------------
-    # Command to stop live monitor
-    # -----------------------------
     @commands.hybrid_command(name="gfnstop", description="Stop the live GeForce NOW queue monitor.")
-    async def gfn_stop(self, ctx: commands.Context):
+    async def gfn_stop(self, ctx):
         """Stop the live monitor"""
         try:
             if not self.is_running:
@@ -135,11 +134,8 @@ class GFNMonitor(commands.Cog):
             logger.error(f"Error stopping monitor: {e}")
             await ctx.reply(f"❌ Failed to stop monitor: {str(e)}", ephemeral=True)
 
-    # -----------------------------
-    # Command to check monitor status
-    # -----------------------------
     @commands.hybrid_command(name="gfnstatus", description="Check monitor status and health.")
-    async def gfn_status(self, ctx: commands.Context):
+    async def gfn_status(self, ctx):
         """Display monitor status"""
         try:
             if not self.is_running:
@@ -165,9 +161,6 @@ class GFNMonitor(commands.Cog):
             logger.error(f"Error checking status: {e}")
             await ctx.reply(f"❌ Failed to check status: {str(e)}", ephemeral=True)
 
-    # -----------------------------
-    # Background update loop
-    # -----------------------------
     async def live_loop(self):
         """Main update loop with comprehensive error handling"""
         channel = None
@@ -179,7 +172,6 @@ class GFNMonitor(commands.Cog):
                 self.is_running = False
                 return
 
-            # Send initial message
             data = await self.fetch_data_with_fallback()
             embed = self.build_embed(data, is_initial=True)
             
@@ -194,7 +186,6 @@ class GFNMonitor(commands.Cog):
                 self.is_running = False
                 return
 
-            # Main update loop
             while self.is_running:
                 try:
                     await asyncio.sleep(self.interval)
@@ -202,16 +193,13 @@ class GFNMonitor(commands.Cog):
                     if not self.is_running:
                         break
 
-                    # Fetch new data
                     data = await self.fetch_data_with_fallback()
                     embed = self.build_embed(data)
 
-                    # Try to edit existing message
                     try:
                         await self.message.edit(embed=embed)
                         
                     except discord.NotFound:
-                        # Message was deleted, send new one
                         logger.warning("Message not found, sending new message")
                         try:
                             self.message = await channel.send(embed=embed)
@@ -227,7 +215,6 @@ class GFNMonitor(commands.Cog):
                         
                     except discord.HTTPException as e:
                         logger.error(f"HTTP error editing message: {e}")
-                        # Continue loop, will retry next interval
                         
                 except asyncio.CancelledError:
                     logger.info("Monitor task cancelled")
@@ -241,14 +228,12 @@ class GFNMonitor(commands.Cog):
                         logger.error("Max consecutive errors reached, stopping monitor")
                         self.is_running = False
                         
-                        # Try to notify in channel
                         try:
                             await channel.send("❌ **Monitor stopped due to repeated errors.** Use `/gfnlive` to restart.")
                         except:
                             pass
                         break
                     
-                    # Continue with exponential backoff
                     await asyncio.sleep(min(self.interval * 2, 300))
 
         except asyncio.CancelledError:
@@ -258,7 +243,6 @@ class GFNMonitor(commands.Cog):
             logger.error(f"Fatal error in live loop: {e}")
             self.is_running = False
             
-            # Try to notify
             if channel:
                 try:
                     await channel.send(f"❌ **Monitor crashed:** {str(e)}\nUse `/gfnlive` to restart.")
@@ -269,21 +253,16 @@ class GFNMonitor(commands.Cog):
             self.is_running = False
             logger.info("Monitor loop ended")
 
-    # -----------------------------
-    # Fetch data with fallback
-    # -----------------------------
-    async def fetch_data_with_fallback(self) -> Dict:
+    async def fetch_data_with_fallback(self):
         """Fetch data with automatic fallback to cache and mock data"""
         global CACHED_DATA
         
         try:
             data = await self.fetch_data()
             
-            # Validate data structure
             if not self.validate_data(data):
                 raise ValueError("Invalid data structure received")
             
-            # Success - update cache and reset error counter
             CACHED_DATA = data
             self.last_successful_fetch = int(time.time())
             self.consecutive_errors = 0
@@ -296,34 +275,19 @@ class GFNMonitor(commands.Cog):
             self.consecutive_errors += 1
             self.using_fallback = True
             
-            # Try cached data first
             if CACHED_DATA and self.validate_data(CACHED_DATA):
                 logger.info("Using cached data as fallback")
                 return CACHED_DATA
             
-            # Fall back to mock data
             logger.warning("Using mock data as fallback")
             return MOCK
 
-    # -----------------------------
-    # Mock fetch (replace with real API)
-    # -----------------------------
-    async def fetch_data(self) -> Dict:
-        """
-        Replace this with your actual API call
-        Example:
-            async with aiohttp.ClientSession() as session:
-                async with session.get('YOUR_API_URL') as response:
-                    return await response.json()
-        """
-        # TODO: Replace with real JSON API call
-        await asyncio.sleep(0.1)  # Simulate network delay
+    async def fetch_data(self):
+        """Replace this with your actual API call"""
+        await asyncio.sleep(0.1)
         return MOCK
 
-    # -----------------------------
-    # Validate data structure
-    # -----------------------------
-    def validate_data(self, data: any) -> bool:
+    def validate_data(self, data):
         """Validate that data has the expected structure"""
         try:
             if not isinstance(data, dict):
@@ -346,34 +310,28 @@ class GFNMonitor(commands.Cog):
         except Exception:
             return False
 
-    # -----------------------------
-    # Build fancy embed
-    # -----------------------------
-    def build_embed(self, data: Dict, is_initial: bool = False) -> discord.Embed:
+    def build_embed(self, data, is_initial=False):
         """Build embed with error indicators"""
         now = int(time.time())
         next_update = now + self.interval
 
         try:
-            # Global average mood
             all_q = [e["queue"] for region in data.values() for e in region]
             
             if not all_q:
-                # No data available
                 return self.build_error_embed("No queue data available")
             
             global_avg = sum(all_q) / len(all_q)
             emoji, mood, color = mood_for(global_avg)
             banner = self.banner_for(global_avg)
 
-            # Build title with status indicator
             title_emoji = random.choice(['🎮', '⚙️', '🔄'])
             if self.using_fallback:
                 title_emoji = '⚠️'
             
             description_parts = [
                 f"Updated <t:{now}:R> *(auto-refresh every 2 min)*",
-                f"*"{banner}"*"
+                f"*\"{banner}\"*"
             ]
             
             if self.using_fallback:
@@ -388,7 +346,6 @@ class GFNMonitor(commands.Cog):
                 color=color
             )
 
-            # Region cards
             for region, entries in data.items():
                 if not entries:
                     continue
@@ -410,7 +367,6 @@ class GFNMonitor(commands.Cog):
                     inline=False
                 )
 
-            # Footer with status
             footer_text = f"Next refresh <t:{next_update}:R> • {random.choice(FOOTER_QUOTES)}"
             if self.consecutive_errors > 0:
                 footer_text = f"⚠️ Errors: {self.consecutive_errors} • " + footer_text
@@ -422,7 +378,7 @@ class GFNMonitor(commands.Cog):
             logger.error(f"Error building embed: {e}")
             return self.build_error_embed(f"Error displaying data: {str(e)}")
 
-    def build_error_embed(self, error_msg: str) -> discord.Embed:
+    def build_error_embed(self, error_msg):
         """Build an error embed as fallback"""
         embed = discord.Embed(
             title="❌ GeForce NOW Monitor - Error",
@@ -432,13 +388,18 @@ class GFNMonitor(commands.Cog):
         embed.set_footer(text="Retrying soon...")
         return embed
 
-    def banner_for(self, avg: float) -> str:
+    def banner_for(self, avg):
         """Get banner text based on average queue"""
-        if avg <= 30: return BANNERS[0]
-        if avg <= 70: return BANNERS[1]
-        if avg <= 150: return BANNERS[2]
-        if avg <= 300: return BANNERS[3]
-        if avg <= 500: return BANNERS[4]
+        if avg <= 30:
+            return BANNERS[0]
+        if avg <= 70:
+            return BANNERS[1]
+        if avg <= 150:
+            return BANNERS[2]
+        if avg <= 300:
+            return BANNERS[3]
+        if avg <= 500:
+            return BANNERS[4]
         return BANNERS[5]
 
     def cog_unload(self):
