@@ -13,23 +13,24 @@ import re
 
 # Load environment variables
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class LexusAIChatbot(commands.Cog):
-    """Advanced Hyderabadi AI chatbot with natural conversation flow"""
+    """Advanced Hyderabadi AI chatbot with natural conversation flow (OpenRouter + DeepSeek)."""
     
     def __init__(self, bot):
         self.bot = bot
         self.chat_history: Dict[int, List[Dict]] = {}
         self.user_states: Dict[int, Dict] = {}
         
-        # Gemini API configuration
-        self.gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
-        self.api_key = GEMINI_API_KEY
+        # OpenRouter configuration
+        self.openrouter_api_key = OPENROUTER_API_KEY
+        self.openrouter_endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        self.default_model = "deepseek/deepseek-r1"  # change if you want another DeepSeek variant
         
         # Enhanced Hyderabadi persona with natural conversation flow
         self.system_prompt = """You are Lexus bhai, a cool Hyderabadi AI with natural swag and warmth. 
@@ -74,7 +75,7 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         self.COOLDOWN = 2.0
         self.MAX_HISTORY = 6
         self.MAX_TOKENS = 800
-        self.session = None
+        self.session: Optional[aiohttp.ClientSession] = None
         
     async def setup_session(self):
         """Initialize aiohttp session"""
@@ -111,7 +112,7 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         return True
     
     def get_conversation_context(self, user_id: int) -> List[Dict]:
-        """Get formatted conversation context for API"""
+        """Get formatted conversation context for API (OpenRouter / OpenAI-compatible format)"""
         if user_id not in self.chat_history or not self.chat_history[user_id]:
             return []
         
@@ -119,10 +120,9 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         context = []
         
         for entry in recent:
-            context.extend([
-                {"role": "user", "parts": [{"text": entry['user']}]},
-                {"role": "model", "parts": [{"text": entry['bot']}]}
-            ])
+            # convert to OpenAI-style messages
+            context.append({"role": "user", "content": entry['user']})
+            context.append({"role": "assistant", "content": entry['bot']})
         
         return context
     
@@ -174,62 +174,81 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         return embed
     
     async def get_ai_response(self, prompt: str, user_id: int) -> tuple[str, str]:
-        """Get response from Gemini API with advanced error handling"""
-        if not self.api_key:
+        """Get response from OpenRouter (DeepSeek) with advanced error handling"""
+        if not self.openrouter_api_key:
             return "Arre yaar, API key missing hai! Check karo configuration.", "default"
         
         await self.setup_session()
         
         try:
-            # Get conversation context
+            # Get conversation context (OpenAI-compatible messages)
             context = self.get_conversation_context(user_id)
             
-            # Build request payload
-            messages = [{"role": "user", "parts": [{"text": self.system_prompt}]}]
+            # Build messages: system prompt first, then context, then user prompt
+            messages = [{"role": "system", "content": self.system_prompt}]
             messages.extend(context)
-            messages.append({"role": "user", "parts": [{"text": prompt}]})
+            messages.append({"role": "user", "content": prompt})
             
             payload = {
-                "contents": messages,
-                "generationConfig": {
-                    "temperature": 0.85,
-                    "maxOutputTokens": self.MAX_TOKENS,
-                    "topP": 0.9,
-                    "topK": 40,
-                    "candidateCount": 1,
-                    "stopSequences": []
-                },
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
-                ]
+                "model": self.default_model,
+                "messages": messages,
+                "max_tokens": self.MAX_TOKENS,
+                "temperature": 0.85,
+                "top_p": 0.9,
+                "n": 1,
+                "stream": False
             }
             
-            url = f"{self.gemini_url}?key={self.api_key}"
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json"
+            }
             
-            async with self.session.post(url, json=payload) as response:
-                if response.status == 200:
+            async with self.session.post(self.openrouter_endpoint, headers=headers, json=payload) as response:
+                text_status = response.status
+                if text_status == 200:
                     data = await response.json()
+                    # Defensive extraction - OpenRouter tends to follow OpenAI schema
+                    ai_response = None
+                    try:
+                        ai_response = data["choices"][0]["message"]["content"]
+                    except Exception:
+                        # fallback to older/alternate keys
+                        ai_response = data["choices"][0].get("text") or data.get("result") or None
                     
-                    if 'candidates' in data and data['candidates']:
-                        content = data['candidates'][0]['content']['parts'][0]['text']
-                        mood = self.detect_mood(prompt)
-                        return content.strip(), mood
-                    else:
+                    if not ai_response:
+                        # As a last resort, try to extract top-level 'output' style fields
+                        # (some models provide different structure)
+                        try:
+                            if isinstance(data.get("output"), dict):
+                                ai_response = data["output"].get("text")
+                        except Exception:
+                            pass
+                    
+                    if not ai_response:
+                        logger.error(f"Unable to parse model response: {json.dumps(data)[:1000]}")
                         return "Kuch technical issue hai yaar, dobara try karo!", "default"
+                    
+                    content = ai_response.strip()
+                    mood = self.detect_mood(prompt)
+                    return content, mood
                 
-                elif response.status == 429:
+                elif text_status == 429:
                     return "Bas bhai, thoda slow karo! Rate limit exceed ho gaya 😅", "default"
                 
-                elif response.status == 400:
-                    error_data = await response.json()
+                elif text_status == 401:
+                    logger.error("OpenRouter authentication failed. Check OPENROUTER_API_KEY.")
+                    return "Authentication issue with the AI service. Admin ko batao.", "default"
+                
+                elif text_status == 400:
+                    error_data = await response.text()
                     logger.error(f"API Error 400: {error_data}")
                     return "Arre, kuch galat format mein request gayi. Technical team ko batata hun!", "default"
                 
                 else:
-                    return f"API se response nahi aa raha bhai (Status: {response.status})", "default"
+                    text = await response.text()
+                    logger.error(f"OpenRouter API error {text_status}: {text}")
+                    return f"API se response nahi aa raha bhai (Status: {text_status})", "default"
         
         except asyncio.TimeoutError:
             return "Timeout ho gaya yaar! Network slow hai kya?", "default"
@@ -409,7 +428,7 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         • Total users: {total_users}
         • Your messages: {user_messages}
         • Active conversations: {sum(1 for h in self.chat_history.values() if h)}
-        • API: Gemini 2.0 Flash
+        • API: OpenRouter (DeepSeek)
         
         **💪 Your Status:**
         {"VIP user hai bhai!" if user_messages > 50 else "Regular user" if user_messages > 10 else "New user, welcome!"}"""
@@ -441,7 +460,7 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
         • Advanced context memory (remembers previous chats)
         • Mood-based responses with colorful embeds
         • Intelligent cooldown system
-        • Gemini 2.0 Flash powered responses
+        • OpenRouter (DeepSeek) powered responses
         
         **🎯 Pro Tips:**
         • Be natural, main samjh jaunga
@@ -454,7 +473,7 @@ Be natural, be yourself, be the coolest Hyderabadi AI bhai! 🔥"""
             color=self.mood_colors['friendly'],
             timestamp=datetime.datetime.now()
         )
-        embed.set_footer(text="Made in Hyderabad with ❤️  • Powered by Gemini 2.0")
+        embed.set_footer(text="Made in Hyderabad with ❤️  • Powered by OpenRouter (DeepSeek)")
         await ctx.send(embed=embed)
     
     def cog_unload(self):
@@ -465,4 +484,4 @@ async def setup(bot):
     """Setup function for the cog"""
     cog = LexusAIChatbot(bot)
     await bot.add_cog(cog)
-    logger.info("Lexus AI Chatbot loaded successfully!")
+    logger.info("Lexus AI Chatbot (OpenRouter) loaded successfully!")
