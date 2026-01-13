@@ -451,18 +451,106 @@ class LexusBot(commands.Cog):
     async def cog_load(self):
         """Initialize session and validate API key."""
         self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30),
-            connector=aiohttp.TCPConnector(limit=10, limit_per_host=5)
+            timeout=aiohttp.ClientTimeout(total=15),  # Reduced from 30s to 15s
+            connector=aiohttp.TCPConnector(limit=20, limit_per_host=10)  # Increased limits
         )
         if not self.api_key:
             logger.error("No API key found! Set OPENROUTER_API_KEY or NVIDIA_API_KEY")
         else:
             logger.info(f"Using {self.api_provider} API with model: {self.model_name}")
+        
+        # Schedule permission check
+        self.bot.loop.create_task(self.check_permissions_on_load())
 
     async def cog_unload(self):
         """Clean shutdown."""
         if self.session:
             await self.session.close()
+    
+    async def check_permissions_on_load(self):
+        """Check bot permissions in all guilds on startup."""
+        await self.bot.wait_until_ready()
+        
+        required_permissions = [
+            'read_messages',
+            'send_messages', 
+            'embed_links',
+            'add_reactions',
+            'read_message_history',
+            'use_external_emojis'
+        ]
+        
+        for guild in self.bot.guilds:
+            missing = self.check_guild_permissions(guild, required_permissions)
+            if missing:
+                logger.warning(f"Missing permissions in {guild.name}: {', '.join(missing)}")
+                
+                # Try to notify owner or first text channel
+                try:
+                    if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
+                        await self.send_permission_warning(guild.system_channel, missing)
+                    else:
+                        # Find any channel we can send to
+                        for channel in guild.text_channels:
+                            if channel.permissions_for(guild.me).send_messages:
+                                await self.send_permission_warning(channel, missing)
+                                break
+                except Exception as e:
+                    logger.error(f"Could not send permission warning in {guild.name}: {e}")
+    
+    def check_guild_permissions(self, guild: discord.Guild, required: List[str]) -> List[str]:
+        """Check which required permissions are missing."""
+        bot_member = guild.me
+        permissions = bot_member.guild_permissions
+        
+        missing = []
+        perm_map = {
+            'read_messages': permissions.read_messages,
+            'send_messages': permissions.send_messages,
+            'embed_links': permissions.embed_links,
+            'add_reactions': permissions.add_reactions,
+            'read_message_history': permissions.read_message_history,
+            'use_external_emojis': permissions.use_external_emojis
+        }
+        
+        for perm in required:
+            if not perm_map.get(perm, False):
+                missing.append(perm)
+        
+        return missing
+    
+    async def send_permission_warning(self, channel: discord.TextChannel, missing: List[str]):
+        """Send permission warning to a channel."""
+        embed = discord.Embed(
+            title="⚠️ Lexus: Missing Permissions",
+            description="I don't have all the permissions I need to work properly.",
+            color=discord.Color.orange()
+        )
+        
+        missing_text = "\n".join([f"❌ `{perm.replace('_', ' ').title()}`" for perm in missing])
+        embed.add_field(name="Missing Permissions", value=missing_text, inline=False)
+        
+        embed.add_field(
+            name="How to Fix",
+            value=(
+                "1. Go to Server Settings → Roles\n"
+                "2. Find my bot role\n"
+                "3. Enable the missing permissions above\n"
+                "4. Or use `!lexus checkperms` to verify"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="I'll work better with these permissions! 🤖")
+        
+        try:
+            await channel.send(embed=embed)
+        except:
+            # Fallback to plain text if embeds don't work
+            await channel.send(
+                f"⚠️ **Lexus Warning:** I'm missing these permissions: {', '.join(missing)}\n"
+                "Please grant them in Server Settings → Roles for me to work properly!"
+            )
 
     def get_user_session(self, user_id: int) -> UserSession:
         """Get or create user session with automatic cleanup."""
@@ -698,43 +786,63 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Natural message handling with full behavioral analysis."""
+        """Natural message handling with full behavioral analysis - OPTIMIZED."""
+        # Early returns for performance
         if message.author.bot or not message.guild:
+            return
+        
+        # Quick channel check
+        if message.channel.id not in self.ai_channels:
             return
 
         session = self.get_user_session(message.author.id)
         
-        # STEP 1: BEHAVIORAL ANALYSIS (silent, internal)
-        context = self.analyzer.analyze(message.content, session)
-        
-        # STEP 2: CRISIS HANDLING (improved to reduce false positives)
-        if context.emotional_safety_level <= 2 and context.crisis_indicators:
-            # Only escalate if indicators are present AND safety is very low
-            await self.handle_crisis(message, context)
-            return
-        
-        # STEP 3: AI CONVERSATION in designated channels
-        if message.channel.id in self.ai_channels:
-            await self.handle_intelligent_conversation(message, session, context)
-
-    async def handle_intelligent_conversation(self, message, session: UserSession, 
-                                             context: BehavioralContext):
-        """Handle conversation with full behavioral intelligence."""
-        
-        # Rate limiting (adjusted based on context)
+        # Rate limiting check BEFORE expensive operations
         current_time = time.time()
-        cooldown = 20 if context.emotional_safety_level < 5 else 30
+        cooldown = 15  # Reduced from 20-30s to 15s
         
         if current_time - session.last_activity < cooldown:
             await message.add_reaction("⏱️")
             return
+        
+        session.last_activity = current_time
+        
+        # STEP 1: BEHAVIORAL ANALYSIS (silent, internal)
+        try:
+            context = self.analyzer.analyze(message.content, session)
+        except Exception as e:
+            logger.error(f"Behavioral analysis error: {e}")
+            await message.channel.send("Had a brain glitch. Try again?")
+            return
+        
+        # STEP 2: CRISIS HANDLING (improved to reduce false positives)
+        if context.emotional_safety_level <= 2 and context.crisis_indicators:
+            await self.handle_crisis(message, context)
+            return
+        
+        # STEP 3: AI CONVERSATION
+        await self.handle_intelligent_conversation(message, session, context)
+
+    async def handle_intelligent_conversation(self, message, session: UserSession, 
+                                             context: BehavioralContext):
+        """Handle conversation with full behavioral intelligence - OPTIMIZED."""
+        
+        # Check permissions before trying to respond
+        required_perms = ['send_messages', 'embed_links']
+        if not all(getattr(message.channel.permissions_for(message.guild.me), perm) for perm in required_perms):
+            logger.warning(f"Missing permissions in {message.channel.name}")
+            try:
+                await message.add_reaction("⚠️")
+            except:
+                pass
+            return
 
         async with message.channel.typing():
-            # Natural delay based on response complexity
+            # Faster typing delay
             if context.response_length_target == "minimal":
-                await asyncio.sleep(random.uniform(0.5, 1.5))
+                await asyncio.sleep(random.uniform(0.3, 0.8))  # Faster for short responses
             else:
-                await asyncio.sleep(random.uniform(1.5, 2.5))
+                await asyncio.sleep(random.uniform(0.8, 1.5))  # Still fast for longer
             
             response = await self.chat_with_ai(
                 message.author.id, message.content, session, context
@@ -746,7 +854,7 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             for i, part in enumerate(parts):
                 await message.channel.send(part)
                 if i < len(parts) - 1:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)  # Reduced delay between parts
         else:
             await message.channel.send(response)
 
@@ -819,7 +927,8 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
                 "`lexus addai [channel]` - Enable AI chat\n"
                 "`lexus addmod [channel]` - Crisis alerts\n"
                 "`lexus removeai [channel]` - Disable AI chat\n"
-                "`lexus status` - View configuration"
+                "`lexus status` - View configuration\n"
+                "`lexus checkperms` - Check permissions"
             ),
             inline=False
         )
@@ -857,8 +966,67 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
         await ctx.send(f"✅ {channel.mention} will receive crisis alerts.")
 
     @lexus.command()
+    async def checkperms(self, ctx):
+        """Check if bot has all required permissions."""
+        required_permissions = {
+            'read_messages': 'Read Messages',
+            'send_messages': 'Send Messages',
+            'embed_links': 'Embed Links',
+            'add_reactions': 'Add Reactions',
+            'read_message_history': 'Read Message History',
+            'use_external_emojis': 'Use External Emojis'
+        }
+        
+        bot_perms = ctx.channel.permissions_for(ctx.guild.me)
+        
+        embed = discord.Embed(
+            title="🔍 Permission Check",
+            description=f"Checking permissions in {ctx.channel.mention}",
+            color=discord.Color.blue()
+        )
+        
+        has_all = True
+        status_text = []
+        
+        for perm_key, perm_name in required_permissions.items():
+            has_perm = getattr(bot_perms, perm_key, False)
+            status = "✅" if has_perm else "❌"
+            status_text.append(f"{status} {perm_name}")
+            if not has_perm:
+                has_all = False
+        
+        embed.add_field(
+            name="Permission Status",
+            value="\n".join(status_text),
+            inline=False
+        )
+        
+        if has_all:
+            embed.add_field(
+                name="✅ All Good!",
+                value="I have all the permissions I need to work properly.",
+                inline=False
+            )
+            embed.color = discord.Color.green()
+        else:
+            embed.add_field(
+                name="⚠️ Missing Permissions",
+                value=(
+                    "I'm missing some permissions. To fix:\n"
+                    "1. Go to Server Settings → Roles\n"
+                    "2. Find my bot role\n"
+                    "3. Enable the permissions marked with ❌\n"
+                    "4. Run this command again to verify"
+                ),
+                inline=False
+            )
+            embed.color = discord.Color.orange()
+        
+        await ctx.send(embed=embed)
+
+    @lexus.command()
     async def status(self, ctx):
-        """View bot configuration and statistics."""
+        """View bot configuration and statistics - ENHANCED."""
         embed = discord.Embed(title="📊 Lexus Status", color=discord.Color.green())
         
         # Channel configuration
@@ -871,8 +1039,13 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
         # Session statistics
         embed.add_field(name="Active Sessions", value=str(len(self.sessions)), inline=True)
         embed.add_field(
-            name="API Status",
+            name="API Provider",
             value=f"✅ {self.api_provider.upper()}" if self.api_key else "❌ No API Key",
+            inline=True
+        )
+        embed.add_field(
+            name="Model",
+            value=self.model_name if self.api_key else "N/A",
             inline=True
         )
         
@@ -886,6 +1059,20 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             
             mood_text = "\n".join([f"{mood}: {count}" for mood, count in mood_counts.items()]) or "No data"
             embed.add_field(name="Current Mood Distribution", value=mood_text, inline=False)
+        
+        # Performance metrics
+        embed.add_field(
+            name="⚡ Performance",
+            value=f"Cooldown: 15s\nTimeout: 15s\nMax connections: 20",
+            inline=True
+        )
+        
+        # Quick tips
+        embed.add_field(
+            name="💡 Quick Commands",
+            value="`!lexus checkperms` - Verify permissions\n`!lexus debug` - API status\n`!chat <msg>` - Talk to me",
+            inline=False
+        )
         
         await ctx.send(embed=embed)
 
@@ -1044,28 +1231,34 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
     
     @commands.command()
     async def chat(self, ctx, *, message: str):
-        """Chat with Lexus AI anywhere (not just AI channels)."""
+        """Chat with Lexus AI anywhere (not just AI channels) - OPTIMIZED."""
         session = self.get_user_session(ctx.author.id)
         
+        # Rate limiting
+        current_time = time.time()
+        cooldown = 15
+        
+        if current_time - session.last_activity < cooldown:
+            await ctx.message.add_reaction("⏱️")
+            return
+        
+        session.last_activity = current_time
+        
         # Perform behavioral analysis
-        context = self.analyzer.analyze(message, session)
+        try:
+            context = self.analyzer.analyze(message, session)
+        except Exception as e:
+            logger.error(f"Analysis error in !chat: {e}")
+            await ctx.send("Had a brain glitch. Try again?")
+            return
         
         # Check for crisis
         if context.emotional_safety_level <= 2 and context.crisis_indicators:
             await self.handle_crisis(ctx.message, context)
             return
         
-        # Rate limiting
-        current_time = time.time()
-        cooldown = 20 if context.emotional_safety_level < 5 else 30
-        
-        if current_time - session.last_activity < cooldown:
-            await ctx.message.add_reaction("⏱️")
-            await ctx.send("Hold on, give me a moment to catch up.", delete_after=5)
-            return
-        
         async with ctx.typing():
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await asyncio.sleep(random.uniform(0.3, 0.8))
             response = await self.chat_with_ai(ctx.author.id, message, session, context)
         
         if len(response) > 1900:
@@ -1073,7 +1266,7 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             for i, part in enumerate(parts):
                 await ctx.send(part)
                 if i < len(parts) - 1:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
         else:
             await ctx.send(response)
 
