@@ -26,6 +26,7 @@ class UserIntent(Enum):
     SHARING_UPDATE = "sharing_update"
     ASKING_QUESTION = "asking_question"
     MAKING_STATEMENT = "making_statement"
+    ONGOING = "ongoing"  # Added missing enum value
 
 class MoodState(Enum):
     """User emotional state."""
@@ -541,7 +542,31 @@ The user is struggling. Be steady and present:
 - Acknowledge what they're saying without dramatizing it
 - Help them slow down and ground: "okay, walk me through what actually happened"
 - Don't rush to fix or reassure. Just be there.
-- If it's serious and repeating, gently point toward real support"""
+- If it's serious and repeating, gently point toward real support""",
+            
+            UserIntent.ONGOING: """
+Continuing the conversation naturally:
+- Build on what was said before
+- Match the established tone and flow
+- Don't restart or over-explain""",
+            
+            UserIntent.SHARING_UPDATE: """
+The user is sharing something that happened:
+- Acknowledge it briefly
+- You can ask a follow-up if it seems relevant
+- Don't over-analyze or turn it into advice time""",
+            
+            UserIntent.ASKING_QUESTION: """
+Direct question - give a direct answer:
+- Answer clearly and concisely
+- You can explain if needed, but don't lecture
+- It's okay to say "I don't know" if unsure""",
+            
+            UserIntent.MAKING_STATEMENT: """
+Just making a statement:
+- Brief acknowledgment is fine
+- You don't always need to ask a question back
+- Sometimes "yeah" or a simple observation is enough"""
         }
         
         # MOOD-SPECIFIC TONE ADJUSTMENTS
