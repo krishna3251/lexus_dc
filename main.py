@@ -3,6 +3,7 @@ import discord
 import logging
 import os
 import time
+import wavelink
 import asyncio
 import psutil
 import platform
@@ -148,6 +149,18 @@ def get_system_info():
     }
 
 # === Events ===
+@bot.event
+async def on_ready():
+    await wavelink.NodePool.create_node(
+        bot=bot,
+        host=os.getenv("LAVALINK_HOST"),
+        port=443,
+        password=os.getenv("LAVALINK_PASSWORD"),
+        https=True
+    )
+    await bot.tree.sync()
+    print("Lexus online and Lavalink connected")
+
 @bot.event
 async def on_ready():
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
