@@ -19,7 +19,8 @@ class Moderation(commands.Cog):
         # 👉 ROLES TO IGNORE (ADD YOUR ROLE IDS HERE)
         self.ignored_role_ids = {
             123456789012345678,  # Moderator role ID
-            987654321098765432,  # Admin role ID
+            987654321098765432,
+            1405824212270321707,# Admin role ID
         }
 
         self.enabled_attributes = [
