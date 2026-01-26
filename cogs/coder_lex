@@ -1,0 +1,597 @@
+import discord
+from discord.ext import commands
+import aiohttp
+import asyncio
+import io
+import os
+import logging
+from typing import Optional, List
+from dataclasses import dataclass
+from enum import Enum
+
+# ================== LOGGING ==================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ================== CONFIG ==================
+
+@dataclass
+class Config:
+    """Configuration settings for the bot"""
+    OPENROUTER_API_KEY: str
+    OPENROUTER_URL: str = "https://openrouter.ai/api/v1/chat/completions"
+    MODEL: str = "anthropic/claude-3.5-sonnet"
+    TEMPERATURE: float = 0.2
+    MAX_FILE_CHARS: int = 12000
+    MAX_MEMORY_CHARS: int = 6000
+    EMBED_CHUNK: int = 1000
+    API_TIMEOUT: int = 90
+    
+    @classmethod
+    def from_env(cls):
+        """Load configuration from environment variables"""
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+        return cls(OPENROUTER_API_KEY=api_key)
+
+# ================== EXCEPTIONS ==================
+
+class BotException(Exception):
+    """Base exception for bot errors"""
+    pass
+
+class APIException(BotException):
+    """Exception for API-related errors"""
+    pass
+
+class FileSizeException(BotException):
+    """Exception for file size violations"""
+    pass
+
+class MemoryException(BotException):
+    """Exception for memory-related errors"""
+    pass
+
+# ================== ENUMS ==================
+
+class PromptType(Enum):
+    """Types of prompts for different operations"""
+    CODE_GENERATION = "code_generation"
+    CODE_REVIEW = "code_review"
+    CODE_ANALYSIS = "code_analysis"
+
+# ================== MEMORY ==================
+
+class MemoryStore:
+    """Thread-safe memory store for user code history"""
+    
+    def __init__(self, max_chars: int):
+        self.data = {}
+        self.max_chars = max_chars
+        self._lock = asyncio.Lock()
+    
+    async def get(self, user_id: int) -> Optional[str]:
+        """Retrieve stored code for a user"""
+        async with self._lock:
+            try:
+                return self.data.get(user_id)
+            except Exception as e:
+                logger.error(f"Error retrieving memory for user {user_id}: {e}")
+                raise MemoryException(f"Failed to retrieve memory: {e}")
+    
+    async def set(self, user_id: int, content: str) -> None:
+        """Store code for a user with size limit"""
+        async with self._lock:
+            try:
+                if not content:
+                    logger.warning(f"Attempted to store empty content for user {user_id}")
+                    return
+                
+                trimmed_content = content[-self.max_chars:]
+                self.data[user_id] = trimmed_content
+                logger.info(f"Stored {len(trimmed_content)} chars for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error storing memory for user {user_id}: {e}")
+                raise MemoryException(f"Failed to store memory: {e}")
+    
+    async def clear(self, user_id: int) -> bool:
+        """Clear stored code for a user"""
+        async with self._lock:
+            try:
+                if user_id in self.data:
+                    del self.data[user_id]
+                    logger.info(f"Cleared memory for user {user_id}")
+                    return True
+                return False
+            except Exception as e:
+                logger.error(f"Error clearing memory for user {user_id}: {e}")
+                raise MemoryException(f"Failed to clear memory: {e}")
+
+# ================== LLM SERVICE ==================
+
+class LLMService:
+    """Service for interacting with OpenRouter API"""
+    
+    def __init__(self, config: Config):
+        self.config = config
+        self.session: Optional[aiohttp.ClientSession] = None
+    
+    async def initialize(self) -> None:
+        """Initialize the HTTP session"""
+        if self.session is None:
+            timeout = aiohttp.ClientTimeout(total=self.config.API_TIMEOUT)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+            logger.info("LLM service initialized")
+    
+    async def close(self) -> None:
+        """Close the HTTP session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+            logger.info("LLM service closed")
+    
+    def _build_headers(self) -> dict:
+        """Build request headers"""
+        return {
+            "Authorization": f"Bearer {self.config.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://lexus-bot.local",
+            "X-Title": "Lexus Discord Bot",
+        }
+    
+    def _build_payload(self, system_prompt: str, user_prompt: str) -> dict:
+        """Build API request payload"""
+        return {
+            "model": self.config.MODEL,
+            "temperature": self.config.TEMPERATURE,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+    
+    async def call(self, system_prompt: str, user_prompt: str) -> str:
+        """Make API call to OpenRouter"""
+        if not self.session:
+            await self.initialize()
+        
+        payload = self._build_payload(system_prompt, user_prompt)
+        headers = self._build_headers()
+        
+        try:
+            async with self.session.post(
+                self.config.OPENROUTER_URL,
+                json=payload,
+                headers=headers
+            ) as resp:
+                if resp.status == 429:
+                    logger.warning("Rate limit exceeded")
+                    raise APIException("Rate limit exceeded. Please try again later.")
+                
+                if resp.status == 401:
+                    logger.error("Invalid API key")
+                    raise APIException("Invalid API key. Please check configuration.")
+                
+                if resp.status >= 500:
+                    logger.error(f"OpenRouter server error: {resp.status}")
+                    raise APIException("OpenRouter service unavailable. Please try again.")
+                
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"OpenRouter error {resp.status}: {error_text}")
+                    raise APIException(f"API request failed with status {resp.status}")
+                
+                data = await resp.json()
+                
+                if "choices" not in data or not data["choices"]:
+                    logger.error("Invalid API response structure")
+                    raise APIException("Invalid response from API")
+                
+                content = data["choices"][0]["message"]["content"]
+                logger.info(f"Successfully generated {len(content)} characters")
+                return content
+                
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error: {e}")
+            raise APIException(f"Network error: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error("API request timed out")
+            raise APIException("Request timed out. Please try again.")
+        except Exception as e:
+            logger.error(f"Unexpected error in API call: {e}")
+            raise APIException(f"Unexpected error: {str(e)}")
+
+# ================== PROMPT BUILDER ==================
+
+class PromptBuilder:
+    """Build prompts for different operation types"""
+    
+    @staticmethod
+    def build_system_prompt(prompt_type: PromptType) -> str:
+        """Build system prompt based on operation type"""
+        prompts = {
+            PromptType.CODE_GENERATION: (
+                "You are a senior software engineer. "
+                "If previous code is provided, modify it according to the instruction. "
+                "Otherwise, generate new code from scratch. "
+                "Think carefully about edge cases and best practices. "
+                "Return only final, valid, production-ready code without explanations."
+            ),
+            PromptType.CODE_REVIEW: (
+                "You are a senior software engineer and code reviewer. "
+                "Apply the instruction precisely while maintaining code quality. "
+                "Preserve existing functionality unless explicitly told otherwise. "
+                "Improve code style, performance, and maintainability. "
+                "Return only the final improved code without explanations."
+            ),
+            PromptType.CODE_ANALYSIS: (
+                "You are a senior software engineer conducting a code review. "
+                "Analyze the provided code thoroughly. "
+                "Do not rewrite or modify the code. "
+                "Provide a detailed analysis covering:\n"
+                "1. Potential bugs and issues\n"
+                "2. Security vulnerabilities\n"
+                "3. Performance concerns\n"
+                "4. Code quality and maintainability\n"
+                "5. Suggested improvements"
+            ),
+        }
+        return prompts.get(prompt_type, "")
+    
+    @staticmethod
+    def build_user_prompt(
+        instruction: str,
+        previous_code: Optional[str] = None,
+        current_code: Optional[str] = None,
+        filename: Optional[str] = None
+    ) -> str:
+        """Build user prompt with context"""
+        parts = []
+        
+        if filename:
+            parts.append(f"Filename: {filename}\n")
+        
+        if previous_code:
+            parts.append(f"Previous code:\n{previous_code}\n")
+        
+        if current_code:
+            parts.append(f"Source code:\n{current_code}\n")
+        
+        parts.append(f"Instruction:\n{instruction}")
+        
+        return "\n".join(parts)
+
+# ================== OUTPUT HANDLER ==================
+
+class OutputHandler:
+    """Handle code output formatting and sending"""
+    
+    def __init__(self, embed_chunk_size: int):
+        self.embed_chunk_size = embed_chunk_size
+    
+    def create_code_embeds(self, code: str, language: str = "") -> List[discord.Embed]:
+        """Create embeds for code display"""
+        embeds = []
+        chunks = [
+            code[i:i + self.embed_chunk_size]
+            for i in range(0, len(code), self.embed_chunk_size)
+        ]
+        
+        embed = discord.Embed(
+            title="✨ Generated Code",
+            color=discord.Color.blurple()
+        )
+        
+        for i, chunk in enumerate(chunks):
+            embed.add_field(
+                name=f"Part {i + 1}/{len(chunks)}",
+                value=f"```{language}\n{chunk}\n```",
+                inline=False,
+            )
+            
+            if len(embed.fields) == 5:
+                embeds.append(embed)
+                embed = discord.Embed(
+                    title="✨ Generated Code (continued)",
+                    color=discord.Color.blurple()
+                )
+        
+        if embed.fields:
+            embeds.append(embed)
+        
+        return embeds
+    
+    async def send_code(
+        self,
+        destination,
+        code: str,
+        filename: str = "generated_code.py"
+    ) -> None:
+        """Send code as embeds or file"""
+        try:
+            if len(code) < 4000:
+                embeds = self.create_code_embeds(code)
+                for embed in embeds:
+                    await destination.send(embed=embed)
+            else:
+                file = discord.File(
+                    io.BytesIO(code.encode('utf-8')),
+                    filename=filename
+                )
+                await destination.send(
+                    content="📄 Code is lengthy, sending as file.",
+                    file=file
+                )
+            logger.info(f"Successfully sent code output ({len(code)} chars)")
+        except discord.HTTPException as e:
+            logger.error(f"Failed to send code: {e}")
+            raise BotException(f"Failed to send code: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error sending code: {e}")
+            raise BotException(f"Unexpected error: {str(e)}")
+
+# ================== COG ==================
+
+class CodeCog(commands.Cog):
+    """Main cog for code generation and analysis"""
+    
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        try:
+            self.config = Config.from_env()
+            self.memory = MemoryStore(self.config.MAX_MEMORY_CHARS)
+            self.llm_service = LLMService(self.config)
+            self.prompt_builder = PromptBuilder()
+            self.output_handler = OutputHandler(self.config.EMBED_CHUNK)
+            logger.info("CodeCog initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize CodeCog: {e}")
+            raise
+    
+    async def cog_load(self):
+        """Called when cog is loaded"""
+        await self.llm_service.initialize()
+        logger.info("CodeCog loaded")
+    
+    def cog_unload(self):
+        """Called when cog is unloaded"""
+        asyncio.create_task(self.llm_service.close())
+        logger.info("CodeCog unloaded")
+    
+    async def _handle_error(self, destination, error: Exception) -> None:
+        """Centralized error handling"""
+        error_messages = {
+            APIException: "⚠️ API Error: {}",
+            FileSizeException: "⚠️ File Error: {}",
+            MemoryException: "⚠️ Memory Error: {}",
+            BotException: "⚠️ Bot Error: {}",
+        }
+        
+        error_type = type(error)
+        message_template = error_messages.get(error_type, "⚠️ Unexpected Error: {}")
+        error_message = message_template.format(str(error))
+        
+        try:
+            if hasattr(destination, 'followup'):
+                await destination.followup.send(error_message)
+            else:
+                await destination.send(error_message)
+        except Exception as e:
+            logger.error(f"Failed to send error message: {e}")
+    
+    async def _validate_file(self, file: discord.Attachment) -> str:
+        """Validate and read file content"""
+        try:
+            raw = await file.read()
+            code_text = raw.decode("utf-8", errors="ignore")
+            
+            if len(code_text) > self.config.MAX_FILE_CHARS:
+                raise FileSizeException(
+                    f"File exceeds maximum size of {self.config.MAX_FILE_CHARS} characters"
+                )
+            
+            if not code_text.strip():
+                raise FileSizeException("File is empty or contains no readable text")
+            
+            return code_text
+        except UnicodeDecodeError as e:
+            logger.error(f"Failed to decode file {file.filename}: {e}")
+            raise FileSizeException("File encoding not supported. Please use UTF-8.")
+        except Exception as e:
+            logger.error(f"Error reading file {file.filename}: {e}")
+            raise FileSizeException(f"Failed to read file: {str(e)}")
+    
+    # ---------- PREFIX COMMAND ----------
+    
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Handle prefix-based code generation"""
+        if message.author.bot:
+            return
+        
+        if not message.content.lower().startswith("lex code"):
+            return
+        
+        task = message.content[len("lex code"):].strip()
+        if not task:
+            await message.channel.send("❓ Please provide a coding task.")
+            return
+        
+        status_msg = await message.channel.send("🧠 Lexus is thinking...")
+        
+        try:
+            previous = await self.memory.get(message.author.id)
+            
+            user_prompt = self.prompt_builder.build_user_prompt(
+                instruction=task,
+                previous_code=previous
+            )
+            
+            system_prompt = self.prompt_builder.build_system_prompt(
+                PromptType.CODE_GENERATION
+            )
+            
+            code = await self.llm_service.call(system_prompt, user_prompt)
+            
+            await self.memory.set(message.author.id, code)
+            await status_msg.delete()
+            await self.output_handler.send_code(message.channel, code)
+            
+        except Exception as e:
+            logger.error(f"Error in prefix command: {e}")
+            await status_msg.delete()
+            await self._handle_error(message.channel, e)
+    
+    # ---------- SLASH: /code ----------
+    
+    @commands.slash_command(
+        name="code",
+        description="Generate or modify code with AI assistance"
+    )
+    async def slash_code(
+        self,
+        ctx: discord.ApplicationContext,
+        prompt: discord.Option(str, description="What code do you want to generate?")
+    ):
+        """Generate code based on user prompt"""
+        await ctx.defer()
+        
+        try:
+            previous = await self.memory.get(ctx.author.id)
+            
+            user_prompt = self.prompt_builder.build_user_prompt(
+                instruction=prompt,
+                previous_code=previous
+            )
+            
+            system_prompt = self.prompt_builder.build_system_prompt(
+                PromptType.CODE_GENERATION
+            )
+            
+            code = await self.llm_service.call(system_prompt, user_prompt)
+            
+            await self.memory.set(ctx.author.id, code)
+            await self.output_handler.send_code(ctx, code)
+            
+        except Exception as e:
+            logger.error(f"Error in /code command: {e}")
+            await self._handle_error(ctx, e)
+    
+    # ---------- SLASH: /code-review ----------
+    
+    @commands.slash_command(
+        name="code-review",
+        description="Review and improve code from a file"
+    )
+    async def code_review(
+        self,
+        ctx: discord.ApplicationContext,
+        instruction: discord.Option(str, description="What improvements do you want?"),
+        file: discord.Option(discord.Attachment, description="Code file to review")
+    ):
+        """Review and improve code from file"""
+        await ctx.defer()
+        
+        try:
+            code_text = await self._validate_file(file)
+            
+            user_prompt = self.prompt_builder.build_user_prompt(
+                instruction=instruction,
+                current_code=code_text,
+                filename=file.filename
+            )
+            
+            system_prompt = self.prompt_builder.build_system_prompt(
+                PromptType.CODE_REVIEW
+            )
+            
+            result = await self.llm_service.call(system_prompt, user_prompt)
+            
+            await self.memory.set(ctx.author.id, result)
+            
+            new_filename = f"improved_{file.filename}"
+            await self.output_handler.send_code(ctx, result, filename=new_filename)
+            
+        except Exception as e:
+            logger.error(f"Error in /code-review command: {e}")
+            await self._handle_error(ctx, e)
+    
+    # ---------- SLASH: /code-analyze ----------
+    
+    @commands.slash_command(
+        name="code-analyze",
+        description="Analyze code for issues and improvements"
+    )
+    async def code_analyze(
+        self,
+        ctx: discord.ApplicationContext,
+        file: discord.Option(discord.Attachment, description="Code file to analyze")
+    ):
+        """Analyze code and provide feedback"""
+        await ctx.defer()
+        
+        try:
+            code_text = await self._validate_file(file)
+            
+            system_prompt = self.prompt_builder.build_system_prompt(
+                PromptType.CODE_ANALYSIS
+            )
+            
+            analysis = await self.llm_service.call(system_prompt, code_text)
+            
+            if len(analysis) < 4000:
+                embed = discord.Embed(
+                    title="📊 Code Analysis",
+                    description=analysis,
+                    color=discord.Color.green()
+                )
+                await ctx.followup.send(embed=embed)
+            else:
+                file_obj = discord.File(
+                    io.BytesIO(analysis.encode('utf-8')),
+                    filename=f"analysis_{file.filename}.txt"
+                )
+                await ctx.followup.send(
+                    content="📄 Analysis is lengthy, sending as file.",
+                    file=file_obj
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in /code-analyze command: {e}")
+            await self._handle_error(ctx, e)
+    
+    # ---------- SLASH: /code-memory ----------
+    
+    @commands.slash_command(
+        name="code-memory",
+        description="Clear your stored code history"
+    )
+    async def code_memory(self, ctx: discord.ApplicationContext):
+        """Clear user's code memory"""
+        try:
+            cleared = await self.memory.clear(ctx.author.id)
+            
+            if cleared:
+                await ctx.respond("✅ Code memory cleared successfully!")
+            else:
+                await ctx.respond("ℹ️ No code memory found to clear.")
+                
+        except Exception as e:
+            logger.error(f"Error in /code-memory command: {e}")
+            await self._handle_error(ctx, e)
+
+# ================== SETUP ==================
+
+def setup(bot: commands.Bot):
+    """Setup function to add cog to bot"""
+    try:
+        bot.add_cog(CodeCog(bot))
+        logger.info("CodeCog added to bot")
+    except Exception as e:
+        logger.error(f"Failed to add CodeCog: {e}")
+        raise
