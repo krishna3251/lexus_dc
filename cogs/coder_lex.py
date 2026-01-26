@@ -531,14 +531,6 @@ class CodeCog(commands.Cog):
             self.llm_service = LLMService(self.config)
             self.prompt_builder = PromptBuilder()
             self.output_handler = OutputHandler(self.config, self.llm_service)
-            
-            # Create command tree context menu
-            self.ctx_menu = app_commands.ContextMenu(
-                name='Analyze Code',
-                callback=self.context_menu_callback,
-            )
-            self.bot.tree.add_command(self.ctx_menu)
-            
             logger.info("CodeCog initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize CodeCog: {e}")
@@ -551,34 +543,8 @@ class CodeCog(commands.Cog):
     
     async def cog_unload(self):
         """Called when cog is unloaded"""
-        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
         await self.llm_service.close()
         logger.info("CodeCog unloaded")
-    
-    async def context_menu_callback(self, interaction: discord.Interaction, message: discord.Message):
-        """Context menu callback for analyzing code"""
-        await interaction.response.send_message("Context menu feature coming soon!", ephemeral=True)
-    
-    async def _handle_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        """Centralized error handling"""
-        error_messages = {
-            APIException: "⚠️ API Error: {}",
-            FileSizeException: "⚠️ File Error: {}",
-            MemoryException: "⚠️ Memory Error: {}",
-            BotException: "⚠️ Bot Error: {}",
-        }
-        
-        error_type = type(error)
-        message_template = error_messages.get(error_type, "⚠️ Unexpected Error: {}")
-        error_message = message_template.format(str(error))
-        
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(error_message)
-            else:
-                await interaction.response.send_message(error_message)
-        except Exception as e:
-            logger.error(f"Failed to send error message: {e}")
     
     async def _validate_file(self, file: discord.Attachment) -> str:
         """Validate and read file content"""
@@ -602,20 +568,38 @@ class CodeCog(commands.Cog):
             logger.error(f"Error reading file {file.filename}: {e}")
             raise FileSizeException(f"Failed to read file: {str(e)}")
     
-    # ---------- PREFIX COMMAND ----------
+    # ---------- PREFIX COMMANDS ----------
     
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Handle prefix-based code generation"""
+        """Handle all prefix-based commands"""
         if message.author.bot:
             return
         
-        if not message.content.lower().startswith("lex code"):
-            return
+        content = message.content.strip()
+        content_lower = content.lower()
         
-        task = message.content[len("lex code"):].strip()
+        # lex code <prompt>
+        if content_lower.startswith("lex code"):
+            await self._handle_code_generation(message, content)
+        
+        # lex review <instruction> (with file attachment)
+        elif content_lower.startswith("lex review"):
+            await self._handle_code_review(message, content)
+        
+        # lex analyze (with file attachment)
+        elif content_lower.startswith("lex analyze"):
+            await self._handle_code_analyze(message)
+        
+        # lex memory
+        elif content_lower.startswith("lex memory"):
+            await self._handle_memory_clear(message)
+    
+    async def _handle_code_generation(self, message: discord.Message, content: str):
+        """Handle: lex code <prompt>"""
+        task = content[len("lex code"):].strip()
         if not task:
-            await message.channel.send("❓ Please provide a coding task.")
+            await message.channel.send("❓ Please provide a coding task. Usage: `lex code <your request>`")
             return
         
         status_msg = await message.channel.send("🧠 Lexus is thinking...")
@@ -639,71 +623,33 @@ class CodeCog(commands.Cog):
             await self.output_handler.send_code(message.channel, code)
             
         except Exception as e:
-            logger.error(f"Error in prefix command: {e}")
+            logger.error(f"Error in lex code: {e}")
             await status_msg.delete()
-            await message.channel.send(f"⚠️ Error: {str(e)}")
+            error_msg = self._format_error_message(e)
+            await message.channel.send(error_msg)
     
-    # ---------- SLASH: /code ----------
-    
-    @app_commands.command(name="code", description="Generate or modify code with AI assistance")
-    @app_commands.describe(
-        prompt="What code do you want to generate?",
-        auto_continue="Auto-continue if code is cut off?"
-    )
-    async def slash_code(
-        self,
-        interaction: discord.Interaction,
-        prompt: str,
-        auto_continue: bool = True
-    ):
-        """Generate code based on user prompt"""
-        await interaction.response.defer()
+    async def _handle_code_review(self, message: discord.Message, content: str):
+        """Handle: lex review <instruction> (with file)"""
+        instruction = content[len("lex review"):].strip()
+        
+        if not message.attachments:
+            await message.channel.send(
+                "❓ Please attach a code file to review.\n"
+                "Usage: `lex review <instruction>` with a file attached"
+            )
+            return
+        
+        if not instruction:
+            await message.channel.send(
+                "❓ Please provide review instructions.\n"
+                "Usage: `lex review <what improvements you want>` with a file attached"
+            )
+            return
+        
+        status_msg = await message.channel.send("🔍 Reviewing code...")
         
         try:
-            previous = await self.memory.get(interaction.user.id)
-            
-            user_prompt = self.prompt_builder.build_user_prompt(
-                instruction=prompt,
-                previous_code=previous
-            )
-            
-            system_prompt = self.prompt_builder.build_system_prompt(
-                PromptType.CODE_GENERATION
-            )
-            
-            code = await self.llm_service.call(system_prompt, user_prompt)
-            
-            await self.memory.set(interaction.user.id, code)
-            
-            # Send to the channel, not interaction
-            await self.output_handler.send_code(interaction.channel, code, auto_continue=auto_continue)
-            
-            # Acknowledge with followup
-            await interaction.followup.send("✅ Code generated!", ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"Error in /code command: {e}")
-            await self._handle_error(interaction, e)
-    
-    # ---------- SLASH: /code-review ----------
-    
-    @app_commands.command(name="code-review", description="Review and improve code from a file")
-    @app_commands.describe(
-        instruction="What improvements do you want?",
-        file="Code file to review",
-        auto_continue="Auto-continue if code is cut off?"
-    )
-    async def code_review(
-        self,
-        interaction: discord.Interaction,
-        instruction: str,
-        file: discord.Attachment,
-        auto_continue: bool = True
-    ):
-        """Review and improve code from file"""
-        await interaction.response.defer()
-        
-        try:
+            file = message.attachments[0]
             code_text = await self._validate_file(file)
             
             user_prompt = self.prompt_builder.build_user_prompt(
@@ -718,31 +664,31 @@ class CodeCog(commands.Cog):
             
             result = await self.llm_service.call(system_prompt, user_prompt)
             
-            await self.memory.set(interaction.user.id, result)
+            await self.memory.set(message.author.id, result)
+            await status_msg.delete()
             
             new_filename = f"improved_{file.filename}"
-            await self.output_handler.send_code(interaction.channel, result, filename=new_filename, auto_continue=auto_continue)
-            
-            # Acknowledge with followup
-            await interaction.followup.send("✅ Code review completed!", ephemeral=True)
+            await self.output_handler.send_code(message.channel, result, filename=new_filename)
             
         except Exception as e:
-            logger.error(f"Error in /code-review command: {e}")
-            await self._handle_error(interaction, e)
+            logger.error(f"Error in lex review: {e}")
+            await status_msg.delete()
+            error_msg = self._format_error_message(e)
+            await message.channel.send(error_msg)
     
-    # ---------- SLASH: /code-analyze ----------
-    
-    @app_commands.command(name="code-analyze", description="Analyze code for issues and improvements")
-    @app_commands.describe(file="Code file to analyze")
-    async def code_analyze(
-        self,
-        interaction: discord.Interaction,
-        file: discord.Attachment
-    ):
-        """Analyze code and provide feedback"""
-        await interaction.response.defer()
+    async def _handle_code_analyze(self, message: discord.Message):
+        """Handle: lex analyze (with file)"""
+        if not message.attachments:
+            await message.channel.send(
+                "❓ Please attach a code file to analyze.\n"
+                "Usage: `lex analyze` with a file attached"
+            )
+            return
+        
+        status_msg = await message.channel.send("📊 Analyzing code...")
         
         try:
+            file = message.attachments[0]
             code_text = await self._validate_file(file)
             
             system_prompt = self.prompt_builder.build_system_prompt(
@@ -751,43 +697,58 @@ class CodeCog(commands.Cog):
             
             analysis = await self.llm_service.call(system_prompt, code_text)
             
+            await status_msg.delete()
+            
             if len(analysis) < 4000:
                 embed = discord.Embed(
                     title="📊 Code Analysis",
                     description=analysis,
                     color=discord.Color.green()
                 )
-                await interaction.followup.send(embed=embed)
+                await message.channel.send(embed=embed)
             else:
                 file_obj = discord.File(
                     io.BytesIO(analysis.encode('utf-8')),
                     filename=f"analysis_{file.filename}.txt"
                 )
-                await interaction.followup.send(
+                await message.channel.send(
                     content="📄 Analysis is lengthy, sending as file.",
                     file=file_obj
                 )
             
         except Exception as e:
-            logger.error(f"Error in /code-analyze command: {e}")
-            await self._handle_error(interaction, e)
+            logger.error(f"Error in lex analyze: {e}")
+            await status_msg.delete()
+            error_msg = self._format_error_message(e)
+            await message.channel.send(error_msg)
     
-    # ---------- SLASH: /code-memory ----------
-    
-    @app_commands.command(name="code-memory", description="Clear your stored code history")
-    async def code_memory(self, interaction: discord.Interaction):
-        """Clear user's code memory"""
+    async def _handle_memory_clear(self, message: discord.Message):
+        """Handle: lex memory"""
         try:
-            cleared = await self.memory.clear(interaction.user.id)
+            cleared = await self.memory.clear(message.author.id)
             
             if cleared:
-                await interaction.response.send_message("✅ Code memory cleared successfully!", ephemeral=True)
+                await message.channel.send("✅ Code memory cleared successfully!")
             else:
-                await interaction.response.send_message("ℹ️ No code memory found to clear.", ephemeral=True)
+                await message.channel.send("ℹ️ No code memory found to clear.")
                 
         except Exception as e:
-            logger.error(f"Error in /code-memory command: {e}")
-            await self._handle_error(interaction, e)
+            logger.error(f"Error in lex memory: {e}")
+            error_msg = self._format_error_message(e)
+            await message.channel.send(error_msg)
+    
+    def _format_error_message(self, error: Exception) -> str:
+        """Format error message based on exception type"""
+        error_messages = {
+            APIException: "⚠️ API Error: {}",
+            FileSizeException: "⚠️ File Error: {}",
+            MemoryException: "⚠️ Memory Error: {}",
+            BotException: "⚠️ Bot Error: {}",
+        }
+        
+        error_type = type(error)
+        message_template = error_messages.get(error_type, "⚠️ Unexpected Error: {}")
+        return message_template.format(str(error))
 
 # ================== SETUP ==================
 
@@ -796,14 +757,7 @@ async def setup(bot: commands.Bot):
     try:
         cog = CodeCog(bot)
         await bot.add_cog(cog)
-        
-        # Add slash commands to the bot's tree
-        bot.tree.add_command(cog.slash_code)
-        bot.tree.add_command(cog.code_review)
-        bot.tree.add_command(cog.code_analyze)
-        bot.tree.add_command(cog.code_memory)
-        
-        logger.info("CodeCog added to bot with slash commands registered")
+        logger.info("CodeCog added to bot")
     except Exception as e:
         logger.error(f"Failed to add CodeCog: {e}")
         raise
