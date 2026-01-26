@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import aiohttp
 import asyncio
 import io
@@ -545,7 +546,7 @@ class CodeCog(commands.Cog):
         asyncio.create_task(self.llm_service.close())
         logger.info("CodeCog unloaded")
     
-    async def _handle_error(self, destination, error: Exception) -> None:
+    async def _handle_error(self, interaction: discord.Interaction, error: Exception) -> None:
         """Centralized error handling"""
         error_messages = {
             APIException: "⚠️ API Error: {}",
@@ -559,10 +560,10 @@ class CodeCog(commands.Cog):
         error_message = message_template.format(str(error))
         
         try:
-            if hasattr(destination, 'followup'):
-                await destination.followup.send(error_message)
+            if interaction.response.is_done():
+                await interaction.followup.send(error_message)
             else:
-                await destination.send(error_message)
+                await interaction.response.send_message(error_message)
         except Exception as e:
             logger.error(f"Failed to send error message: {e}")
     
@@ -627,25 +628,26 @@ class CodeCog(commands.Cog):
         except Exception as e:
             logger.error(f"Error in prefix command: {e}")
             await status_msg.delete()
-            await self._handle_error(message.channel, e)
+            await message.channel.send(f"⚠️ Error: {str(e)}")
     
     # ---------- SLASH: /code ----------
     
-    @commands.slash_command(
-        name="code",
-        description="Generate or modify code with AI assistance"
+    @app_commands.command(name="code", description="Generate or modify code with AI assistance")
+    @app_commands.describe(
+        prompt="What code do you want to generate?",
+        auto_continue="Auto-continue if code is cut off?"
     )
     async def slash_code(
         self,
-        ctx: discord.ApplicationContext,
-        prompt: discord.Option(str, description="What code do you want to generate?"),
-        auto_continue: discord.Option(bool, description="Auto-continue if code is cut off?", default=True)
+        interaction: discord.Interaction,
+        prompt: str,
+        auto_continue: bool = True
     ):
         """Generate code based on user prompt"""
-        await ctx.defer()
+        await interaction.response.defer()
         
         try:
-            previous = await self.memory.get(ctx.author.id)
+            previous = await self.memory.get(interaction.user.id)
             
             user_prompt = self.prompt_builder.build_user_prompt(
                 instruction=prompt,
@@ -658,28 +660,30 @@ class CodeCog(commands.Cog):
             
             code = await self.llm_service.call(system_prompt, user_prompt)
             
-            await self.memory.set(ctx.author.id, code)
-            await self.output_handler.send_code(ctx, code, auto_continue=auto_continue)
+            await self.memory.set(interaction.user.id, code)
+            await self.output_handler.send_code(interaction.channel, code, auto_continue=auto_continue)
             
         except Exception as e:
             logger.error(f"Error in /code command: {e}")
-            await self._handle_error(ctx, e)
+            await self._handle_error(interaction, e)
     
     # ---------- SLASH: /code-review ----------
     
-    @commands.slash_command(
-        name="code-review",
-        description="Review and improve code from a file"
+    @app_commands.command(name="code-review", description="Review and improve code from a file")
+    @app_commands.describe(
+        instruction="What improvements do you want?",
+        file="Code file to review",
+        auto_continue="Auto-continue if code is cut off?"
     )
     async def code_review(
         self,
-        ctx: discord.ApplicationContext,
-        instruction: discord.Option(str, description="What improvements do you want?"),
-        file: discord.Option(discord.Attachment, description="Code file to review"),
-        auto_continue: discord.Option(bool, description="Auto-continue if code is cut off?", default=True)
+        interaction: discord.Interaction,
+        instruction: str,
+        file: discord.Attachment,
+        auto_continue: bool = True
     ):
         """Review and improve code from file"""
-        await ctx.defer()
+        await interaction.response.defer()
         
         try:
             code_text = await self._validate_file(file)
@@ -696,28 +700,26 @@ class CodeCog(commands.Cog):
             
             result = await self.llm_service.call(system_prompt, user_prompt)
             
-            await self.memory.set(ctx.author.id, result)
+            await self.memory.set(interaction.user.id, result)
             
             new_filename = f"improved_{file.filename}"
-            await self.output_handler.send_code(ctx, result, filename=new_filename, auto_continue=auto_continue)
+            await self.output_handler.send_code(interaction.channel, result, filename=new_filename, auto_continue=auto_continue)
             
         except Exception as e:
             logger.error(f"Error in /code-review command: {e}")
-            await self._handle_error(ctx, e)
+            await self._handle_error(interaction, e)
     
     # ---------- SLASH: /code-analyze ----------
     
-    @commands.slash_command(
-        name="code-analyze",
-        description="Analyze code for issues and improvements"
-    )
+    @app_commands.command(name="code-analyze", description="Analyze code for issues and improvements")
+    @app_commands.describe(file="Code file to analyze")
     async def code_analyze(
         self,
-        ctx: discord.ApplicationContext,
-        file: discord.Option(discord.Attachment, description="Code file to analyze")
+        interaction: discord.Interaction,
+        file: discord.Attachment
     ):
         """Analyze code and provide feedback"""
-        await ctx.defer()
+        await interaction.response.defer()
         
         try:
             code_text = await self._validate_file(file)
@@ -734,47 +736,45 @@ class CodeCog(commands.Cog):
                     description=analysis,
                     color=discord.Color.green()
                 )
-                await ctx.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
                 file_obj = discord.File(
                     io.BytesIO(analysis.encode('utf-8')),
                     filename=f"analysis_{file.filename}.txt"
                 )
-                await ctx.followup.send(
+                await interaction.followup.send(
                     content="📄 Analysis is lengthy, sending as file.",
                     file=file_obj
                 )
             
         except Exception as e:
             logger.error(f"Error in /code-analyze command: {e}")
-            await self._handle_error(ctx, e)
+            await self._handle_error(interaction, e)
     
     # ---------- SLASH: /code-memory ----------
     
-    @commands.slash_command(
-        name="code-memory",
-        description="Clear your stored code history"
-    )
-    async def code_memory(self, ctx: discord.ApplicationContext):
+    @app_commands.command(name="code-memory", description="Clear your stored code history")
+    async def code_memory(self, interaction: discord.Interaction):
         """Clear user's code memory"""
         try:
-            cleared = await self.memory.clear(ctx.author.id)
+            cleared = await self.memory.clear(interaction.user.id)
             
             if cleared:
-                await ctx.respond("✅ Code memory cleared successfully!")
+                await interaction.response.send_message("✅ Code memory cleared successfully!")
             else:
-                await ctx.respond("ℹ️ No code memory found to clear.")
+                await interaction.response.send_message("ℹ️ No code memory found to clear.")
                 
         except Exception as e:
             logger.error(f"Error in /code-memory command: {e}")
-            await self._handle_error(ctx, e)
+            await self._handle_error(interaction, e)
 
 # ================== SETUP ==================
 
-def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot):
     """Setup function to add cog to bot"""
     try:
-        bot.add_cog(CodeCog(bot))
+        cog = CodeCog(bot)
+        await bot.add_cog(cog)
         logger.info("CodeCog added to bot")
     except Exception as e:
         logger.error(f"Failed to add CodeCog: {e}")
