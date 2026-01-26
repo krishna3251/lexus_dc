@@ -5,9 +5,10 @@ import asyncio
 import io
 import os
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
+import re
 
 # ================== LOGGING ==================
 
@@ -30,6 +31,7 @@ class Config:
     MAX_MEMORY_CHARS: int = 6000
     EMBED_CHUNK: int = 1000
     API_TIMEOUT: int = 90
+    DISCORD_CHAR_LIMIT: int = 2000  # Discord message character limit
     
     @classmethod
     def from_env(cls):
@@ -64,6 +66,7 @@ class PromptType(Enum):
     CODE_GENERATION = "code_generation"
     CODE_REVIEW = "code_review"
     CODE_ANALYSIS = "code_analysis"
+    CODE_CONTINUATION = "code_continuation"
 
 # ================== MEMORY ==================
 
@@ -111,6 +114,87 @@ class MemoryStore:
             except Exception as e:
                 logger.error(f"Error clearing memory for user {user_id}: {e}")
                 raise MemoryException(f"Failed to clear memory: {e}")
+
+# ================== CODE SPLITTER ==================
+
+class CodeSplitter:
+    """Smart code splitting that respects syntax and Discord limits"""
+    
+    @staticmethod
+    def extract_code_from_response(text: str) -> Tuple[str, str]:
+        """Extract code from markdown code blocks if present"""
+        # Try to find code blocks with language specifier
+        pattern = r'```(\w+)?\n(.*?)```'
+        matches = re.findall(pattern, text, re.DOTALL)
+        
+        if matches:
+            language = matches[0][0] if matches[0][0] else ''
+            code = '\n'.join([match[1] for match in matches])
+            return code.strip(), language
+        
+        # If no code blocks, return as is
+        return text.strip(), ''
+    
+    @staticmethod
+    def find_safe_split_point(code: str, max_length: int) -> int:
+        """Find a safe point to split code (at line break, not mid-statement)"""
+        if len(code) <= max_length:
+            return len(code)
+        
+        # Look for a newline before the limit
+        search_start = max(0, max_length - 200)  # Look back up to 200 chars
+        chunk = code[search_start:max_length]
+        
+        # Find the last newline in the chunk
+        last_newline = chunk.rfind('\n')
+        
+        if last_newline != -1:
+            return search_start + last_newline + 1
+        
+        # If no newline found, just split at limit
+        return max_length
+    
+    @staticmethod
+    def split_code_intelligently(code: str, chunk_size: int = 1500) -> List[str]:
+        """Split code into chunks at safe points"""
+        if len(code) <= chunk_size:
+            return [code]
+        
+        chunks = []
+        remaining = code
+        
+        while remaining:
+            if len(remaining) <= chunk_size:
+                chunks.append(remaining)
+                break
+            
+            split_point = CodeSplitter.find_safe_split_point(remaining, chunk_size)
+            chunks.append(remaining[:split_point])
+            remaining = remaining[split_point:]
+        
+        return chunks
+    
+    @staticmethod
+    def needs_continuation(code: str) -> Tuple[bool, str]:
+        """Check if code appears incomplete and extract the last portion"""
+        lines = code.strip().split('\n')
+        
+        # Indicators that code might be incomplete
+        incomplete_indicators = [
+            lambda l: l.rstrip().endswith((':', ',', '(', '[', '{')),
+            lambda l: l.strip().startswith(('def ', 'class ', 'if ', 'for ', 'while ', 'with ', 'try:')),
+            lambda l: not l.strip().endswith(('}', ')', ']', 'pass', 'return', 'break', 'continue'))
+        ]
+        
+        if lines:
+            last_line = lines[-1]
+            for indicator in incomplete_indicators:
+                if indicator(last_line):
+                    # Return last 500 chars as context
+                    context = code[-500:] if len(code) > 500 else code
+                    return True, context
+        
+        return False, ""
 
 # ================== LLM SERVICE ==================
 
@@ -240,6 +324,15 @@ class PromptBuilder:
                 "4. Code quality and maintainability\n"
                 "5. Suggested improvements"
             ),
+            PromptType.CODE_CONTINUATION: (
+                "You are a senior software engineer completing code that was cut off. "
+                "The code below is incomplete because it exceeded Discord's character limit. "
+                "Continue writing the code from exactly where it stopped. "
+                "Do NOT repeat any of the provided code. "
+                "Do NOT add explanations. "
+                "Simply continue the code naturally to completion. "
+                "Make sure the continuation flows seamlessly from the cutoff point."
+            ),
         }
         return prompts.get(prompt_type, "")
     
@@ -269,21 +362,24 @@ class PromptBuilder:
 # ================== OUTPUT HANDLER ==================
 
 class OutputHandler:
-    """Handle code output formatting and sending"""
+    """Handle code output formatting and sending with auto-continuation"""
     
-    def __init__(self, embed_chunk_size: int):
-        self.embed_chunk_size = embed_chunk_size
+    def __init__(self, config: Config, llm_service: 'LLMService'):
+        self.config = config
+        self.llm_service = llm_service
+        self.code_splitter = CodeSplitter()
     
-    def create_code_embeds(self, code: str, language: str = "") -> List[discord.Embed]:
+    def create_code_embeds(self, code: str, language: str = "", part_info: str = "") -> List[discord.Embed]:
         """Create embeds for code display"""
         embeds = []
-        chunks = [
-            code[i:i + self.embed_chunk_size]
-            for i in range(0, len(code), self.embed_chunk_size)
-        ]
+        chunks = self.code_splitter.split_code_intelligently(code, self.config.EMBED_CHUNK)
+        
+        title_prefix = "✨ Generated Code"
+        if part_info:
+            title_prefix = f"✨ Generated Code {part_info}"
         
         embed = discord.Embed(
-            title="✨ Generated Code",
+            title=title_prefix,
             color=discord.Color.blurple()
         )
         
@@ -297,7 +393,7 @@ class OutputHandler:
             if len(embed.fields) == 5:
                 embeds.append(embed)
                 embed = discord.Embed(
-                    title="✨ Generated Code (continued)",
+                    title=f"{title_prefix} (continued)",
                     color=discord.Color.blurple()
                 )
         
@@ -306,28 +402,114 @@ class OutputHandler:
         
         return embeds
     
+    async def _continue_code(self, incomplete_code: str, context: str) -> str:
+        """Request continuation of incomplete code from AI"""
+        system_prompt = PromptBuilder.build_system_prompt(PromptType.CODE_CONTINUATION)
+        
+        user_prompt = (
+            f"Here is the incomplete code that was cut off:\n\n"
+            f"```\n{context}\n```\n\n"
+            f"Continue writing the code from where it stopped. "
+            f"Do not repeat the code above, just continue it."
+        )
+        
+        continuation = await self.llm_service.call(system_prompt, user_prompt)
+        
+        # Extract code from response if wrapped in markdown
+        continued_code, _ = self.code_splitter.extract_code_from_response(continuation)
+        
+        return continued_code
+    
     async def send_code(
         self,
         destination,
         code: str,
-        filename: str = "generated_code.py"
+        filename: str = "generated_code.py",
+        auto_continue: bool = True
     ) -> None:
-        """Send code as embeds or file"""
+        """Send code as embeds or file with auto-continuation support"""
         try:
-            if len(code) < 4000:
-                embeds = self.create_code_embeds(code)
-                for embed in embeds:
-                    await destination.send(embed=embed)
-            else:
+            full_code = code
+            part_number = 1
+            
+            # Extract actual code from markdown if present
+            clean_code, language = self.code_splitter.extract_code_from_response(code)
+            if clean_code:
+                full_code = clean_code
+            
+            # Check if we should send as file directly (very long code)
+            if len(full_code) > 8000:
                 file = discord.File(
-                    io.BytesIO(code.encode('utf-8')),
+                    io.BytesIO(full_code.encode('utf-8')),
                     filename=filename
                 )
                 await destination.send(
-                    content="📄 Code is lengthy, sending as file.",
+                    content="📄 Code is very lengthy, sending as complete file.",
                     file=file
                 )
-            logger.info(f"Successfully sent code output ({len(code)} chars)")
+                logger.info(f"Successfully sent code as file ({len(full_code)} chars)")
+                return
+            
+            # Send code in embeds with continuation support
+            while full_code:
+                # Check if code fits in Discord limits
+                if len(full_code) <= 3500:  # Safe limit for embeds
+                    part_info = f"(Part {part_number})" if part_number > 1 else ""
+                    embeds = self.create_code_embeds(full_code, language, part_info)
+                    for embed in embeds:
+                        await destination.send(embed=embed)
+                    logger.info(f"Successfully sent final code part ({len(full_code)} chars)")
+                    break
+                
+                # Code is too long, need to split and continue
+                split_point = self.code_splitter.find_safe_split_point(full_code, 3000)
+                current_chunk = full_code[:split_point]
+                remaining = full_code[split_point:]
+                
+                # Send current chunk
+                part_info = f"(Part {part_number})"
+                embeds = self.create_code_embeds(current_chunk, language, part_info)
+                for embed in embeds:
+                    await destination.send(embed=embed)
+                
+                logger.info(f"Sent part {part_number} ({len(current_chunk)} chars)")
+                
+                # Check if we should auto-continue
+                if auto_continue and remaining:
+                    await destination.send("⏳ Continuing code generation...")
+                    
+                    # Get continuation context
+                    needs_cont, context = self.code_splitter.needs_continuation(current_chunk)
+                    
+                    if needs_cont or len(remaining) > 100:
+                        # Request continuation from AI
+                        try:
+                            continuation = await self._continue_code(full_code, current_chunk[-500:])
+                            # Merge with remaining code
+                            full_code = remaining + "\n" + continuation
+                        except Exception as e:
+                            logger.error(f"Failed to generate continuation: {e}")
+                            # Just send remaining code
+                            full_code = remaining
+                    else:
+                        full_code = remaining
+                    
+                    part_number += 1
+                else:
+                    # No auto-continue, send remaining as file
+                    if remaining:
+                        file = discord.File(
+                            io.BytesIO(remaining.encode('utf-8')),
+                            filename=f"continuation_{filename}"
+                        )
+                        await destination.send(
+                            content="📄 Remaining code sent as file:",
+                            file=file
+                        )
+                    break
+            
+            logger.info(f"Successfully completed code output in {part_number} part(s)")
+            
         except discord.HTTPException as e:
             logger.error(f"Failed to send code: {e}")
             raise BotException(f"Failed to send code: {str(e)}")
@@ -347,7 +529,7 @@ class CodeCog(commands.Cog):
             self.memory = MemoryStore(self.config.MAX_MEMORY_CHARS)
             self.llm_service = LLMService(self.config)
             self.prompt_builder = PromptBuilder()
-            self.output_handler = OutputHandler(self.config.EMBED_CHUNK)
+            self.output_handler = OutputHandler(self.config, self.llm_service)
             logger.info("CodeCog initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize CodeCog: {e}")
@@ -456,7 +638,8 @@ class CodeCog(commands.Cog):
     async def slash_code(
         self,
         ctx: discord.ApplicationContext,
-        prompt: discord.Option(str, description="What code do you want to generate?")
+        prompt: discord.Option(str, description="What code do you want to generate?"),
+        auto_continue: discord.Option(bool, description="Auto-continue if code is cut off?", default=True)
     ):
         """Generate code based on user prompt"""
         await ctx.defer()
@@ -476,7 +659,7 @@ class CodeCog(commands.Cog):
             code = await self.llm_service.call(system_prompt, user_prompt)
             
             await self.memory.set(ctx.author.id, code)
-            await self.output_handler.send_code(ctx, code)
+            await self.output_handler.send_code(ctx, code, auto_continue=auto_continue)
             
         except Exception as e:
             logger.error(f"Error in /code command: {e}")
@@ -492,7 +675,8 @@ class CodeCog(commands.Cog):
         self,
         ctx: discord.ApplicationContext,
         instruction: discord.Option(str, description="What improvements do you want?"),
-        file: discord.Option(discord.Attachment, description="Code file to review")
+        file: discord.Option(discord.Attachment, description="Code file to review"),
+        auto_continue: discord.Option(bool, description="Auto-continue if code is cut off?", default=True)
     ):
         """Review and improve code from file"""
         await ctx.defer()
@@ -515,7 +699,7 @@ class CodeCog(commands.Cog):
             await self.memory.set(ctx.author.id, result)
             
             new_filename = f"improved_{file.filename}"
-            await self.output_handler.send_code(ctx, result, filename=new_filename)
+            await self.output_handler.send_code(ctx, result, filename=new_filename, auto_continue=auto_continue)
             
         except Exception as e:
             logger.error(f"Error in /code-review command: {e}")
