@@ -531,6 +531,14 @@ class CodeCog(commands.Cog):
             self.llm_service = LLMService(self.config)
             self.prompt_builder = PromptBuilder()
             self.output_handler = OutputHandler(self.config, self.llm_service)
+            
+            # Create command tree context menu
+            self.ctx_menu = app_commands.ContextMenu(
+                name='Analyze Code',
+                callback=self.context_menu_callback,
+            )
+            self.bot.tree.add_command(self.ctx_menu)
+            
             logger.info("CodeCog initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize CodeCog: {e}")
@@ -541,10 +549,15 @@ class CodeCog(commands.Cog):
         await self.llm_service.initialize()
         logger.info("CodeCog loaded")
     
-    def cog_unload(self):
+    async def cog_unload(self):
         """Called when cog is unloaded"""
-        asyncio.create_task(self.llm_service.close())
+        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+        await self.llm_service.close()
         logger.info("CodeCog unloaded")
+    
+    async def context_menu_callback(self, interaction: discord.Interaction, message: discord.Message):
+        """Context menu callback for analyzing code"""
+        await interaction.response.send_message("Context menu feature coming soon!", ephemeral=True)
     
     async def _handle_error(self, interaction: discord.Interaction, error: Exception) -> None:
         """Centralized error handling"""
@@ -661,7 +674,12 @@ class CodeCog(commands.Cog):
             code = await self.llm_service.call(system_prompt, user_prompt)
             
             await self.memory.set(interaction.user.id, code)
+            
+            # Send to the channel, not interaction
             await self.output_handler.send_code(interaction.channel, code, auto_continue=auto_continue)
+            
+            # Acknowledge with followup
+            await interaction.followup.send("✅ Code generated!", ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in /code command: {e}")
@@ -704,6 +722,9 @@ class CodeCog(commands.Cog):
             
             new_filename = f"improved_{file.filename}"
             await self.output_handler.send_code(interaction.channel, result, filename=new_filename, auto_continue=auto_continue)
+            
+            # Acknowledge with followup
+            await interaction.followup.send("✅ Code review completed!", ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in /code-review command: {e}")
@@ -760,9 +781,9 @@ class CodeCog(commands.Cog):
             cleared = await self.memory.clear(interaction.user.id)
             
             if cleared:
-                await interaction.response.send_message("✅ Code memory cleared successfully!")
+                await interaction.response.send_message("✅ Code memory cleared successfully!", ephemeral=True)
             else:
-                await interaction.response.send_message("ℹ️ No code memory found to clear.")
+                await interaction.response.send_message("ℹ️ No code memory found to clear.", ephemeral=True)
                 
         except Exception as e:
             logger.error(f"Error in /code-memory command: {e}")
@@ -775,7 +796,14 @@ async def setup(bot: commands.Bot):
     try:
         cog = CodeCog(bot)
         await bot.add_cog(cog)
-        logger.info("CodeCog added to bot")
+        
+        # Add slash commands to the bot's tree
+        bot.tree.add_command(cog.slash_code)
+        bot.tree.add_command(cog.code_review)
+        bot.tree.add_command(cog.code_analyze)
+        bot.tree.add_command(cog.code_memory)
+        
+        logger.info("CodeCog added to bot with slash commands registered")
     except Exception as e:
         logger.error(f"Failed to add CodeCog: {e}")
         raise
