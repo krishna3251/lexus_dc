@@ -4,10 +4,9 @@ from stats_store import server_stats
 
 app = FastAPI()
 
-# Allow your website to access API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # later replace with your domain
+    allow_origins=["*"],  # Replace with your domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -15,4 +14,11 @@ app.add_middleware(
 
 @app.get("/stats")
 def get_stats():
+    # FIX: server_stats is now populated and kept up-to-date by the bot
+    #      in on_ready, on_guild_join, and on_guild_remove events in main.py.
+    #      Previously this always returned zeros because nothing ever wrote to it.
     return server_stats
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
