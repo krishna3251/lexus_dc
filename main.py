@@ -4,6 +4,8 @@ import logging
 import os
 import time
 import wavelink
+import threading
+import uvicorn
 import asyncio
 import psutil
 import platform
@@ -11,6 +13,8 @@ import random
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from keep_alive import keep_alive
+from api import app
+from bot import bot 
 
 # === Start keep_alive ===
 keep_alive()
@@ -300,6 +304,12 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.followup.send(embed=embed, ephemeral=True)
     except Exception as e:
         logging.error(f"Error handling slash command error: {e}")
+
+
+def run_api():
+    uvicorn.run(app, host="0.0.0.0", port=10000)
+
+threading.Thread(target=run_api).start()
 
 # === Shutdown Handler ===
 @bot.event
