@@ -9,6 +9,7 @@ import asyncio
 import psutil
 import platform
 import random
+import aiohttp
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from keep_alive import keep_alive
@@ -69,21 +70,9 @@ class Bot(commands.Bot):
 
     async def setup_hook(self):
         logging.info("Setting up bot extensions...")
-
-        # FIX: Lavalink in setup_hook (correct place), wavelink 2.x API,
-        #      removed redundant :443 from https:// URI (implies port 443 already),
-        #      added cold-start delay for Render free tier spin-up.
-        try:
-            await asyncio.sleep(5)  # Give Render's Lavalink service time to wake up
-            lavalink_host = os.getenv("LAVALINK_HOST", "").rstrip("/")
-            node = wavelink.Node(
-                uri=f"https://{lavalink_host}",
-                password=os.getenv("LAVALINK_PASSWORD"),
-            )
-            await wavelink.Pool.connect(nodes=[node], client=self)
-            logging.info("✅ Lavalink node connected")
-        except Exception as e:
-            logging.error(f"❌ Failed to connect to Lavalink: {e}")
+        # NOTE: Lavalink is connected in on_ready (not here) because
+        #       setup_hook fires before Discord is fully ready, causing
+        #       the Render free-tier Lavalink service to always 429.
 
         # Load connection handler FIRST
         try:
@@ -173,6 +162,54 @@ def get_system_info():
 
 
 # === Events ===
+async def connect_lavalink():
+    """
+    Ping the Lavalink HTTP endpoint first so Render wakes the free-tier
+    service before we attempt the WebSocket handshake. Retries up to 10
+    times with exponential backoff. A 429 from the REST endpoint means the
+    service is still cold-starting — we wait and retry rather than giving up.
+    """
+    lavalink_host = os.getenv("LAVALINK_HOST", "").rstrip("/")
+    lavalink_password = os.getenv("LAVALINK_PASSWORD", "")
+    url = f"https://{lavalink_host}"
+
+    logging.info(f"🎵 Waking Lavalink at {url} ...")
+
+    for attempt in range(1, 11):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{url}/version",
+                    headers={"Authorization": lavalink_password},
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status == 200:
+                        logging.info(f"✅ Lavalink HTTP ping succeeded (attempt {attempt})")
+                        break
+                    elif resp.status == 429:
+                        wait = min(5 * attempt, 60)
+                        logging.warning(f"⏳ Lavalink still waking (429). Retrying in {wait}s... (attempt {attempt}/10)")
+                        await asyncio.sleep(wait)
+                    else:
+                        logging.warning(f"Lavalink ping returned {resp.status}, proceeding anyway...")
+                        break
+        except Exception as e:
+            wait = min(5 * attempt, 60)
+            logging.warning(f"Lavalink ping error: {e}. Retrying in {wait}s... (attempt {attempt}/10)")
+            await asyncio.sleep(wait)
+    else:
+        logging.error("❌ Could not wake Lavalink after 10 attempts. Music commands may not work.")
+        return
+
+    # Now attempt the WebSocket connection
+    try:
+        node = wavelink.Node(uri=url, password=lavalink_password)
+        await wavelink.Pool.connect(nodes=[node], client=bot)
+        logging.info("✅ Lavalink WebSocket connected")
+    except Exception as e:
+        logging.error(f"❌ Lavalink WebSocket connection failed: {e}")
+
+
 @bot.event
 async def on_ready():
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
@@ -183,11 +220,15 @@ async def on_ready():
     except Exception as e:
         logging.error(f"❌ Failed to sync slash commands: {e}")
 
-    # FIX: Update stats_store so the /stats API endpoint returns real data
-    #      instead of always returning zeros.
+    # Update stats_store so /stats API returns real data
     server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
     server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
     server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
+
+    # Connect to Lavalink here (not in setup_hook) so the Render free-tier
+    # service has had time to receive the initial HTTP wake-up ping before
+    # we attempt the WebSocket handshake.
+    await connect_lavalink()
 
     print("🔗 Connected to the following servers:")
     for guild in bot.guilds:
