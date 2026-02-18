@@ -9,7 +9,6 @@ import asyncio
 import psutil
 import platform
 import random
-import aiohttp
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from keep_alive import keep_alive
@@ -161,53 +160,25 @@ def get_system_info():
     }
 
 
-# === Events ===
+# === Lavalink ===
+# Railway hosts Lavalink with a persistent TLS WebSocket — use wss://, no port needed.
+# The URI and password are stored in Render environment variables.
+# Wavelink v3 automatically appends /v4/websocket — do NOT add it to the URI.
+LAVALINK_URI      = os.getenv("LAVALINK_URI", "wss://lavalink-4-production-438b.up.railway.app")
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "lexus123")
+
+
 async def connect_lavalink():
-    """
-    Ping the Lavalink HTTP endpoint first so Render wakes the free-tier
-    service before we attempt the WebSocket handshake. Retries up to 10
-    times with exponential backoff. A 429 from the REST endpoint means the
-    service is still cold-starting — we wait and retry rather than giving up.
-    """
-    lavalink_host = os.getenv("LAVALINK_HOST", "").rstrip("/")
-    lavalink_password = os.getenv("LAVALINK_PASSWORD", "")
-    url = f"https://{lavalink_host}"
-
-    logging.info(f"🎵 Waking Lavalink at {url} ...")
-
-    for attempt in range(1, 11):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{url}/version",
-                    headers={"Authorization": lavalink_password},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        logging.info(f"✅ Lavalink HTTP ping succeeded (attempt {attempt})")
-                        break
-                    elif resp.status == 429:
-                        wait = min(5 * attempt, 60)
-                        logging.warning(f"⏳ Lavalink still waking (429). Retrying in {wait}s... (attempt {attempt}/10)")
-                        await asyncio.sleep(wait)
-                    else:
-                        logging.warning(f"Lavalink ping returned {resp.status}, proceeding anyway...")
-                        break
-        except Exception as e:
-            wait = min(5 * attempt, 60)
-            logging.warning(f"Lavalink ping error: {e}. Retrying in {wait}s... (attempt {attempt}/10)")
-            await asyncio.sleep(wait)
-    else:
-        logging.error("❌ Could not wake Lavalink after 10 attempts. Music commands may not work.")
-        return
-
-    # Now attempt the WebSocket connection
+    """Connect to the Railway-hosted Lavalink v4 node via wss://"""
     try:
-        node = wavelink.Node(uri=url, password=lavalink_password)
-        await wavelink.Pool.connect(nodes=[node], client=bot)
-        logging.info("✅ Lavalink WebSocket connected")
+        node = wavelink.Node(uri=LAVALINK_URI, password=LAVALINK_PASSWORD)
+        await wavelink.Pool.connect(nodes=[node], client=bot, cache_capacity=100)
+        logging.info(f"✅ Lavalink connected → {LAVALINK_URI}")
     except Exception as e:
-        logging.error(f"❌ Lavalink WebSocket connection failed: {e}")
+        logging.error(f"❌ Lavalink connection failed: {e}")
+
+
+# === Events ===
 
 
 @bot.event
@@ -225,9 +196,7 @@ async def on_ready():
     server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
     server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
 
-    # Connect to Lavalink here (not in setup_hook) so the Render free-tier
-    # service has had time to receive the initial HTTP wake-up ping before
-    # we attempt the WebSocket handshake.
+    # Connect to Railway Lavalink — always-on, no cold start delay needed
     await connect_lavalink()
 
     print("🔗 Connected to the following servers:")
@@ -236,6 +205,11 @@ async def on_ready():
 
     print(f"🚀 Bot is ready! Serving {len(bot.users)} users across {len(bot.guilds)} servers")
 
+
+
+@bot.event
+async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+    logging.info(f"🎵 Lavalink node ready | resumed: {payload.resumed} | sessions: {payload.session_id}")
 
 @bot.event
 async def on_guild_join(guild):
