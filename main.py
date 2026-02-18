@@ -13,8 +13,11 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 from api import app
+from stats_store import server_stats
 
 # === Start keep_alive ===
+# keep_alive runs Flask on Render's $PORT (the public-facing port, e.g. 10000).
+# Uvicorn (FastAPI) runs on a DIFFERENT internal port (8000) to avoid conflict.
 keep_alive()
 
 # === Logging setup ===
@@ -42,8 +45,6 @@ BOT_VERSION = "2.0.0"
 BOT_DESCRIPTION = "A powerful Discord bot with multiple features and commands!"
 
 # === Intents & Prefix ===
-# FIX 1: Removed redundant/conflicting prefixes ("lx" without space caused
-#         double-matching with "lx "). Now uses a single consistent prefix.
 PREFIX = commands.when_mentioned_or("lx ")
 intents = discord.Intents.default()
 intents.message_content = True
@@ -69,11 +70,14 @@ class Bot(commands.Bot):
     async def setup_hook(self):
         logging.info("Setting up bot extensions...")
 
-        # FIX 2: Lavalink connection moved here from on_ready (correct location).
-        #         Updated to wavelink 2.x API — NodePool.create_node() no longer exists.
+        # FIX: Lavalink in setup_hook (correct place), wavelink 2.x API,
+        #      removed redundant :443 from https:// URI (implies port 443 already),
+        #      added cold-start delay for Render free tier spin-up.
         try:
+            await asyncio.sleep(5)  # Give Render's Lavalink service time to wake up
+            lavalink_host = os.getenv("LAVALINK_HOST", "").rstrip("/")
             node = wavelink.Node(
-                uri=f"https://{os.getenv('LAVALINK_HOST')}:443",
+                uri=f"https://{lavalink_host}",
                 password=os.getenv("LAVALINK_PASSWORD"),
             )
             await wavelink.Pool.connect(nodes=[node], client=self)
@@ -108,8 +112,6 @@ class Bot(commands.Bot):
             return
         self.processing_commands.add(message.id)
         try:
-            # FIX 3: Only count commands_used when a real command is actually invoked,
-            #         not on every message that passes through process_commands.
             ctx = await self.get_context(message)
             if ctx.valid:
                 await self.invoke(ctx)
@@ -121,7 +123,6 @@ class Bot(commands.Bot):
         return int(time.time() - self.start_time)
 
     async def handle_rate_limit_error(self, error):
-        """Handle rate limit errors during startup"""
         if hasattr(error, "response") and error.response:
             retry_after = error.response.headers.get("Retry-After")
             if retry_after:
@@ -151,10 +152,6 @@ class Bot(commands.Bot):
         await self.wait_until_ready()
 
 
-# FIX 4: Removed the erroneous `from bot import bot` import that was at the top
-#         of the original file — it imported a bot object then immediately
-#         overwrote it with Bot() here, causing unpredictable behaviour.
-#         This is now the single, authoritative bot instance.
 bot = Bot()
 
 
@@ -176,10 +173,6 @@ def get_system_info():
 
 
 # === Events ===
-# FIX 5: Merged the two duplicate on_ready handlers into one.
-#         Python only keeps the last definition of a decorated event, so the
-#         first on_ready (with Lavalink + tree.sync) was silently discarded.
-#         Lavalink is now handled in setup_hook where it belongs.
 @bot.event
 async def on_ready():
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
@@ -189,6 +182,12 @@ async def on_ready():
         logging.info(f"✅ Synced {len(synced)} slash commands")
     except Exception as e:
         logging.error(f"❌ Failed to sync slash commands: {e}")
+
+    # FIX: Update stats_store so the /stats API endpoint returns real data
+    #      instead of always returning zeros.
+    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
+    server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
+    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
 
     print("🔗 Connected to the following servers:")
     for guild in bot.guilds:
@@ -200,6 +199,11 @@ async def on_ready():
 @bot.event
 async def on_guild_join(guild):
     logging.info(f"📥 Joined guild: {guild.name} (ID: {guild.id}) - {guild.member_count} members")
+
+    # Keep stats up to date
+    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
+    server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
+    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
 
     if guild.system_channel:
         channel = guild.system_channel
@@ -230,6 +234,9 @@ async def on_guild_join(guild):
 @bot.event
 async def on_guild_remove(guild):
     logging.info(f"📤 Left guild: {guild.name} (ID: {guild.id})")
+    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
+    server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
+    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
 
 
 # === Commands ===
@@ -325,9 +332,11 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         logging.error(f"Error handling slash command error: {e}")
 
 
-# FIX 6: Set daemon=True on the API thread so it doesn't block clean shutdown.
+# FIX: Uvicorn (FastAPI) runs on port 8000 — a different internal port from
+#      keep_alive's Flask which binds to Render's $PORT (typically 10000).
+#      daemon=True ensures this thread doesn't block clean shutdown.
 def run_api():
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 threading.Thread(target=run_api, daemon=True).start()
 
@@ -343,9 +352,8 @@ async def shutdown_handler():
     await bot.close()
 
 
-# === Enhanced Bot Startup with Rate Limit Handling ===
+# === Bot Startup with Rate Limit Handling ===
 async def start_bot_with_retry():
-    """Start bot with automatic retry logic for rate limits"""
     max_startup_attempts = 5
     startup_attempt = 0
 
