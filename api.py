@@ -12,6 +12,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+@app.head("/")
+def root():
+    # Render health-checks both Flask (port $PORT) and any open port it detects.
+    # Without this route uvicorn returns 404 on HEAD /, which can cause Render
+    # to flag the service as unhealthy.
+    return {"status": "ok"}
+
+
 @app.get("/stats")
 def get_stats():
     # FIX: server_stats is now populated and kept up-to-date by the bot
