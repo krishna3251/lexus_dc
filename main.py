@@ -2,7 +2,6 @@ import discord
 import logging
 import os
 import time
-import wavelink
 import threading
 import uvicorn
 import asyncio
@@ -11,15 +10,47 @@ import platform
 import random
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-from api import app
-from stats_store import server_stats
-import mongo_helper
 
-# === Single web server ===
-# We use FastAPI (Uvicorn) on Render's $PORT for both health checks and /stats.
-# Flask keep_alive is no longer needed — avoids the dual-server port conflict.
+# === Optional imports (won't crash if missing) ===
+try:
+    import wavelink
+    WAVELINK_AVAILABLE = True
+except ImportError:
+    WAVELINK_AVAILABLE = False
+    logging.warning("⚠️ wavelink not installed — music features disabled")
 
-# === Logging setup ===
+try:
+    from api import app
+    API_AVAILABLE = True
+except ImportError:
+    API_AVAILABLE = False
+    logging.warning("⚠️ api.py not found — /stats endpoint disabled")
+
+try:
+    from stats_store import server_stats
+    STATS_AVAILABLE = True
+except ImportError:
+    server_stats = {"members": 0, "channels": 0, "roles": 0}
+    STATS_AVAILABLE = False
+    logging.warning("⚠️ stats_store.py not found — using in-memory stats")
+
+try:
+    import mongo_helper
+    MONGO_AVAILABLE = True
+except ImportError:
+    mongo_helper = None
+    MONGO_AVAILABLE = False
+    logging.warning("⚠️ mongo_helper.py not found — MongoDB features disabled")
+
+# === Load .env ===
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    logging.critical("❌ DISCORD_TOKEN not found in environment!")
+    exit(1)
+
+# === Logging Setup ===
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
@@ -30,39 +61,38 @@ logging.basicConfig(
     ]
 )
 
-# === Load .env token ===
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-if not TOKEN:
-    logging.critical("DISCORD_TOKEN not found in .env file!")
-    exit(1)
-
-# === Bot Configuration ===
+# === Bot Config ===
 BOT_OWNER_ID = 486555340670894080
 BOT_VERSION = "2.0.0"
 BOT_DESCRIPTION = "A powerful Discord bot with multiple features and commands!"
 
-# === Intents & Prefix ===
+# === Lavalink Config ===
+LAVALINK_URI      = os.getenv("LAVALINK_URI", "wss://lavalink-4-production-438b.up.railway.app")
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "lexus123")
+
+# === Intents ===
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
 
+# === Dynamic Prefix ===
 async def _dynamic_prefix(bot, message: discord.Message):
-    """Per-guild prefix from MongoDB, falling back to 'lx '."""
     if not message.guild:
         return commands.when_mentioned_or("lx ")(bot, message)
     try:
-        cfg = await mongo_helper.get_guild_config(message.guild.id)
-        prefix = cfg.get("prefix", "lx ")
+        if MONGO_AVAILABLE:
+            cfg = await mongo_helper.get_guild_config(message.guild.id)
+            prefix = cfg.get("prefix", "lx ")
+        else:
+            prefix = "lx "
     except Exception:
         prefix = "lx "
     return commands.when_mentioned_or(prefix)(bot, message)
 
 
-# === Bot class ===
+# === Bot Class ===
 class Bot(commands.Bot):
     def __init__(self):
         super().__init__(
@@ -78,43 +108,51 @@ class Bot(commands.Bot):
         self.status_cycle = 0
 
     async def setup_hook(self):
-        logging.info("Setting up bot extensions...")
-        
-        # Connect to MongoDB
-        db = await mongo_helper.connect()
-        if db:
-            logging.info("✅ MongoDB connected")
-        else:
-            logging.warning("⚠️ MongoDB not connected – features that need it will be limited")
-        
-        # NOTE: Lavalink is connected in on_ready (not here) because
-        #       setup_hook fires before Discord is fully ready, causing
-        #       the Render free-tier Lavalink service to always 429.
+        logging.info("⚙️  Running setup_hook...")
 
-        # Load cogs
+        # Connect MongoDB
+        if MONGO_AVAILABLE:
+            try:
+                db = await mongo_helper.connect()
+                if db:
+                    logging.info("✅ MongoDB connected")
+                else:
+                    logging.warning("⚠️ MongoDB not connected – limited features")
+            except Exception as e:
+                logging.error(f"❌ MongoDB setup error: {e}")
+
+        # Auto-load ALL cogs from /cogs directory
         if not os.path.exists("cogs"):
             os.makedirs("cogs")
-            logging.warning("Created missing cogs directory")
+            logging.warning("⚠️ Created missing cogs/ directory")
 
-        failed_cogs = []
-        loaded_cogs = []
-        for filename in os.listdir("cogs"):
-            if filename.endswith(".py"):
-                try:
-                    await self.load_extension(f"cogs.{filename[:-3]}")
-                    loaded_cogs.append(filename)
-                    logging.info(f"✅ Loaded extension: {filename}")
-                except Exception as e:
-                    failed_cogs.append((filename, str(e)))
-                    logging.error(f"❌ Failed to load {filename}: {e}")
+        cog_files = [
+            f for f in os.listdir("cogs")
+            if f.endswith(".py") and f != "__init__.py"
+        ]
 
-        # Startup summary
-        logging.info(f"📦 Cog load summary: {len(loaded_cogs)} loaded, {len(failed_cogs)} failed")
-        if failed_cogs:
-            logging.warning("❌ Failed cogs:")
-            for name, err in failed_cogs:
+        # Priority cogs load first (help, admin, core)
+        priority = [f for f in cog_files if f.startswith(("help", "admin", "core"))]
+        rest     = [f for f in cog_files if f not in priority]
+        ordered  = priority + rest
+
+        loaded, failed = [], []
+        for filename in ordered:
+            cog_path = f"cogs.{filename[:-3]}"
+            try:
+                await self.load_extension(cog_path)
+                loaded.append(filename)
+                logging.info(f"✅ Loaded cog: {cog_path}")
+            except Exception as e:
+                failed.append((filename, str(e)))
+                logging.error(f"❌ Failed to load {cog_path}: {e}")
+
+        logging.info(f"📦 Cogs: {len(loaded)} loaded, {len(failed)} failed")
+        if failed:
+            for name, err in failed:
                 logging.warning(f"   • {name}: {err}")
 
+        # Start status rotation
         self.status_rotation.start()
 
     async def process_commands(self, message):
@@ -131,16 +169,6 @@ class Bot(commands.Bot):
 
     def uptime(self):
         return int(time.time() - self.start_time)
-
-    async def handle_rate_limit_error(self, error):
-        if hasattr(error, "response") and error.response:
-            retry_after = error.response.headers.get("Retry-After")
-            if retry_after:
-                wait_time = float(retry_after) + random.uniform(1, 5)
-                logging.warning(f"Rate limited during startup. Waiting {wait_time:.2f} seconds...")
-                await asyncio.sleep(wait_time)
-                return True
-        return False
 
     @tasks.loop(minutes=5)
     async def status_rotation(self):
@@ -168,30 +196,25 @@ bot = Bot()
 # === Utility Functions ===
 def format_uptime(seconds):
     minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
+    hours, minutes   = divmod(minutes, 60)
+    days, hours      = divmod(hours, 24)
     return f"{days}d {hours}h {minutes}m {seconds}s"
 
 
 def get_system_info():
     return {
-        "cpu_percent": psutil.cpu_percent(interval=1),
+        "cpu_percent":    psutil.cpu_percent(interval=1),
         "memory_percent": psutil.virtual_memory().percent,
-        "platform": platform.system(),
+        "platform":       platform.system(),
         "python_version": platform.python_version(),
     }
 
 
 # === Lavalink ===
-# Railway hosts Lavalink with a persistent TLS WebSocket — use wss://, no port needed.
-# The URI and password are stored in Render environment variables.
-# Wavelink v3 automatically appends /v4/websocket — do NOT add it to the URI.
-LAVALINK_URI      = os.getenv("LAVALINK_URI", "wss://lavalink-4-production-438b.up.railway.app")
-LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "lexus123")
-
-
 async def connect_lavalink():
-    """Connect to the Railway-hosted Lavalink v4 node via wss://"""
+    if not WAVELINK_AVAILABLE:
+        logging.warning("⚠️ Skipping Lavalink — wavelink not installed")
+        return
     try:
         node = wavelink.Node(uri=LAVALINK_URI, password=LAVALINK_PASSWORD)
         await wavelink.Pool.connect(nodes=[node], client=bot, cache_capacity=100)
@@ -201,55 +224,44 @@ async def connect_lavalink():
 
 
 # === Events ===
-
-
 @bot.event
 async def on_ready():
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     await asyncio.sleep(2)
+
+    # Sync slash commands
     try:
         synced = await bot.tree.sync()
         logging.info(f"✅ Synced {len(synced)} slash commands")
     except Exception as e:
         logging.error(f"❌ Failed to sync slash commands: {e}")
 
-    # Update stats_store so /stats API returns real data
-    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
-    server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
-    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
+    # Update stats
+    if STATS_AVAILABLE or True:
+        server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
+        server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
+        server_stats["roles"]    = sum(len(g.roles) for g in bot.guilds)
 
-    # Connect to Railway Lavalink — always-on, no cold start delay needed
+    # Connect Lavalink
     await connect_lavalink()
 
-    print("🔗 Connected to the following servers:")
+    logging.info("🔗 Connected servers:")
     for guild in bot.guilds:
-        print(f" - {guild.name} (ID: {guild.id}) - {guild.member_count} members")
+        logging.info(f"   • {guild.name} (ID: {guild.id}) — {guild.member_count} members")
+    logging.info(f"🚀 Ready! {len(bot.users)} users across {len(bot.guilds)} servers")
 
-    print(f"🚀 Bot is ready! Serving {len(bot.users)} users across {len(bot.guilds)} servers")
-
-
-
-@bot.event
-async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
-    logging.info(f"🎵 Lavalink node ready | resumed: {payload.resumed} | node: {payload.node.identifier}")
 
 @bot.event
 async def on_guild_join(guild):
-    logging.info(f"📥 Joined guild: {guild.name} (ID: {guild.id}) - {guild.member_count} members")
-
-    # Keep stats up to date
-    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
+    logging.info(f"📥 Joined: {guild.name} (ID: {guild.id}) — {guild.member_count} members")
+    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
     server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
-    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
+    server_stats["roles"]    = sum(len(g.roles) for g in bot.guilds)
 
-    if guild.system_channel:
-        channel = guild.system_channel
-    else:
-        channel = next(
-            (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
-            None,
-        )
-
+    channel = guild.system_channel or next(
+        (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
+        None
+    )
     if channel:
         embed = discord.Embed(
             title="👋 Thanks for adding me!",
@@ -270,10 +282,25 @@ async def on_guild_join(guild):
 
 @bot.event
 async def on_guild_remove(guild):
-    logging.info(f"📤 Left guild: {guild.name} (ID: {guild.id})")
-    server_stats["members"] = sum(g.member_count or 0 for g in bot.guilds)
+    logging.info(f"📤 Left: {guild.name} (ID: {guild.id})")
+    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
     server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
-    server_stats["roles"] = sum(len(g.roles) for g in bot.guilds)
+    server_stats["roles"]    = sum(len(g.roles) for g in bot.guilds)
+
+
+@bot.event
+async def on_disconnect():
+    logging.info("🔌 Bot disconnected")
+
+
+# === Wavelink Event ===
+if WAVELINK_AVAILABLE:
+    @bot.event
+    async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+        logging.info(
+            f"🎵 Lavalink node ready | resumed: {payload.resumed} | "
+            f"node: {payload.node.identifier}"
+        )
 
 
 # === Commands ===
@@ -284,8 +311,8 @@ async def bio_command(ctx):
         description="A powerful and feature-rich Discord bot created with passion!",
         color=discord.Color.green(),
     )
-    embed.add_field(name="👨‍💻 Bot Owner", value=f"<@{BOT_OWNER_ID}>", inline=True)
-    embed.add_field(name="📅 Version", value=f"**{BOT_VERSION}**", inline=True)
+    embed.add_field(name="👨‍💻 Bot Owner",  value=f"<@{BOT_OWNER_ID}>",       inline=True)
+    embed.add_field(name="📅 Version",      value=f"**{BOT_VERSION}**",        inline=True)
     embed.add_field(
         name="🌐 Serving",
         value=f"**{len(bot.guilds)}** servers\n**{len(bot.users)}** users",
@@ -315,6 +342,15 @@ async def bio_command(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="restart")
+@commands.is_owner()
+async def restart(ctx):
+    await ctx.send("🔄 Restarting...")
+    logging.info("🔄 Restart triggered by owner")
+    import sys
+    os.execv(sys.executable, ["python"] + sys.argv)
+
+
 # === Error Handling ===
 @bot.event
 async def on_command_error(ctx, error):
@@ -331,7 +367,6 @@ async def on_command_error(ctx, error):
         return
 
     logging.error(f"Command error in {ctx.command}: {error}", exc_info=True)
-
     embed = discord.Embed(title="⚠️ Command Error", color=discord.Color.red())
 
     if isinstance(error, commands.MissingRequiredArgument):
@@ -343,7 +378,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.BotMissingPermissions):
         embed.description = "I don't have the required permissions for this command"
     elif isinstance(error, commands.CommandOnCooldown):
-        embed.description = f"Command is on cooldown. Try again in {error.retry_after:.2f} seconds"
+        embed.description = f"Command on cooldown. Try again in **{error.retry_after:.2f}s**"
     else:
         embed.description = "An unexpected error occurred"
 
@@ -353,13 +388,11 @@ async def on_command_error(ctx, error):
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     logging.error(f"Slash command error: {error}", exc_info=True)
-
     embed = discord.Embed(
         title="⚠️ Command Error",
         description="An error occurred with this slash command",
         color=discord.Color.red(),
     )
-
     try:
         if not interaction.response.is_done():
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -369,80 +402,67 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         logging.error(f"Error handling slash command error: {e}")
 
 
-# FIX: Single Uvicorn server on Render's $PORT (default 10000) replaces both
-#      Flask keep_alive and the old internal port-8000 setup.
+# === API Server (Uvicorn) ===
 def run_api():
+    if not API_AVAILABLE:
+        logging.warning("⚠️ Skipping API server — api.py not found")
+        return
     port = int(os.environ.get("PORT", 10000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logging.info(f"🌐 Starting API server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 threading.Thread(target=run_api, daemon=True).start()
 
 
-# === Shutdown Handler ===
-@bot.event
-async def on_disconnect():
-    logging.info("🔌 Bot disconnected")
-
-
-async def shutdown_handler():
-    logging.info("🛑 Shutting down bot...")
-    await bot.close()
-
-
-# === Bot Startup with Rate Limit Handling ===
+# === Startup with Rate Limit Retry ===
 async def start_bot_with_retry():
-    max_startup_attempts = 5
-    startup_attempt = 0
-
-    while startup_attempt < max_startup_attempts:
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
         try:
-            startup_attempt += 1
-            logging.info(f"Starting LX Bot (attempt {startup_attempt}/{max_startup_attempts})")
+            logging.info(f"🚀 Starting LX Bot (attempt {attempt}/{max_attempts})")
             await bot.start(TOKEN)
             break
 
         except discord.HTTPException as e:
             if e.status == 429:
-                retry_after = getattr(e.response.headers, "get", lambda x, y=60: y)("Retry-After", 60)
-                wait_time = float(retry_after) + random.uniform(5, 15)
-                logging.warning(f"Rate limited during startup. Waiting {wait_time:.2f} seconds...")
-                await asyncio.sleep(wait_time)
-
+                retry_after = float(
+                    getattr(e, "response", None) and
+                    e.response.headers.get("Retry-After", 60) or 60
+                )
+                wait = retry_after + random.uniform(5, 15)
+                logging.warning(f"⚠️ Rate limited. Waiting {wait:.1f}s...")
+                await asyncio.sleep(wait)
             elif e.status in [502, 503, 504]:
-                wait_time = min(30 * startup_attempt, 300)
-                logging.warning(f"Discord server error {e.status}. Retrying in {wait_time}s...")
-                await asyncio.sleep(wait_time)
-
+                wait = min(30 * attempt, 300)
+                logging.warning(f"⚠️ Discord server error {e.status}. Retrying in {wait}s...")
+                await asyncio.sleep(wait)
             else:
-                logging.error(f"HTTP Exception during startup: {e}")
-                if startup_attempt >= max_startup_attempts:
-                    logging.critical("Max startup attempts reached. Exiting.")
+                logging.error(f"❌ HTTP Exception: {e}")
+                if attempt >= max_attempts:
                     raise
-                await asyncio.sleep(10 * startup_attempt)
+                await asyncio.sleep(10 * attempt)
 
         except discord.LoginFailure:
-            logging.critical("Invalid bot token. Please check your DISCORD_TOKEN.")
+            logging.critical("❌ Invalid bot token. Check your DISCORD_TOKEN env var.")
             return
 
         except Exception as e:
-            logging.error(f"Unexpected error during startup: {e}")
-            if startup_attempt >= max_startup_attempts:
-                logging.critical("Max startup attempts reached. Exiting.")
+            logging.error(f"❌ Unexpected error: {e}")
+            if attempt >= max_attempts:
                 raise
-            wait_time = min(10 * startup_attempt, 60)
-            await asyncio.sleep(wait_time)
-
+            wait = min(10 * attempt, 60)
+            await asyncio.sleep(wait)
     else:
-        logging.critical("Failed to start bot after maximum attempts.")
+        logging.critical("❌ Failed to start after maximum attempts.")
 
 
-# === Run the bot ===
+# === Entry Point ===
 if __name__ == "__main__":
     try:
-        logging.info("Initializing LX Bot with enhanced connection handling...")
+        logging.info("⚙️  Initializing LX Bot...")
         asyncio.run(start_bot_with_retry())
     except KeyboardInterrupt:
-        logging.info("Bot shutdown initiated by keyboard interrupt")
-        asyncio.run(shutdown_handler())
+        logging.info("🛑 Shutdown by keyboard interrupt")
+        asyncio.run(bot.close())
     except Exception as e:
-        logging.critical(f"Fatal error: {e}", exc_info=True)
+        logging.critical(f"💥 Fatal error: {e}", exc_info=True)
