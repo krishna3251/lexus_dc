@@ -12,6 +12,18 @@ from typing import Dict, List, Optional
 class AIPinger(commands.Cog):
     """AI-powered smart pinger that generates contextual messages with GIF support"""
     
+    # Hardcoded fallback GIFs (royalty-free / public Tenor links)
+    FALLBACK_GIFS = [
+        "https://media.tenor.com/images/4fce0665e13051ed30e0246c879f9fba/tenor.gif",  # wave
+        "https://media.tenor.com/images/5b3adff79b10a86f3ef0e9a2e6c5e1e7/tenor.gif",  # hello
+        "https://media.tenor.com/images/4a52e2acaf498b5bd5e4af4e40f8a29c/tenor.gif",  # poke
+        "https://media.tenor.com/images/fb42c861bb53e39aba89a5bcbe8ea0d0/tenor.gif",  # hey
+        "https://media.tenor.com/images/0b1d4afe186294235f0f28bbbb tried/tenor.gif",  # funny
+        "https://media.tenor.com/images/93e56ae62cd777ef6e5dd1c5e5a566d2/tenor.gif",  # wake up
+        "https://media.tenor.com/images/9d1db7ea9459b07fd3d6e67d9c8aec3e/tenor.gif",  # attention
+        "https://media.tenor.com/images/2acfa450b4fef01ee2e1c0e2c28349e9/tenor.gif",  # bored
+    ]
+    
     def __init__(self, bot):
         self.bot = bot
         self.nvidia_api_key = os.getenv('NVIDIA_API_KEY')  # Set your NVIDIA API key as environment variable
@@ -35,6 +47,8 @@ class AIPinger(commands.Cog):
     
     async def cog_load(self):
         """Start the ping loop after the bot is connected."""
+        if not self.tenor_api_key and not self.giphy_api_key:
+            print("⚠️ gif_cog: No TENOR_API_KEY or GIPHY_API_KEY set — using fallback GIF list")
         self.ping_loop.start()
     
     def cog_unload(self):
@@ -110,7 +124,7 @@ class AIPinger(commands.Cog):
             return None
     
     async def get_random_gif(self, config: Dict) -> Optional[str]:
-        """Get a random GIF based on server configuration"""
+        """Get a random GIF based on server configuration, with fallback list."""
         if not config["gif_enabled"]:
             return None
         
@@ -132,7 +146,11 @@ class AIPinger(commands.Cog):
                 gif_url = await self.get_giphy_gif(search_term)
                 if not gif_url:
                     gif_url = await self.get_tenor_gif(search_term)
-        
+
+        # Fallback to hardcoded GIF list if both APIs failed
+        if not gif_url and self.FALLBACK_GIFS:
+            gif_url = random.choice(self.FALLBACK_GIFS)
+
         return gif_url
     
     async def generate_ai_message(self, guild_name: str, member_name: str) -> str:

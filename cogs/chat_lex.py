@@ -2,7 +2,9 @@ import discord
 from discord.ext import commands
 import aiohttp
 import asyncio
+import datetime
 import random
+import re
 import time
 import os
 import logging
@@ -1375,6 +1377,73 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             await ctx.send("✅ Your conversation data has been cleared.")
         else:
             await ctx.send("You don't have any active session data.")
+
+    # ==================== MERGED FROM lexus_chatbot.py ====================
+
+    @commands.command(name="lexclear", aliases=["clearmemory"])
+    async def lex_clear_memory(self, ctx):
+        """Clear your Lexus conversation memory."""
+        user_id = ctx.author.id
+        if user_id in self.sessions and self.sessions[user_id].messages:
+            msg_count = len(self.sessions[user_id].messages)
+            del self.sessions[user_id]
+            await ctx.send(f"✅ Memory cleared. {msg_count} messages removed.")
+        else:
+            await ctx.send("No messages to clear.")
+
+    @commands.command(name="lexstats")
+    async def lex_stats(self, ctx):
+        """Show Lexus conversation statistics."""
+        user_id = ctx.author.id
+        total_users = len(self.sessions)
+        user_msgs = len(self.sessions[user_id].messages) if user_id in self.sessions else 0
+
+        stats_text = (
+            f"**Stats:**\n"
+            f"• Total active users: {total_users}\n"
+            f"• Your messages: {user_msgs}\n"
+            f"• Provider: {self.api_provider.upper()}\n"
+            f"• Model: {self.model_name}"
+        )
+
+        embed = discord.Embed(
+            title="Lexus Stats",
+            description=stats_text,
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(),
+        )
+        await ctx.send(embed=embed)
+
+    @commands.command(name="lexhelp")
+    async def lex_help(self, ctx):
+        """Show Lexus help information."""
+        help_text = (
+            "**How to talk to Lexus:**\n"
+            "• Use `!chat <message>` anywhere\n"
+            "• Talk in an AI-enabled channel (set by admin)\n\n"
+            "**User Commands:**\n"
+            "• `!lexclear` — Clear your conversation memory\n"
+            "• `!lexstats` — View statistics\n"
+            "• `!lexhelp` — Show this help\n"
+            "• `!clearme` — Wipe your session data\n"
+            "• `!resources` — Mental health support\n"
+            "• `!checkin` — Quick mood check-in\n"
+            "• `!mymood` — View your mood history\n\n"
+            "**Admin Commands:**\n"
+            "• `!lexus addai #channel` — Enable AI chat\n"
+            "• `!lexus removeai #channel` — Disable AI chat\n"
+            "• `!lexus status` — View config\n"
+            "• `!lexus debug` — Check API info"
+        )
+
+        embed = discord.Embed(
+            title="Lexus — Help",
+            description=help_text,
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(),
+        )
+        embed.set_footer(text=f"Powered by {self.api_provider.upper()}")
+        await ctx.send(embed=embed)
 
 
 async def setup(bot):

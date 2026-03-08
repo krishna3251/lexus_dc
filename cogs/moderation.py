@@ -12,16 +12,23 @@ MOD_ROLES_FILE = os.path.join(os.path.dirname(__file__), "mod_roles.json")
 OWNER_ID = 486555340670894080  # Your Discord user ID
 
 def load_mod_roles():
-    """Load mod roles from file"""
+    """Load mod roles from file (handles empty/corrupt JSON gracefully)."""
     if os.path.exists(MOD_ROLES_FILE):
-        with open(MOD_ROLES_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(MOD_ROLES_FILE, 'r') as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, ValueError):
+            return {}
     return {}
 
 def save_mod_roles(mod_roles):
-    """Save mod roles to file"""
-    with open(MOD_ROLES_FILE, 'w') as f:
-        json.dump(mod_roles, f)
+    """Save mod roles to file (atomic-safe)."""
+    try:
+        with open(MOD_ROLES_FILE, 'w') as f:
+            json.dump(mod_roles, f, indent=2)
+    except OSError as e:
+        logging.getLogger(__name__).error(f"Failed to save mod_roles: {e}")
 
 class ModerationCog(commands.Cog):
     def __init__(self, bot):

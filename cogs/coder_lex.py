@@ -36,10 +36,10 @@ class Config:
     
     @classmethod
     def from_env(cls):
-        """Load configuration from environment variables"""
-        api_key = os.getenv("OPENROUTER_API_KEY")
+        """Load configuration from environment variables."""
+        api_key = os.getenv("OPENROUTER_API_KEY", "")
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+            logger.warning("OPENROUTER_API_KEY not set – CodeCog will load in disabled mode")
         return cls(OPENROUTER_API_KEY=api_key)
 
 # ================== EXCEPTIONS ==================
@@ -525,25 +525,33 @@ class CodeCog(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        try:
-            self.config = Config.from_env()
-            self.memory = MemoryStore(self.config.MAX_MEMORY_CHARS)
-            self.llm_service = LLMService(self.config)
-            self.prompt_builder = PromptBuilder()
-            self.output_handler = OutputHandler(self.config, self.llm_service)
-            logger.info("CodeCog initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize CodeCog: {e}")
-            raise
+        self.config = Config.from_env()
+        self.enabled = bool(self.config.OPENROUTER_API_KEY)
+
+        if not self.enabled:
+            logger.warning("CodeCog loaded in DISABLED mode (no API key)")
+            self.memory = None
+            self.llm_service = None
+            self.prompt_builder = None
+            self.output_handler = None
+            return
+
+        self.memory = MemoryStore(self.config.MAX_MEMORY_CHARS)
+        self.llm_service = LLMService(self.config)
+        self.prompt_builder = PromptBuilder()
+        self.output_handler = OutputHandler(self.config, self.llm_service)
+        logger.info("CodeCog initialized successfully")
     
     async def cog_load(self):
         """Called when cog is loaded"""
-        await self.llm_service.initialize()
+        if self.enabled and self.llm_service:
+            await self.llm_service.initialize()
         logger.info("CodeCog loaded")
     
     async def cog_unload(self):
         """Called when cog is unloaded"""
-        await self.llm_service.close()
+        if self.llm_service:
+            await self.llm_service.close()
         logger.info("CodeCog unloaded")
     
     async def _validate_file(self, file: discord.Attachment) -> str:
@@ -574,6 +582,9 @@ class CodeCog(commands.Cog):
     async def on_message(self, message: discord.Message):
         """Handle all prefix-based commands"""
         if message.author.bot:
+            return
+
+        if not self.enabled:
             return
         
         content = message.content.strip()
@@ -754,10 +765,6 @@ class CodeCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Setup function to add cog to bot"""
-    try:
-        cog = CodeCog(bot)
-        await bot.add_cog(cog)
-        logger.info("CodeCog added to bot")
-    except Exception as e:
-        logger.error(f"Failed to add CodeCog: {e}")
-        raise
+    cog = CodeCog(bot)
+    await bot.add_cog(cog)
+    logger.info("CodeCog added to bot")

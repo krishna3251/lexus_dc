@@ -96,13 +96,24 @@ class Bot(commands.Bot):
             os.makedirs("cogs")
             logging.warning("Created missing cogs directory")
 
+        failed_cogs = []
+        loaded_cogs = []
         for filename in os.listdir("cogs"):
             if filename.endswith(".py"):
                 try:
                     await self.load_extension(f"cogs.{filename[:-3]}")
+                    loaded_cogs.append(filename)
                     logging.info(f"✅ Loaded extension: {filename}")
                 except Exception as e:
+                    failed_cogs.append((filename, str(e)))
                     logging.error(f"❌ Failed to load {filename}: {e}")
+
+        # Startup summary
+        logging.info(f"📦 Cog load summary: {len(loaded_cogs)} loaded, {len(failed_cogs)} failed")
+        if failed_cogs:
+            logging.warning("❌ Failed cogs:")
+            for name, err in failed_cogs:
+                logging.warning(f"   • {name}: {err}")
 
         self.status_rotation.start()
 
