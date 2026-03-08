@@ -30,7 +30,7 @@ COLORS = {
 EMOJIS = {
     "Music": "🎵", "Moderation": "🚔", "Fun": "🎪", "Utility": "🔧",
     "GifCog": "📸", "SarcasticPinger": "📡", "SlashCommandsCog": "⚡",
-    "General": "💼", "Economy": "💰", "AI": "🤖", "Gaming": "🎮",
+    "General": "💼", "AI": "🤖", "Gaming": "🎮",
     "Stats": "📈", "Help": "❓"
 }
 

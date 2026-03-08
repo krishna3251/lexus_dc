@@ -371,35 +371,7 @@ Remember: You're a real person having a real conversation. Be intentional, aware
         
         return False, content
     
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        """Message listener with trigger detection"""
-        if message.author.bot:
-            return
-        
-        content = message.content.strip()
-        if not content:
-            return
-        
-        user_id = message.author.id
-        
-        # Check cooldown
-        if not self.check_cooldown(user_id):
-            return
-        
-        # Determine if bot should respond
-        bot_mentioned = self.bot.user in message.mentions if message.guild else True
-        is_trigger, clean_content = self.extract_trigger_content(content)
-        
-        # In DMs, always respond; in servers, need mention or trigger
-        should_respond = not message.guild or bot_mentioned or is_trigger
-        
-        # Clean mentions from content
-        if bot_mentioned:
-            clean_content = re.sub(f'<@!?{self.bot.user.id}>', '', content).strip()
-        
-        if should_respond:
-            await self.handle_conversation(message, clean_content)
+    # on_message listener removed — chat_lex.py handles on_message to avoid duplicate processing
     
     async def handle_conversation(self, message, content: str):
         """Handle conversation with natural flow"""

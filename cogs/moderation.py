@@ -8,7 +8,7 @@ import datetime
 from typing import Optional, Union
 
 # File to store mod role IDs per guild
-MOD_ROLES_FILE = "mod_roles.json"
+MOD_ROLES_FILE = os.path.join(os.path.dirname(__file__), "mod_roles.json")
 OWNER_ID = 486555340670894080  # Your Discord user ID
 
 def load_mod_roles():

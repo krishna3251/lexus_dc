@@ -243,9 +243,9 @@ class Quarantine(commands.Cog):
         enabled="Enable or disable the quarantine system"
     )
     async def quarantineconfig(self, interaction: discord.Interaction, 
-                              auto_delete: Optional[bool] = None, 
-                              cooldown: Optional[int] = None,
-                              enabled: Optional[bool] = None):
+                              auto_delete: bool = None, 
+                              cooldown: int = None,
+                              enabled: bool = None):
         """Advanced configuration for quarantine system"""
         try:
             if not interaction.user.guild_permissions.administrator:

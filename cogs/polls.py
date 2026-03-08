@@ -6,11 +6,30 @@ and optional auto-close after a duration.
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
+import re
 import time
 import logging
 import mongo_helper
 
 logger = logging.getLogger(__name__)
+
+# Inline parse_duration to avoid circular import with cogs.reminders
+_DURATION_RE = re.compile(r"(\d+)\s*(s|sec|m|min|h|hr|hour|d|day|w|week)", re.IGNORECASE)
+_UNIT_MAP = {
+    "s": 1, "sec": 1,
+    "m": 60, "min": 60,
+    "h": 3600, "hr": 3600, "hour": 3600,
+    "d": 86400, "day": 86400,
+    "w": 604800, "week": 604800,
+}
+
+def parse_duration(text: str) -> int | None:
+    """Parse a human duration string into seconds. Returns None on failure."""
+    total = 0
+    for match in _DURATION_RE.finditer(text):
+        val, unit = int(match.group(1)), match.group(2).lower()
+        total += val * _UNIT_MAP.get(unit, 0)
+    return total if total > 0 else None
 
 NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
@@ -70,7 +89,6 @@ class PollsCog(commands.Cog, name="Polls"):
 
         # Save poll for auto-close if duration provided
         if duration:
-            from cogs.reminders import parse_duration
             seconds = parse_duration(duration)
             if seconds:
                 col = mongo_helper.get_collection("polls")

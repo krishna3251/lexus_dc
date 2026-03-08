@@ -127,6 +127,13 @@ class AntiNukeCog(commands.Cog):
             
             # Send the roast to general chat or wherever
             channel = discord.utils.get(guild.channels, name="general")
+            if not channel:
+                channel = guild.system_channel
+            if not channel:
+                channel = next(
+                    (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
+                    None,
+                )
             if channel:
                 await channel.send(embed=embed)
                 

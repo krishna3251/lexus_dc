@@ -1,1 +1,190 @@
-"""\nCentralized MongoDB helper for Lexus bot.\n\nRequires MONGO_URI in .env (free M0 Atlas cluster is fine).\nUses motor for async operations with discord.py.\n"""\n\nimport os\nimport logging\nfrom motor.motor_asyncio import AsyncIOMotorClient\nfrom dotenv import load_dotenv\n\nload_dotenv()\n\nlogger = logging.getLogger(__name__)\n\nMONGO_URI = os.getenv("MONGO_URI", "")\nDB_NAME = os.getenv("MONGO_DB_NAME", "lexus_bot")\n\n_client: AsyncIOMotorClient = None\n_db = None\n\n\nasync def connect():\n    """Connect to MongoDB. Call once at bot startup."""\n    global _client, _db\n    if not MONGO_URI:\n        logger.warning("MONGO_URI not set \u2013 MongoDB features disabled.")\n        return None\n    try:\n        _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)\n        # Verify connection\n        await _client.admin.command("ping")\n        _db = _client[DB_NAME]\n        logger.info(f"\u2705 Connected to MongoDB database: {DB_NAME}")\n        return _db\n    except Exception as e:\n        logger.error(f"\u274c MongoDB connection failed: {e}")\n        _client = None\n        _db = None\n        return None\n\n\nasync def disconnect():\n    """Gracefully close MongoDB connection."""\n    global _client, _db\n    if _client:\n        _client.close()\n        _client = None\n        _db = None\n        logger.info("MongoDB connection closed.")\n\n\ndef get_db():\n    """Return the database instance (None if not connected)."""\n    return _db\n\n\ndef get_collection(name: str):\n    """Shortcut to get a collection. Returns None if DB not connected."""\n    if _db is None:\n        return None\n    return _db[name]\n\n\n# \u2500\u2500\u2500 Collection helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\nasync def get_guild_config(guild_id: int) -> dict:\n    """Get full config document for a guild, or empty dict."""\n    col = get_collection("guild_config")\n    if col is None:\n        return {}\n    doc = await col.find_one({"guild_id": guild_id})\n    return doc or {}\n\n\nasync def update_guild_config(guild_id: int, update: dict):\n    """Upsert a guild config field."""\n    col = get_collection("guild_config")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id},\n        {"$set": update},\n        upsert=True,\n    )\n\n\nasync def get_antinuke(guild_id: int) -> dict:\n    """Get antinuke settings for a guild."""\n    col = get_collection("antinuke")\n    if col is None:\n        return {}\n    doc = await col.find_one({"guild_id": guild_id})\n    return doc or {}\n\n\nasync def update_antinuke(guild_id: int, update: dict):\n    """Upsert antinuke settings."""\n    col = get_collection("antinuke")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id},\n        {"$set": update},\n        upsert=True,\n    )\n\n\nasync def get_warnings(guild_id: int, user_id: int) -> list:\n    """Get all warnings for a user in a guild."""\n    col = get_collection("warnings")\n    if col is None:\n        return []\n    cursor = col.find({"guild_id": guild_id, "user_id": user_id}).sort("timestamp", -1)\n    return await cursor.to_list(length=100)\n\n\nasync def add_warning(doc: dict):\n    """Insert a warning document."""\n    col = get_collection("warnings")\n    if col is None:\n        return\n    await col.insert_one(doc)\n\n\nasync def get_karma(guild_id: int, user_id: int) -> dict:\n    """Get karma record for a user."""\n    col = get_collection("karma")\n    if col is None:\n        return {}\n    doc = await col.find_one({"guild_id": guild_id, "user_id": user_id})\n    return doc or {}\n\n\nasync def update_karma(guild_id: int, user_id: int, update: dict):\n    """Upsert karma record."""\n    col = get_collection("karma")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id, "user_id": user_id},\n        {"$set": update},\n        upsert=True,\n    )\n\n\nasync def inc_karma(guild_id: int, user_id: int, increments: dict):\n    """Increment karma fields atomically."""\n    col = get_collection("karma")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id, "user_id": user_id},\n        {"$inc": increments},\n        upsert=True,\n    )\n\n\nasync def get_levels(guild_id: int, user_id: int) -> dict:\n    """Get XP/level record."""\n    col = get_collection("levels")\n    if col is None:\n        return {}\n    doc = await col.find_one({"guild_id": guild_id, "user_id": user_id})\n    return doc or {}\n\n\nasync def update_levels(guild_id: int, user_id: int, update: dict):\n    """Upsert level record."""\n    col = get_collection("levels")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id, "user_id": user_id},\n        {"$set": update},\n        upsert=True,\n    )\n\n\nasync def inc_levels(guild_id: int, user_id: int, increments: dict):\n    """Increment XP fields atomically."""\n    col = get_collection("levels")\n    if col is None:\n        return\n    await col.update_one(\n        {"guild_id": guild_id, "user_id": user_id},\n        {"$inc": increments},\n        upsert=True,\n    )\n
+"""
+Centralized MongoDB helper for Lexus bot.
+
+Requires MONGO_URI in .env (free M0 Atlas cluster is fine).
+Uses motor for async operations with discord.py.
+"""
+
+import os
+import logging
+from motor.motor_asyncio import AsyncIOMotorClient
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+MONGO_URI = os.getenv("MONGO_URI", "")
+DB_NAME = os.getenv("MONGO_DB_NAME", "lexus_bot")
+
+_client: AsyncIOMotorClient = None
+_db = None
+
+
+async def connect():
+    """Connect to MongoDB. Call once at bot startup."""
+    global _client, _db
+    if not MONGO_URI:
+        logger.warning("MONGO_URI not set – MongoDB features disabled.")
+        return None
+    try:
+        _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        # Verify connection
+        await _client.admin.command("ping")
+        _db = _client[DB_NAME]
+        logger.info(f"✅ Connected to MongoDB database: {DB_NAME}")
+        return _db
+    except Exception as e:
+        logger.error(f"❌ MongoDB connection failed: {e}")
+        _client = None
+        _db = None
+        return None
+
+
+async def disconnect():
+    """Gracefully close MongoDB connection."""
+    global _client, _db
+    if _client:
+        _client.close()
+        _client = None
+        _db = None
+        logger.info("MongoDB connection closed.")
+
+
+def get_db():
+    """Return the database instance (None if not connected)."""
+    return _db
+
+
+def get_collection(name: str):
+    """Shortcut to get a collection. Returns None if DB not connected."""
+    if _db is None:
+        return None
+    return _db[name]
+
+
+# ─── Collection helpers ────────────────────────────────────────────
+
+async def get_guild_config(guild_id: int) -> dict:
+    """Get full config document for a guild, or empty dict."""
+    col = get_collection("guild_config")
+    if col is None:
+        return {}
+    doc = await col.find_one({"guild_id": guild_id})
+    return doc or {}
+
+
+async def update_guild_config(guild_id: int, update: dict):
+    """Upsert a guild config field."""
+    col = get_collection("guild_config")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id},
+        {"$set": update},
+        upsert=True,
+    )
+
+
+async def get_antinuke(guild_id: int) -> dict:
+    """Get antinuke settings for a guild."""
+    col = get_collection("antinuke")
+    if col is None:
+        return {}
+    doc = await col.find_one({"guild_id": guild_id})
+    return doc or {}
+
+
+async def update_antinuke(guild_id: int, update: dict):
+    """Upsert antinuke settings."""
+    col = get_collection("antinuke")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id},
+        {"$set": update},
+        upsert=True,
+    )
+
+
+async def get_warnings(guild_id: int, user_id: int) -> list:
+    """Get all warnings for a user in a guild."""
+    col = get_collection("warnings")
+    if col is None:
+        return []
+    cursor = col.find({"guild_id": guild_id, "user_id": user_id}).sort("timestamp", -1)
+    return await cursor.to_list(length=100)
+
+
+async def add_warning(doc: dict):
+    """Insert a warning document."""
+    col = get_collection("warnings")
+    if col is None:
+        return
+    await col.insert_one(doc)
+
+
+async def get_karma(guild_id: int, user_id: int) -> dict:
+    """Get karma record for a user."""
+    col = get_collection("karma")
+    if col is None:
+        return {}
+    doc = await col.find_one({"guild_id": guild_id, "user_id": user_id})
+    return doc or {}
+
+
+async def update_karma(guild_id: int, user_id: int, update: dict):
+    """Upsert karma record."""
+    col = get_collection("karma")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id, "user_id": user_id},
+        {"$set": update},
+        upsert=True,
+    )
+
+
+async def inc_karma(guild_id: int, user_id: int, increments: dict):
+    """Increment karma fields atomically."""
+    col = get_collection("karma")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id, "user_id": user_id},
+        {"$inc": increments},
+        upsert=True,
+    )
+
+
+async def get_levels(guild_id: int, user_id: int) -> dict:
+    """Get XP/level record."""
+    col = get_collection("levels")
+    if col is None:
+        return {}
+    doc = await col.find_one({"guild_id": guild_id, "user_id": user_id})
+    return doc or {}
+
+
+async def update_levels(guild_id: int, user_id: int, update: dict):
+    """Upsert level record."""
+    col = get_collection("levels")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id, "user_id": user_id},
+        {"$set": update},
+        upsert=True,
+    )
+
+
+async def inc_levels(guild_id: int, user_id: int, increments: dict):
+    """Increment XP fields atomically."""
+    col = get_collection("levels")
+    if col is None:
+        return
+    await col.update_one(
+        {"guild_id": guild_id, "user_id": user_id},
+        {"$inc": increments},
+        upsert=True,
+    )

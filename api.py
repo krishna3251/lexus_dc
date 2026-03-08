@@ -1,1 +1,33 @@
-from fastapi import FastAPI, Header, HTTPException\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom stats_store import server_stats\nimport os\n\napp = FastAPI()\n\nAPI_KEY = os.getenv("API_SECRET_KEY", "")\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=["*"],\n    allow_credentials=False,\n    allow_methods=["*"],\n    allow_headers=["*"],\n)\n\n@app.get("/")\n@app.head("/")\ndef root():\n    return {"status": "ok"}\n\n\n@app.get("/stats")\ndef get_stats(x_api_key: str = Header(None)):\n    # If API_SECRET_KEY is configured, enforce it\n    if API_KEY and x_api_key != API_KEY:\n        raise HTTPException(status_code=403, detail="Invalid or missing API key")\n    return server_stats\n\n@app.get("/health")\ndef health_check():\n    return {"status": "ok"}\n
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from stats_store import server_stats
+import os
+
+app = FastAPI()
+
+API_KEY = os.getenv("API_SECRET_KEY", "")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+@app.head("/")
+def root():
+    return {"status": "ok"}
+
+
+@app.get("/stats")
+def get_stats(x_api_key: str = Header(None)):
+    # If API_SECRET_KEY is configured, enforce it
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+    return server_stats
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}

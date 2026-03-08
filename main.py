@@ -91,13 +91,6 @@ class Bot(commands.Bot):
         #       setup_hook fires before Discord is fully ready, causing
         #       the Render free-tier Lavalink service to always 429.
 
-        # Load connection handler FIRST
-        try:
-            await self.load_extension("connection_handler")
-            logging.info("✅ Loaded connection handler")
-        except Exception as e:
-            logging.error(f"❌ Failed to load connection handler: {e}")
-
         # Load cogs
         if not os.path.exists("cogs"):
             os.makedirs("cogs")
@@ -227,7 +220,7 @@ async def on_ready():
 
 @bot.event
 async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
-    logging.info(f"🎵 Lavalink node ready | resumed: {payload.resumed} | sessions: {payload.session_id}")
+    logging.info(f"🎵 Lavalink node ready | resumed: {payload.resumed} | node: {payload.node.identifier}")
 
 @bot.event
 async def on_guild_join(guild):
