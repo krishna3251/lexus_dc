@@ -1,0 +1,17 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Runtime output
+logs/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

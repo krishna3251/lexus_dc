@@ -20,6 +20,23 @@ It combines **moderation, utilities, fun commands, and AI chat** into a single b
 
 ---
 
+## 🚀 Quick Start
+1. Install Python **3.10+** and create a virtual environment.
+2. Install dependencies:
+	```bash
+	pip install -r requirements.txt
+	```
+3. Copy `.env.example` to `.env` and set at least:
+	```env
+	DISCORD_TOKEN=your_discord_bot_token
+	```
+4. Start the bot:
+	```bash
+	python main.py
+	```
+
+---
+
 ## 👨‍💻 Contributing
 Contributions and suggestions are always welcome!  
 Fork the repo, make your changes, and submit a PR 🚀  
