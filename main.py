@@ -237,10 +237,9 @@ async def on_ready():
         logging.error(f"❌ Failed to sync slash commands: {e}")
 
     # Update stats
-    if STATS_AVAILABLE or True:
-        server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
-        server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
-        server_stats["roles"]    = sum(len(g.roles) for g in bot.guilds)
+    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
+    server_stats["channels"] = sum(len(g.channels) for g in bot.guilds)
+    server_stats["roles"]    = sum(len(g.roles) for g in bot.guilds)
 
     # Connect Lavalink
     await connect_lavalink()
@@ -403,6 +402,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 
 
 # === API Server (Uvicorn) ===
+# FIX: moved inside __main__ so it doesn't run on import
 def run_api():
     if not API_AVAILABLE:
         logging.warning("⚠️ Skipping API server — api.py not found")
@@ -410,8 +410,6 @@ def run_api():
     port = int(os.environ.get("PORT", 10000))
     logging.info(f"🌐 Starting API server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
-
-threading.Thread(target=run_api, daemon=True).start()
 
 
 # === Startup with Rate Limit Retry ===
@@ -460,7 +458,20 @@ async def start_bot_with_retry():
 if __name__ == "__main__":
     try:
         logging.info("⚙️  Initializing LX Bot...")
+
+        # FIX 1: Start keep_alive so Render health checks pass
+        try:
+            from keep_alive import keep_alive
+            keep_alive()
+            logging.info("✅ Keep-alive server started")
+        except ImportError:
+            logging.warning("⚠️ keep_alive.py not found — skipping")
+
+        # FIX 2: Start API thread here, not at module level
+        threading.Thread(target=run_api, daemon=True).start()
+
         asyncio.run(start_bot_with_retry())
+
     except KeyboardInterrupt:
         logging.info("🛑 Shutdown by keyboard interrupt")
         asyncio.run(bot.close())
