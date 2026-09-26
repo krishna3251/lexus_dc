@@ -3,17 +3,17 @@ from discord.ext import commands
 from discord import app_commands
 import asyncio
 import random
-import aiohttp
 import os
 import logging
 from datetime import datetime
-import json
 
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 # Sarcastic color scheme because why not
 COLORS = {
@@ -66,7 +66,7 @@ class SarcasticHelpCog(commands.Cog, name="Help"):
         if self.api_key and OPENAI_AVAILABLE:
             self._init_ai()
         
-        logging.info("🎭  Help System Online - Humanity is doomed")
+        logger.info("🎭 Help System Online")
     
     def _init_ai(self):
         """Initialize AI because humans need artificial help"""
@@ -76,7 +76,7 @@ class SarcasticHelpCog(commands.Cog, name="Help"):
                 api_key=self.api_key
             )
         except Exception as e:
-            logging.error(f"AI failed to initialize. Typical. {e}")
+            logger.error(f"AI failed to initialize: {e}")
     
     def _build_command_cache(self):
         """Cache commands because loading them every time is for peasants"""
@@ -462,5 +462,7 @@ class SarcasticHelpCommands(SarcasticHelpCog):
         await ctx.send(embed=embed)
 
 async def setup(bot):
+    if bot.get_command("help"):
+        bot.remove_command("help")
     await bot.add_cog(SarcasticHelpCommands(bot))
-    logging.info("🎭 Aap ke liye hazir mailk")
+    logger.info("✅ Help cog loaded")

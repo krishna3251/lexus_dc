@@ -4,10 +4,12 @@ from discord import app_commands
 import random
 import asyncio
 import datetime
-import json
+import logging
 import os
 import aiohttp
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 class AIPinger(commands.Cog):
     """AI-powered smart pinger that generates contextual messages with GIF support"""
@@ -18,7 +20,6 @@ class AIPinger(commands.Cog):
         "https://media.tenor.com/images/5b3adff79b10a86f3ef0e9a2e6c5e1e7/tenor.gif",  # hello
         "https://media.tenor.com/images/4a52e2acaf498b5bd5e4af4e40f8a29c/tenor.gif",  # poke
         "https://media.tenor.com/images/fb42c861bb53e39aba89a5bcbe8ea0d0/tenor.gif",  # hey
-        "https://media.tenor.com/images/0b1d4afe186294235f0f28bbbb tried/tenor.gif",  # funny
         "https://media.tenor.com/images/93e56ae62cd777ef6e5dd1c5e5a566d2/tenor.gif",  # wake up
         "https://media.tenor.com/images/9d1db7ea9459b07fd3d6e67d9c8aec3e/tenor.gif",  # attention
         "https://media.tenor.com/images/2acfa450b4fef01ee2e1c0e2c28349e9/tenor.gif",  # bored
@@ -48,7 +49,7 @@ class AIPinger(commands.Cog):
     async def cog_load(self):
         """Start the ping loop after the bot is connected."""
         if not self.tenor_api_key and not self.giphy_api_key:
-            print("⚠️ gif_cog: No TENOR_API_KEY or GIPHY_API_KEY set — using fallback GIF list")
+            logger.info("gif_cog: No TENOR_API_KEY or GIPHY_API_KEY set — using fallback GIF list")
         self.ping_loop.start()
     
     def cog_unload(self):
@@ -93,7 +94,7 @@ class AIPinger(commands.Cog):
                             return gif["media_formats"]["gif"]["url"]
             return None
         except Exception as e:
-            print(f"Tenor API error: {e}")
+            logger.warning(f"Tenor API error: {e}")
             return None
     
     async def get_giphy_gif(self, search_term: str) -> Optional[str]:
@@ -120,7 +121,7 @@ class AIPinger(commands.Cog):
                             return gif["images"]["original"]["url"]
             return None
         except Exception as e:
-            print(f"Giphy API error: {e}")
+            logger.warning(f"Giphy API error: {e}")
             return None
     
     async def get_random_gif(self, config: Dict) -> Optional[str]:
@@ -196,7 +197,7 @@ class AIPinger(commands.Cog):
                         raise Exception(f"API returned status {response.status}")
                         
         except Exception as e:
-            print(f"AI generation failed: {e}")
+            logger.warning(f"AI generation failed: {e}")
             # Fallback to random message
             fallback_messages = [
                 f"@{member_name} AI se message generate kar raha tha, but you're too special for AI! 🤖✨",
@@ -275,9 +276,9 @@ class AIPinger(commands.Cog):
             
             try:
                 await channel.send(content=member.mention, embed=embed)
-                print(f"Pinged {member.display_name} in {guild.name} with GIF: {bool(gif_url)}")
+                logger.debug(f"Pinged {member.display_name} in {guild.name} with GIF: {bool(gif_url)}")
             except Exception as e:
-                print(f"Failed to send ping: {e}")
+                logger.warning(f"Failed to send ping: {e}")
             
             # Update next ping time
             config["next_ping"] = (now + datetime.timedelta(hours=config["interval_hours"])).timestamp()
@@ -285,7 +286,7 @@ class AIPinger(commands.Cog):
     @ping_loop.before_loop
     async def before_ping_loop(self):
         await self.bot.wait_until_ready()
-        print("AI Pinger with GIF support is ready!")
+        logger.info("AI Pinger with GIF support is ready!")
     
     @app_commands.command(name="ping", description="Show smart pinger control panel")
     @app_commands.describe()

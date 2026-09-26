@@ -108,11 +108,11 @@ class AutoroleCog(commands.Cog, name="Autorole"):
         interaction: discord.Interaction,
         title: str,
         role1: discord.Role,
-        emoji1: str = None,
-        role2: discord.Role = None,
-        emoji2: str = None,
-        role3: discord.Role = None,
-        emoji3: str = None,
+        emoji1: str | None = None,
+        role2: discord.Role | None = None,
+        emoji2: str | None = None,
+        role3: discord.Role | None = None,
+        emoji3: str | None = None,
     ):
         roles_data = [{"role_id": role1.id, "label": role1.name, "emoji": emoji1}]
         desc_lines = [f"{emoji1 or '🔘'} — {role1.mention}"]

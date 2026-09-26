@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import asyncio
 import logging
+import time
 from typing import Optional, List, Dict, Any
 import random
 
@@ -90,13 +91,11 @@ class Quarantine(commands.Cog):
         """Check if user is on quarantine cooldown"""
         key = (guild_id, user_id)
         if key in self.quarantine_cooldowns:
-            import time
             return time.time() - self.quarantine_cooldowns[key] < self.get_guild_config(guild_id)["cooldown"]
         return False
 
     def set_cooldown(self, guild_id: int, user_id: int):
         """Set quarantine cooldown for user"""
-        import time
         self.quarantine_cooldowns[(guild_id, user_id)] = time.time()
 
     # --- Enhanced Slash Commands ---
@@ -570,4 +569,4 @@ class Quarantine(commands.Cog):
 async def setup(bot):
     """Setup function for the cog"""
     await bot.add_cog(Quarantine(bot))
-    logging.getLogger().info("Quarantine cog loaded successfully with enhanced features!")
+    logging.getLogger(__name__).info("✅ Quarantine cog loaded")

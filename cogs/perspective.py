@@ -5,16 +5,13 @@ import aiohttp
 import datetime
 import random
 import logging
-from dotenv import load_dotenv
-
 # Import centralized MongoDB helper
 import mongo_helper
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class Moderation(commands.Cog):
+class PerspectiveCog(commands.Cog, name="Perspective"):
     def __init__(self, bot):
         self.bot = bot
         self.perspective_api_key = os.getenv("PERSPECTIVE_API_KEY")
@@ -90,7 +87,8 @@ class Moderation(commands.Cog):
 
                     return max(scores.values()), scores
 
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Perspective API error: {e}")
             return None, None
 
     # -------------------- KARMA (MongoDB) --------------------
@@ -230,4 +228,5 @@ class Moderation(commands.Cog):
 # -------------------- SETUP --------------------
 
 async def setup(bot):
-    await bot.add_cog(Moderation(bot))
+    await bot.add_cog(PerspectiveCog(bot))
+    logger.info("✅ Perspective cog loaded")

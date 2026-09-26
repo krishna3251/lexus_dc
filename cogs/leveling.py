@@ -7,7 +7,6 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import random
-import math
 import time
 import logging
 import mongo_helper
@@ -86,7 +85,7 @@ class LevelingCog(commands.Cog, name="Leveling"):
 
     @app_commands.command(name="rank", description="Check your XP rank")
     @app_commands.describe(user="User to check (defaults to yourself)")
-    async def rank(self, interaction: discord.Interaction, user: discord.Member = None):
+    async def rank(self, interaction: discord.Interaction, user: discord.Member | None = None):
         user = user or interaction.user
         record = await mongo_helper.get_levels(interaction.guild_id, user.id)
         level = record.get("level", 0)

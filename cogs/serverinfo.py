@@ -1,9 +1,10 @@
 import discord
 from discord.ext import commands
-import datetime
 import random
 import asyncio
-from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ServerInfo(commands.Cog):
     """Cyberpunk-themed server information commands"""
@@ -147,4 +148,4 @@ class ServerInfo(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(ServerInfo(bot))
-    print("⚡ NETRUNNER MODULE: ServerInfo initialized ⚡")
+    logger.info("✅ ServerInfo cog loaded")

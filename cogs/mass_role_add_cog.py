@@ -2,7 +2,9 @@ import discord
 from discord.ext import commands
 from discord import ui, ButtonStyle
 import asyncio
-import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RoleActionView(ui.View):
     def __init__(self, original_author_id):
@@ -82,7 +84,7 @@ class RoleActionView(ui.View):
                 
             except Exception as e:
                 failure_count += 1
-                print(f"Failed to add role to {member.display_name}: {e}")
+                logger.warning(f"Failed to add role to {member.display_name}: {e}")
         
         # Final report
         self.is_running = False
@@ -217,3 +219,4 @@ class MassRoleAddCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(MassRoleAddCog(bot))
+    logger.info("✅ MassRoleAdd cog loaded")

@@ -1,19 +1,11 @@
 import discord
 from discord.ext import commands
 import asyncio
-import json
 import logging
-import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 import mongo_helper
 
-# Load environment variables like a civilized human being
-load_dotenv()
-
-# Because apparently some people need their hand held
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class AntiNukeCog(commands.Cog):
@@ -38,8 +30,15 @@ class AntiNukeCog(commands.Cog):
         ]
     
     async def cog_load(self):
-        """Load whitelists from MongoDB on startup."""
-        await self.bot.wait_until_ready()
+        """Schedule loading whitelists from MongoDB on startup."""
+        asyncio.create_task(self._init_guild_antinuke())
+
+    async def _init_guild_antinuke(self):
+        """Wait until bot is ready and load guild configs."""
+        try:
+            await self.bot.wait_until_ready()
+        except (RuntimeError, asyncio.CancelledError):
+            return
         for guild in self.bot.guilds:
             await self._load_guild_antinuke(guild.id)
 
@@ -332,8 +331,7 @@ class AntiNukeCog(commands.Cog):
         else:
             await interaction.response.send_message(f"🤷 {user.mention} has no violations to clear. They're already clean.")
 
-# This is the setup function your cog loader is crying about
 async def setup(bot):
-    """Load the cog like a functioning human being"""
+    """Load the anti-nuke cog"""
     await bot.add_cog(AntiNukeCog(bot))
-    print("🛡️ Anti-Nuke cog loaded successfully. Server raiders beware!")
+    logger.info("🛡️ Anti-Nuke cog loaded")

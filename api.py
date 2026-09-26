@@ -22,7 +22,7 @@ def root():
 
 
 @app.get("/stats")
-def get_stats(x_api_key: str = Header(None)):
+def get_stats(x_api_key: str | None = Header(None)):
     # If API_SECRET_KEY is configured, enforce it
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=403, detail="Invalid or missing API key")

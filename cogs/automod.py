@@ -18,9 +18,6 @@ INVITE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-DEFAULT_BAD_WORDS = []  # Servers populate their own list
-
-
 class AutomodCog(commands.Cog, name="Automod"):
     """Automated message moderation with configurable filters."""
 
@@ -65,7 +62,7 @@ class AutomodCog(commands.Cog, name="Automod"):
         app_commands.Choice(name="List", value="list"),
     ])
     @app_commands.default_permissions(manage_guild=True)
-    async def badwords_cmd(self, interaction: discord.Interaction, action: str, word: str = None):
+    async def badwords_cmd(self, interaction: discord.Interaction, action: str, word: str | None = None):
         cfg = await self._get_automod_config(interaction.guild_id)
         words: list = cfg.get("bad_words", [])
 

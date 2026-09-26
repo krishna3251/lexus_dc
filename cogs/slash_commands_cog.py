@@ -2,24 +2,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import datetime
-import random
 import asyncio
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SlashCommandsCog(commands.Cog):
     """Slash command implementations for various bot features"""
     
     def __init__(self, bot):
         self.bot = bot
-        self._last_members = {}
-        self.start_time = datetime.datetime.utcnow()
-        # Register the commands with the bot's tree
-        self._register_commands()
-        
-    def _register_commands(self):
-        """Ensure commands are properly registered to the bot's command tree"""
-        # This is optional - commands should be registered automatically, but this helps ensure it
-        print("Registering slash commands for SlashCommandsCog")
+        self.start_time = discord.utils.utcnow()
     
     # -------- Ping Command --------
     @app_commands.command(name="pinginfo", description="Check the bot's latency and uptime")
@@ -307,3 +301,4 @@ class SlashCommandsCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(SlashCommandsCog(bot))
+    logger.info("✅ SlashCommands cog loaded")

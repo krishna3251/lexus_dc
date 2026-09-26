@@ -13,8 +13,6 @@ from dataclasses import dataclass, field
 from collections import deque
 from enum import Enum
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class UserIntent(Enum):
@@ -462,7 +460,7 @@ class LexusBot(commands.Cog):
             logger.info(f"Using {self.api_provider} API with model: {self.model_name}")
         
         # Schedule permission check
-        self.bot.loop.create_task(self.check_permissions_on_load())
+        asyncio.create_task(self.check_permissions_on_load())
 
     async def cog_unload(self):
         """Clean shutdown."""
@@ -471,7 +469,10 @@ class LexusBot(commands.Cog):
     
     async def check_permissions_on_load(self):
         """Check bot permissions in all guilds on startup."""
-        await self.bot.wait_until_ready()
+        try:
+            await self.bot.wait_until_ready()
+        except (RuntimeError, asyncio.CancelledError):
+            return
         
         required_permissions = [
             'read_messages',

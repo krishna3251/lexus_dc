@@ -1,11 +1,10 @@
 import discord
 import logging
 import os
+import sys
 import time
 import threading
-import uvicorn
 import asyncio
-import random
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
@@ -37,11 +36,11 @@ except ImportError:
 
 # === Load env ===
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")  # reads directly from env, NO config.py needed
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
     logging.critical("❌ DISCORD_TOKEN not set in environment!")
-    exit(1)
+    sys.exit(1)
 
 # === Logging ===
 os.makedirs("logs", exist_ok=True)
@@ -65,11 +64,11 @@ intents.guilds          = True
 intents.members         = True
 
 
-async def _dynamic_prefix(bot, message: discord.Message):
+async def _dynamic_prefix(bot: commands.Bot, message: discord.Message):
     if not message.guild:
         return commands.when_mentioned_or("lx ")(bot, message)
     try:
-        if MONGO_AVAILABLE:
+        if MONGO_AVAILABLE and mongo_helper:
             cfg    = await mongo_helper.get_guild_config(message.guild.id)
             prefix = cfg.get("prefix", "lx ")
         else:
@@ -77,6 +76,13 @@ async def _dynamic_prefix(bot, message: discord.Message):
     except Exception:
         prefix = "lx "
     return commands.when_mentioned_or(prefix)(bot, message)
+
+
+def _update_server_stats():
+    """Helper to update server stats cache for the API."""
+    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
+    server_stats["channels"] = sum(len(g.channels)     for g in bot.guilds)
+    server_stats["roles"]    = sum(len(g.roles)         for g in bot.guilds)
 
 
 class Bot(commands.Bot):
@@ -95,10 +101,10 @@ class Bot(commands.Bot):
     async def setup_hook(self):
         logging.info("⚙️  Running setup_hook...")
 
-        if MONGO_AVAILABLE:
+        if MONGO_AVAILABLE and mongo_helper:
             try:
                 db = await mongo_helper.connect()
-                logging.info("✅ MongoDB connected" if db else "⚠️ MongoDB not connected")
+                logging.info("✅ MongoDB connected" if db is not None else "⚠️ MongoDB not connected")
             except Exception as e:
                 logging.error(f"❌ MongoDB error: {e}")
 
@@ -109,7 +115,9 @@ class Bot(commands.Bot):
         priority  = [f for f in cog_files if f.startswith(("help", "admin", "core"))]
         rest      = [f for f in cog_files if f not in priority]
 
-        loaded, failed = [], []
+        loaded: list[str] = []
+        failed: list[tuple[str, str, str]] = []
+
         for filename in priority + rest:
             cog_path = f"cogs.{filename[:-3]}"
             try:
@@ -117,13 +125,30 @@ class Bot(commands.Bot):
                 loaded.append(filename)
                 logging.info(f"✅ Loaded: {cog_path}")
             except Exception as e:
-                failed.append(filename)
-                logging.error(f"❌ Failed {cog_path}: {e}")
+                exc_type = type(e).__name__
+                exc_msg = str(e)
+                failed.append((filename, exc_type, exc_msg))
+                logging.error(f"❌ Failed {cog_path} [{exc_type}]: {exc_msg}")
 
-        logging.info(f"📦 {len(loaded)} loaded, {len(failed)} failed")
+        logging.info("📦 Startup Cog Summary:")
+        logging.info(f"   Loaded cogs: {len(loaded)}")
+        logging.info(f"   Failed cogs: {len(failed)}")
+        if failed:
+            for fname, exc_type, err_msg in failed:
+                logging.error(f"   ❌ {fname} | {exc_type}: {err_msg}")
+
         self.status_rotation.start()
 
-    async def process_commands(self, message):
+    async def close(self):
+        logging.info("🛑 Closing bot session...")
+        if MONGO_AVAILABLE and mongo_helper:
+            try:
+                await mongo_helper.disconnect()
+            except Exception as e:
+                logging.error(f"Error disconnecting Mongo: {e}")
+        await super().close()
+
+    async def process_commands(self, message: discord.Message):
         if message.id in self.processing_commands:
             return
         self.processing_commands.add(message.id)
@@ -180,18 +205,14 @@ async def on_ready():
         logging.info(f"✅ Synced {len(synced)} slash commands")
     except Exception as e:
         logging.error(f"❌ Sync failed: {e}")
-    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
-    server_stats["channels"] = sum(len(g.channels)     for g in bot.guilds)
-    server_stats["roles"]    = sum(len(g.roles)         for g in bot.guilds)
+    _update_server_stats()
     await connect_lavalink()
     logging.info(f"🚀 Ready! {len(bot.users)} users across {len(bot.guilds)} servers")
 
 
 @bot.event
-async def on_guild_join(guild):
-    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
-    server_stats["channels"] = sum(len(g.channels)     for g in bot.guilds)
-    server_stats["roles"]    = sum(len(g.roles)         for g in bot.guilds)
+async def on_guild_join(guild: discord.Guild):
+    _update_server_stats()
     channel = guild.system_channel or next(
         (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages), None
     )
@@ -207,14 +228,12 @@ async def on_guild_join(guild):
 
 
 @bot.event
-async def on_guild_remove(guild):
-    server_stats["members"]  = sum(g.member_count or 0 for g in bot.guilds)
-    server_stats["channels"] = sum(len(g.channels)     for g in bot.guilds)
-    server_stats["roles"]    = sum(len(g.roles)         for g in bot.guilds)
+async def on_guild_remove(guild: discord.Guild):
+    _update_server_stats()
 
 
 @bot.command(name="bio", aliases=["about", "owner"])
-async def bio_command(ctx):
+async def bio_command(ctx: commands.Context):
     embed = discord.Embed(title="🤖 About LX Bot", color=discord.Color.green())
     embed.add_field(name="Owner",   value=f"<@{BOT_OWNER_ID}>",       inline=True)
     embed.add_field(name="Version", value=BOT_VERSION,                 inline=True)
@@ -225,31 +244,33 @@ async def bio_command(ctx):
 
 @bot.command(name="restart")
 @commands.is_owner()
-async def restart(ctx):
+async def restart(ctx: commands.Context):
     await ctx.send("🔄 Restarting...")
-    import sys
     os.execv(sys.executable, ["python"] + sys.argv)
 
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
         return
     embed = discord.Embed(title="⚠️ Error", color=discord.Color.red())
     if isinstance(error, commands.MissingRequiredArgument):
         embed.description = f"Missing argument: **{error.param.name}**"
     elif isinstance(error, commands.MissingPermissions):
-        embed.description = "You don't have permission."
+        embed.description = "You don't have permission to use this command."
     elif isinstance(error, commands.CommandOnCooldown):
-        embed.description = f"Cooldown. Retry in **{error.retry_after:.1f}s**"
+        embed.description = f"Cooldown active. Retry in **{error.retry_after:.1f}s**"
     else:
         embed.description = "An unexpected error occurred."
         logging.error(f"Command error: {error}", exc_info=True)
-    await ctx.send(embed=embed, delete_after=10)
+    try:
+        await ctx.send(embed=embed, delete_after=10)
+    except discord.Forbidden:
+        pass
 
 
 @bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error):
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
     logging.error(f"Slash error: {error}", exc_info=True)
     embed = discord.Embed(title="⚠️ Error", description="Something went wrong.", color=discord.Color.red())
     try:
@@ -263,10 +284,12 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 
 # === API server — binds to $PORT for Render health checks ===
 def run_api():
-    if not API_AVAILABLE:
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 10000))
+    if not API_AVAILABLE or fastapi_app is None:
         # If api.py is missing, spin up a minimal health-check server
         from fastapi import FastAPI
-        import uvicorn
         _app = FastAPI()
 
         @_app.get("/")
@@ -274,12 +297,10 @@ def run_api():
         def root():
             return {"status": "ok"}
 
-        port = int(os.environ.get("PORT", 10000))
         logging.info(f"🌐 Fallback health server on port {port}")
         uvicorn.run(_app, host="0.0.0.0", port=port, log_level="warning")
         return
 
-    port = int(os.environ.get("PORT", 10000))
     logging.info(f"🌐 API server on port {port}")
     uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_level="warning")
 
@@ -310,6 +331,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
-        logging.info("🛑 Shutdown.")
+        logging.info("🛑 Shutdown initiated by user.")
     except Exception as e:
-        logging.critical(f"💥 Fatal: {e}", exc_info=True)
+        logging.critical(f"💥 Fatal error: {e}", exc_info=True)

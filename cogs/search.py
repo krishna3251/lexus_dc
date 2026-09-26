@@ -1,16 +1,13 @@
 import os
 import discord
 import aiohttp
-import json
-import datetime
+import logging
 from discord.ext import commands
 from discord import app_commands
 from discord.ui import Button, View
 from typing import List, Optional, Dict, Any
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+logger = logging.getLogger(__name__)
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 HELP_LOGGER_WEBHOOK = os.getenv("HELP_LOGGER_WEBHOOK")
@@ -562,3 +559,4 @@ class SearchFeatures(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(SearchFeatures(bot))
+    logger.info("✅ SearchFeatures cog loaded")

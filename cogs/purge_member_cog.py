@@ -1,8 +1,9 @@
 import discord
 from discord import app_commands, ui
 from discord.ext import commands
-import datetime
-import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ConfirmPurgeView(ui.View):
     def __init__(self, member, limit, original_interaction):
@@ -36,7 +37,7 @@ class ConfirmPurgeView(ui.View):
         
         try:
             await self.original_interaction.edit_original_response(content="**OPERATION TIMED OUT**", view=self, embed=None)
-        except:
+        except (discord.NotFound, discord.HTTPException):
             pass
 
 class PurgeMemberCog(commands.Cog):
@@ -60,7 +61,7 @@ class PurgeMemberCog(commands.Cog):
             title="⚠️ SECURE MESSAGE PURGE PROTOCOL ⚠️",
             description=f"**TARGET:** {member.mention}\n**SCAN DEPTH:** {limit} messages\n**CHANNEL:** {interaction.channel.mention}",
             color=self.color,
-            timestamp=datetime.datetime.now()
+            timestamp=discord.utils.utcnow()
         )
         
         if reason:
@@ -89,7 +90,7 @@ class PurgeMemberCog(commands.Cog):
                     title="🔄 NEURAL PURGE COMPLETE",
                     description=f"**{len(deleted)}** messages from **{member.display_name}** have been wiped from the system.",
                     color=self.color,
-                    timestamp=datetime.datetime.now()
+                    timestamp=discord.utils.utcnow()
                 )
                 success_embed.set_footer(text=f"Executed by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
                 
@@ -103,7 +104,7 @@ class PurgeMemberCog(commands.Cog):
                             title="⚡ MESSAGE PURGE EXECUTED",
                             description=f"**Moderator:** {interaction.user.mention}\n**Target:** {member.mention}\n**Channel:** {interaction.channel.mention}\n**Messages Deleted:** {len(deleted)}",
                             color=self.color,
-                            timestamp=datetime.datetime.now()
+                            timestamp=discord.utils.utcnow()
                         )
                         if reason:
                             log_embed.add_field(name="Reason", value=reason, inline=False)
@@ -145,3 +146,4 @@ class PurgeMemberCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(PurgeMemberCog(bot))
+    logger.info("✅ PurgeMember cog loaded")

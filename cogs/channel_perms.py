@@ -1,227 +1,232 @@
 import discord
 from discord.ext import commands
 from discord import ui, ButtonStyle
-import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Canonical channel permission definitions: (key, label, emoji, style)
+COMMON_PANEL_PERMS = [
+    ("view_channel", "View Channel", "🔍", ButtonStyle.primary),
+    ("send_messages", "Send Messages", "💬", ButtonStyle.primary),
+    ("attach_files", "Attach Files", "📁", ButtonStyle.primary),
+    ("embed_links", "Embed Links", "🔗", ButtonStyle.primary),
+    ("add_reactions", "Add Reactions", "👍", ButtonStyle.secondary),
+    ("use_external_emojis", "External Emojis", "😀", ButtonStyle.secondary),
+    ("mention_everyone", "Mention Everyone", "📢", ButtonStyle.secondary),
+    ("manage_messages", "Manage Messages", "📝", ButtonStyle.secondary),
+]
+
+# Canonical lookup mapping for setperm command
+PERMISSION_MAP = {
+    "view_channel": "view_channel",
+    "view channel": "view_channel",
+    "send_messages": "send_messages",
+    "send messages": "send_messages",
+    "read_messages": "read_messages",
+    "read messages": "read_messages",
+    "manage_messages": "manage_messages",
+    "manage messages": "manage_messages",
+    "connect": "connect",
+    "speak": "speak",
+    "mute_members": "mute_members",
+    "mute members": "mute_members",
+    "deafen_members": "deafen_members",
+    "deafen members": "deafen_members",
+    "move_members": "move_members",
+    "move members": "move_members",
+    "manage_roles": "manage_roles",
+    "manage roles": "manage_roles",
+    "manage_channels": "manage_channels",
+    "manage channels": "manage_channels",
+    "create_instant_invite": "create_instant_invite",
+    "create instant invite": "create_instant_invite",
+    "attach_files": "attach_files",
+    "attach files": "attach_files",
+    "embed_links": "embed_links",
+    "embed links": "embed_links",
+    "add_reactions": "add_reactions",
+    "add reactions": "add_reactions",
+    "mention_everyone": "mention_everyone",
+    "mention everyone": "mention_everyone",
+    "use_external_emojis": "use_external_emojis",
+    "use external emojis": "use_external_emojis",
+    "use_application_commands": "use_application_commands",
+    "use application commands": "use_application_commands",
+    "priority_speaker": "priority_speaker",
+    "priority speaker": "priority_speaker",
+    "stream": "stream",
+    "manage_webhooks": "manage_webhooks",
+    "manage webhooks": "manage_webhooks",
+    "manage_events": "manage_events",
+    "manage events": "manage_events",
+    "view_audit_log": "view_audit_log",
+    "view audit log": "view_audit_log",
+    "view_guild_insights": "view_guild_insights",
+    "view guild insights": "view_guild_insights",
+    "send_tts_messages": "send_tts_messages",
+    "send tts messages": "send_tts_messages",
+    "moderate_members": "moderate_members",
+    "moderate members": "moderate_members",
+}
+
+
+class PermissionButton(ui.Button):
+    def __init__(self, style: ButtonStyle, custom_id: str, label: str, emoji: str = None):
+        super().__init__(style=style, label=label, emoji=emoji, custom_id=custom_id)
+        self.perm_key = custom_id
+
+    async def callback(self, interaction: discord.Interaction):
+        view: PermissionView = self.view
+
+        try:
+            role_perms = view.channel.permissions_for(view.role)
+            current_value = getattr(role_perms, self.perm_key, False)
+            new_value = not current_value
+
+            await view.channel.set_permissions(view.role, **{self.perm_key: new_value})
+
+            state_text = "ENABLED" if new_value else "DISABLED"
+            color = discord.Color.green() if new_value else discord.Color.red()
+
+            embed = discord.Embed(
+                title="🔐 Permission Updated",
+                color=color,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="Role", value=view.role.mention, inline=True)
+            embed.add_field(name="Permission", value=f"`{self.label}` (`{self.perm_key}`)", inline=True)
+            embed.add_field(name="State", value=f"**{state_text}**", inline=True)
+            embed.add_field(name="Channel", value=view.channel.mention, inline=True)
+            embed.add_field(name="Modified By", value=interaction.user.mention, inline=True)
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "⚠️ **Access Denied**: Insufficient permissions to modify role permissions in this channel.",
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Error toggling permission {self.perm_key}: {e}", exc_info=True)
+            await interaction.response.send_message(
+                "⚠️ An error occurred while updating permissions.",
+                ephemeral=True
+            )
+
 
 class PermissionView(ui.View):
-    def __init__(self, author_id, role, channel, timeout=180):
+    def __init__(self, author_id: int, role: discord.Role, channel: discord.TextChannel, timeout: int = 180):
         super().__init__(timeout=timeout)
         self.author_id = author_id
         self.role = role
         self.channel = channel
-        
-        # Full list of Discord channel permissions with cyberpunk descriptions
-        self.perm_mapping = {
-            "view_channel": "See holographic displays",
-            "send_messages": "Transmit data packets",
-            "read_messages": "Access neural datastream",
-            "manage_messages": "Override message protocols",
-            "connect": "Establish neural connection",
-            "speak": "Broadcast vocal transmissions",
-            "mute_members": "Silence target interfaces",
-            "deafen_members": "Block audio receptors",
-            "move_members": "Force neural relocation",
-            "manage_roles": "Reconfigure user permissions",
-            "manage_channels": "Restructure digital spaces",
-            "create_instant_invite": "Generate access codes",
-            "attach_files": "Upload binary data",
-            "embed_links": "Insert hypermedia links",
-            "add_reactions": "Apply emotional indicators",
-            "mention_everyone": "Broadcast mass notification",
-            "use_external_emojis": "Import foreign glyphs",
-            "use_application_commands": "Execute system commands",
-            "priority_speaker": "Utilize priority transmission",
-            "stream": "Broadcast visual data stream",
-            "manage_webhooks": "Control automated interfaces",
-            "manage_events": "Program temporal gatherings",
-            "view_audit_log": "Access system logs",
-            "view_guild_insights": "View collective analytics",
-            "send_tts_messages": "Transmit synthetic voice",
-            "moderate_members": "Regulate civilian activities"
-        }
-        
-        # Create button rows dynamically based on permission categories
-        self.add_common_buttons()
-        
-    def add_common_buttons(self):
-        # Row 1: Common permissions
-        self.add_item(PermissionButton(ButtonStyle.primary, "view_channel", self.perm_mapping["view_channel"], "🔍"))
-        self.add_item(PermissionButton(ButtonStyle.primary, "send_messages", self.perm_mapping["send_messages"], "📡"))
-        self.add_item(PermissionButton(ButtonStyle.primary, "read_messages", self.perm_mapping["read_messages"], "📥"))
-        self.add_item(PermissionButton(ButtonStyle.primary, "attach_files", self.perm_mapping["attach_files"], "📁"))
-        self.add_item(PermissionButton(ButtonStyle.primary, "embed_links", self.perm_mapping["embed_links"], "🔗"))
-        
-        # Row 2: More permissions
-        self.add_item(PermissionButton(ButtonStyle.secondary, "add_reactions", self.perm_mapping["add_reactions"], "🔄"))
-        self.add_item(PermissionButton(ButtonStyle.secondary, "use_external_emojis", self.perm_mapping["use_external_emojis"], "😎"))
-        self.add_item(PermissionButton(ButtonStyle.secondary, "mention_everyone", self.perm_mapping["mention_everyone"], "📢"))
-        self.add_item(PermissionButton(ButtonStyle.secondary, "manage_messages", self.perm_mapping["manage_messages"], "📝"))
-        self.add_item(PermissionButton(ButtonStyle.danger, "more_options", "Show More Controls", "🔧"))
-    
-    async def interaction_check(self, interaction):
+        self.message = None
+
+        for perm_key, label, emoji, style in COMMON_PANEL_PERMS:
+            self.add_item(PermissionButton(style, perm_key, label, emoji))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author_id:
-            await interaction.response.send_message("You aren't authorized to use these controls.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You aren't authorized to use these controls.",
+                ephemeral=True
+            )
             return False
         return True
-    
+
     async def on_timeout(self):
-        # Clear the view when timeout occurs
         for child in self.children:
             child.disabled = True
-        
-        try:
-            await self.message.edit(view=self)
-        except:
-            pass
 
-class PermissionButton(ui.Button):
-    def __init__(self, style, custom_id, label, emoji=None):
-        super().__init__(style=style, label=label, emoji=emoji, custom_id=custom_id)
-        self.perm_key = custom_id
-    
-    async def callback(self, interaction):
-        view = self.view
-        if self.perm_key == "more_options":
-            # Show advanced permissions menu
-            await interaction.response.send_message("Advanced permissions not yet implemented", ephemeral=True)
-            return
-            
-        # Toggle permission
-        try:
-            # Check current permission value
-            role_perms = view.channel.permissions_for(view.role)
-            current_value = getattr(role_perms, self.perm_key, False)
-            
-            # Toggle to opposite
-            new_value = not current_value
-            
-            # Update permission
-            await view.channel.set_permissions(view.role, **{self.perm_key: new_value})
-            
-            # Respond with cyberpunk-themed message
-            state = "ENABLED" if new_value else "DISABLED"
-            color = 0x00ff9f if new_value else 0xff0055
-            
-            embed = discord.Embed(
-                title=f"🔐 PERMISSION UPDATE",
-                description=f"```ansi\n[2;34m[STATUS][0m: Permission override successful\n[2;36m[TARGET][0m: {view.role.name}\n[2;35m[ACTION][0m: {self.perm_key} → {state}\n```",
-                color=color
-            )
-            embed.add_field(name="Channel", value=f"#{view.channel.name}", inline=True)
-            embed.add_field(name="Modified By", value=interaction.user.mention, inline=True)
-            embed.set_footer(text="NEO-PERMISSIONS SYSTEM v2.0")
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            
-        except discord.Forbidden:
-            await interaction.response.send_message("⚠️ **ACCESS DENIED**: Insufficient permissions to modify role settings.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"⚠️ **SYSTEM ERROR**: {str(e)}", ephemeral=True)
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
 
-class ChannelPermsCog(commands.Cog):
-    """🔒 Channel Permissions Manager - Modify role permissions easily."""
 
-    def __init__(self, bot):
+class ChannelPermsCog(commands.Cog, name="ChannelPerms"):
+    """Channel Permissions Manager - Modify role permissions easily."""
+
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="setperm", help="🔧 Change channel permissions for a role.")
+    @commands.command(name="setperm", help="Change channel permissions for a role.")
     @commands.has_permissions(manage_channels=True)
-    async def setperm(self, ctx, role_input: str, permission: str, state: str):
-        """Legacy command to modify a specific permission for a role in the current channel."""
-        
-        # Find the role by mention, ID, or name
+    async def setperm(self, ctx: commands.Context, role_input: str, permission: str, state: str):
+        """Modify a specific permission for a role in the current channel."""
         role = None
-        
-        # If role is mentioned
         if role_input.startswith("<@&") and role_input.endswith(">"):
-            role_id = int(role_input[3:-1])  # Extract ID from mention
-            role = discord.utils.get(ctx.guild.roles, id=role_id)
+            try:
+                role_id = int(role_input[3:-1])
+                role = ctx.guild.get_role(role_id)
+            except ValueError:
+                role = None
         else:
-            # Try finding by name
             role = discord.utils.get(ctx.guild.roles, name=role_input)
-        
+
         if not role:
-            await ctx.send(f"❌ Role `{role_input}` not found! Make sure it's spelled correctly or mentioned.")
+            await ctx.send(f"❌ Role `{role_input}` not found. Make sure it's spelled correctly or mentioned.")
             return
 
-        # Convert input to proper boolean values
-        state = state.lower()
-        if state == "on":
+        state_lower = state.lower()
+        if state_lower in ("on", "true", "enable", "enabled", "1"):
             state_value = True
-        elif state == "off":
+        elif state_lower in ("off", "false", "disable", "disabled", "0"):
             state_value = False
         else:
             await ctx.send("❌ Invalid state! Use `on` or `off`.")
             return
 
-        # Full list of Discord channel permissions
-        perm_mapping = {
-            "view channel": "view_channel",
-            "send messages": "send_messages",
-            "read messages": "read_messages",
-            "manage messages": "manage_messages",
-            "connect": "connect",
-            "speak": "speak",
-            "mute members": "mute_members",
-            "deafen members": "deafen_members",
-            "move members": "move_members",
-            "manage roles": "manage_roles",
-            "manage channels": "manage_channels",
-            "create instant invite": "create_instant_invite",
-            "attach files": "attach_files",
-            "embed links": "embed_links",
-            "add reactions": "add_reactions",
-            "mention everyone": "mention_everyone",
-            "use external emojis": "use_external_emojis",
-            "use application commands": "use_application_commands",
-            "priority speaker": "priority_speaker",
-            "stream": "stream",
-            "manage webhooks": "manage_webhooks",
-            "manage events": "manage_events",
-            "view audit log": "view_audit_log",
-            "view guild insights": "view_guild_insights",
-            "send tts messages": "send_tts_messages",
-            "moderate members": "moderate_members"
-        }
-
-        # Check if the provided permission is valid
-        perm_key = perm_mapping.get(permission.lower())
+        perm_key = PERMISSION_MAP.get(permission.lower())
         if not perm_key:
-            await ctx.send("❌ Invalid permission! Use a valid Discord permission name.")
+            await ctx.send("❌ Invalid permission name! Example: `send_messages`, `view_channel`, `embed_links`.")
             return
 
-        # Update permissions for the role in the current channel
-        await ctx.channel.set_permissions(role, **{perm_key: state_value})
-        
-        # Cyberpunk-themed response
-        embed = discord.Embed(
-            title="🔐 Permission System v2.0",
-            description=f"```ansi\n[2;34m[UPDATED][0m: Permission override successful\n```",
-            color=0x00ff9f if state_value else 0xff0055
-        )
-        embed.add_field(name="Role", value=role.mention, inline=True)
-        embed.add_field(name="Permission", value=f"`{permission}`", inline=True)
-        embed.add_field(name="State", value=f"{'ENABLED' if state_value else 'DISABLED'}", inline=True)
-        embed.add_field(name="Channel", value=f"#{ctx.channel.name}", inline=True)
-        embed.set_footer(text="NEO-PERMISSIONS SYSTEM v2.0")
-        
-        await ctx.send(embed=embed)
+        try:
+            await ctx.channel.set_permissions(role, **{perm_key: state_value})
+            color = discord.Color.green() if state_value else discord.Color.red()
+            state_label = "ENABLED" if state_value else "DISABLED"
 
-    @commands.command(name="permpanel", help="🖥️ Open the interactive permissions panel")
+            embed = discord.Embed(
+                title="🔐 Permission Updated",
+                color=color,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="Role", value=role.mention, inline=True)
+            embed.add_field(name="Permission", value=f"`{perm_key}`", inline=True)
+            embed.add_field(name="State", value=f"**{state_label}**", inline=True)
+            embed.add_field(name="Channel", value=ctx.channel.mention, inline=True)
+            embed.set_footer(text=f"Updated by {ctx.author}")
+
+            await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I do not have permission to manage permissions in this channel.")
+        except Exception as e:
+            logger.error(f"Error setting permission: {e}", exc_info=True)
+            await ctx.send("❌ An error occurred while setting the permission.")
+
+    @commands.command(name="permpanel", help="Open the interactive permissions panel for a role.")
     @commands.has_permissions(manage_channels=True)
-    async def perm_panel(self, ctx, role: discord.Role):
+    async def perm_panel(self, ctx: commands.Context, role: discord.Role):
         """Opens an interactive permission control panel for the specified role."""
-        
         embed = discord.Embed(
-            title="🔐 NETRUNNER PERMISSION CONSOLE",
-            description=f"Interactive permission control for role: **{role.name}**\nChannel: **#{ctx.channel.name}**\n\nSelect permissions to toggle below:",
-            color=0x00ffaa
+            title="🔐 Channel Permission Console",
+            description=(
+                f"Interactive permission control for **{role.name}** in {ctx.channel.mention}.\n\n"
+                "Click a button below to toggle the permission for this role in real time."
+            ),
+            color=discord.Color.blue(),
+            timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="NEO-PERMISSIONS SYSTEM v2.0 • Permissions will update in real-time")
-        
+        embed.set_footer(text="Permissions update immediately upon clicking")
+
         view = PermissionView(ctx.author.id, role, ctx.channel)
         message = await ctx.send(embed=embed, view=view)
         view.message = message
 
-async def setup(bot):
+
+async def setup(bot: commands.Bot):
     await bot.add_cog(ChannelPermsCog(bot))
+    logger.info("✅ ChannelPerms cog loaded")
