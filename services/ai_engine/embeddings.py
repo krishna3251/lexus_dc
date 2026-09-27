@@ -60,8 +60,13 @@ class GeminiEmbeddingService:
                         f"Gemini embedding failed ({response.status}): {body}"
                     )
                 data = await response.json()
-        embeddings = data.get("embedding") or {}
-        values = embeddings.get("values") or []
+        embeddings = data.get("embeddings") or []
+        if embeddings and isinstance(embeddings[0], dict):
+            values = embeddings[0].get("values") or []
+        else:
+            values = []
+        if not values:
+            values = (data.get("embedding") or {}).get("values") or []
         if not values:
             raise RuntimeError("Gemini embedding response contained no vector")
         return [float(value) for value in values]
