@@ -454,8 +454,8 @@ class WebResearchService:
             cse = await self.google.search(plan)
             if cse.success:
                 cse.sources = self._quality_sorted(cse.sources)
-            for index, source in enumerate(cse.sources, start=1):
-                source.source_id = f"S{index}"
+                for index, source in enumerate(cse.sources, start=1):
+                    source.source_id = f"S{index}"
                 cse.evidence = self._evidence_from_sources(cse.sources)
                 await self._cache_sources(cse.sources)
                 cse.rag_hits = len(rag_result.items)
@@ -552,3 +552,7 @@ class WebResearchService:
                 f"Snippet: {source.snippet}"
             )
         return "\n\n".join(blocks)[:12000]
+
+
+    async def close(self) -> None:
+        await self.rag.close()
