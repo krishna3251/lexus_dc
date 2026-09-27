@@ -426,6 +426,18 @@ class WebResearchService:
             return_exceptions=True,
         )
 
+    async def reload(self, provider_manager: ProviderManager | None = None) -> None:
+        """Reload research and embedding credentials from the current environment."""
+        self.providers = provider_manager
+        try:
+            await self.rag.embedder.close()
+        except Exception:
+            logger.debug("Ignoring embedding session close failure during reload")
+        self.gemini = GeminiGoogleResearch()
+        self.google = GoogleCSEResearch()
+        from .embeddings import GeminiEmbeddingService
+        self.rag.embedder = GeminiEmbeddingService()
+
     async def research(self, prompt: str) -> ResearchResult:
         await self.initialize()
         plan = ResearchPlanner.plan(prompt)
