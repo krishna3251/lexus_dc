@@ -1,12 +1,13 @@
-"""Unit tests for the provider-agnostic Lexus AI Engine."""
+"""Unit tests for the Lexus AI Engine routing and execution core."""
 
 from __future__ import annotations
 
-import asyncio
 import unittest
 
 from services.ai_engine.engine import AIEngine
 from services.ai_engine.models import AIProvider, AIRequest, ProviderReply, ToolCall
+from services.ai_engine.router import RequestRouter
+from services.ai_engine.safety import SafetyGate
 from services.ai_engine.tools import ToolContext, ToolRegistry, ToolSpec
 
 
@@ -14,6 +15,7 @@ class FakeProviderManager:
     def __init__(self) -> None:
         self.providers = ["fake:test"]
         self.calls = 0
+        self.web_search_flags: list[bool] = []
 
     @property
     def available(self) -> bool:
@@ -23,9 +25,17 @@ class FakeProviderManager:
     def names(self) -> list[str]:
         return self.providers
 
-    async def complete(self, messages, tools, max_output_tokens):
+    async def complete(
+        self,
+        messages,
+        tools,
+        max_output_tokens,
+        web_search=False,
+    ):
         self.calls += 1
-        if self.calls == 1:
+        self.web_search_flags.append(web_search)
+
+        if self.calls == 1 and not web_search:
             call = ToolCall(
                 call_id="call-1",
                 name="echo",
@@ -37,16 +47,14 @@ class FakeProviderManager:
                 assistant_message={
                     "role": "assistant",
                     "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {
-                                "name": "echo",
-                                "arguments": '{"value":"hello"}',
-                            },
-                        }
-                    ],
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo",
+                            "arguments": '{"value":"hello"}',
+                        },
+                    }],
                 },
                 tool_calls=[call],
                 finish_reason="tool_calls",
@@ -65,7 +73,8 @@ class FakeProviderManager:
 
 
 class FakeBot:
-    pass
+    def is_ready(self) -> bool:
+        return True
 
 
 class FakeUser:
@@ -117,6 +126,7 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.text, "Echo complete.")
         self.assertEqual(result.tools_used, ["echo"])
         self.assertEqual(provider.calls, 2)
+        await engine.close()
 
     async def test_unknown_tool_is_not_executed(self):
         registry = ToolRegistry()
@@ -128,6 +138,7 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
 
         async def first_then_final(*args, **kwargs):
             provider.calls += 1
+            provider.web_search_flags.append(kwargs.get("web_search", False))
             if provider.calls == 1:
                 call = ToolCall(
                     call_id="bad-1",
@@ -140,16 +151,14 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
                     assistant_message={
                         "role": "assistant",
                         "content": None,
-                        "tool_calls": [
-                            {
-                                "id": "bad-1",
-                                "type": "function",
-                                "function": {
-                                    "name": "missing",
-                                    "arguments": "{}",
-                                },
-                            }
-                        ],
+                        "tool_calls": [{
+                            "id": "bad-1",
+                            "type": "function",
+                            "function": {
+                                "name": "missing",
+                                "arguments": "{}",
+                            },
+                        }],
                     },
                     tool_calls=[call],
                 )
@@ -180,30 +189,51 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.text, "Handled.")
         self.assertEqual(provider.calls, 2)
+        await engine.close()
+
+    async def test_search_route_requests_web_search(self):
+        provider = FakeProviderManager()
+        engine = AIEngine(provider_manager=provider, tool_registry=ToolRegistry())
+
+        result = await engine.ask(
+            AIRequest(
+                user_id=1,
+                guild_id=None,
+                channel_id=None,
+                prompt="latest AI news",
+            ),
+            FakeToolContext(),
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(provider.web_search_flags, [True])
+        self.assertEqual(result.intent.value, "search")
+        await engine.close()
 
     async def test_empty_prompt_is_rejected(self):
-        engine = AIEngine(provider_manager=FakeProviderManager(), tool_registry=ToolRegistry())
+        engine = AIEngine(
+            provider_manager=FakeProviderManager(),
+            tool_registry=ToolRegistry(),
+        )
         result = await engine.ask(
             AIRequest(user_id=1, guild_id=None, channel_id=None, prompt="   "),
             FakeToolContext(),
         )
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "Prompt is empty.")
-
-
-if __name__ == "__main__":
-    unittest.main()
-
+        self.assertEqual(result.error, "empty_prompt")
+        await engine.close()
 
     async def test_router_marks_normal_chat_read_only(self):
-        from services.ai_engine.router import RequestRouter
-
         route = RequestRouter.route("hello there")
         self.assertEqual(route.intent.value, "chat")
         self.assertFalse(route.allow_mutations)
 
     async def test_safety_blocks_secret_exfiltration(self):
-        engine = AIEngine(provider_manager=FakeProviderManager(), tool_registry=ToolRegistry())
+        engine = AIEngine(
+            provider_manager=FakeProviderManager(),
+            tool_registry=ToolRegistry(),
+        )
         result = await engine.ask(
             AIRequest(
                 user_id=1,
@@ -215,9 +245,13 @@ if __name__ == "__main__":
         )
         self.assertFalse(result.success)
         self.assertEqual(result.error, "safety_block")
+        await engine.close()
 
     async def test_safety_blocks_bulk_mutation(self):
-        engine = AIEngine(provider_manager=FakeProviderManager(), tool_registry=ToolRegistry())
+        engine = AIEngine(
+            provider_manager=FakeProviderManager(),
+            tool_registry=ToolRegistry(),
+        )
         result = await engine.ask(
             AIRequest(
                 user_id=1,
@@ -229,3 +263,18 @@ if __name__ == "__main__":
         )
         self.assertFalse(result.success)
         self.assertEqual(result.error, "safety_block")
+        await engine.close()
+
+    def test_search_router_is_explicit(self):
+        route = RequestRouter.route("search the latest Valorant patch")
+        self.assertEqual(route.intent.value, "search")
+        self.assertTrue(route.allow_tools)
+        self.assertFalse(route.allow_mutations)
+
+    def test_hyderabadi_search_safety_is_unchanged(self):
+        assessment = SafetyGate.assess("latest news miyan", RequestRouter.route("latest news").intent)
+        self.assertTrue(assessment.allowed)
+
+
+if __name__ == "__main__":
+    unittest.main()
