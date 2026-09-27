@@ -96,3 +96,57 @@ class AIMemoryService:
             return True
         except Exception:
             return False
+
+    async def memories(self, user_id: int, guild_id: int | None) -> list[dict[str, str]]:
+        """Return the newest explicit durable memories for this scope."""
+        col = mongo_helper.get_collection("ai_memories")
+        if col is None:
+            return []
+        try:
+            cursor = col.find({
+                "user_id": int(user_id),
+                "guild_id": int(guild_id) if guild_id is not None else None,
+            }, {"_id": 0, "key": 1, "value": 1, "source": 1})
+            cursor = cursor.sort("updated_at", -1).limit(self.max_memories)
+            rows = await cursor.to_list(length=self.max_memories)
+        except Exception:
+            return []
+        return [
+            {
+                "key": str(row.get("key", ""))[:128],
+                "value": str(row.get("value", ""))[:1000],
+                "source": str(row.get("source", "unknown"))[:64],
+            }
+            for row in rows
+            if row.get("key") and row.get("value")
+        ]
+
+    async def forget(self, user_id: int, guild_id: int | None, key: str) -> bool:
+        """Delete one explicit durable memory owned by the requester."""
+        col = mongo_helper.get_collection("ai_memories")
+        if col is None:
+            return False
+        try:
+            result = await col.delete_one({
+                "user_id": int(user_id),
+                "guild_id": int(guild_id) if guild_id is not None else None,
+                "key": key.strip().lower()[:128],
+            })
+            return result.deleted_count > 0
+        except Exception:
+            return False
+
+    async def clear_history(self, user_id: int, guild_id: int | None, channel_id: int | None) -> bool:
+        """Delete conversation history for this user/channel scope."""
+        col = mongo_helper.get_collection("ai_conversations")
+        if col is None:
+            return False
+        try:
+            await col.delete_many({
+                "user_id": int(user_id),
+                "guild_id": int(guild_id) if guild_id is not None else None,
+                "channel_id": int(channel_id) if channel_id is not None else None,
+            })
+            return True
+        except Exception:
+            return False
