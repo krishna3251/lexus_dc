@@ -229,6 +229,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def ai_status(self, ctx: commands.Context) -> None:
         providers = self.engine.provider_names or ["none"]
         tools = len(self.engine.tools.names())
+        health = self.engine.health()
         embed = discord.Embed(
             title="Lexus AI Engine",
             color=discord.Color.green() if self.engine.available else discord.Color.red(),
@@ -237,8 +238,13 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         embed.add_field(name="Providers", value="\n".join(f"`{item}`" for item in providers), inline=False)
         embed.add_field(name="Tools", value=str(tools), inline=True)
         embed.add_field(
+            name="Memory",
+            value="✅ MongoDB" if health["memory_available"] else "❌ MongoDB offline",
+            inline=True,
+        )
+        embed.add_field(
             name="Web Search",
-            value="✅ Ready" if any(item.startswith("groq:") for item in providers) else "❌ GROQ_API_KEY missing",
+            value="✅ Ready" if health["web_search_available"] else "❌ GROQ_API_KEY missing",
             inline=True,
         )
         embed.add_field(
