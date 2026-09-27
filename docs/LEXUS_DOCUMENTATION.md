@@ -1,9 +1,47 @@
-# Lexus Discord Bot Documentation
+<div align="center">
 
-> **Repository:** `krishna3251/lexus_dc`  
-> **Default branch:** `main`  
-> **Source review:** commit `07e9451861`  
-> **Purpose:** developer and operator reference for the current Lexus Discord bot.
+<img src="../ChatGPT%20Image%20Sep%2027,%202026,%2005_50_05%20PM.png" alt="Lexus banner" width="100%" />
+
+# LEXUS
+### Discord Automation · AI Engine · Security Engine
+
+<p>
+  <a href="https://github.com/krishna3251/lexus_dc"><img src="https://img.shields.io/badge/Repository-krishna3251%2Flexus__dc-111827?style=for-the-badge&logo=github" alt="Repository" /></a>
+  <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/discord.py-2.x-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
+  <img src="https://img.shields.io/badge/AI-Gemini%20%2B%20Groq-7C3AED?style=for-the-badge" alt="AI" />
+  <img src="https://img.shields.io/badge/Security-V3-E11D48?style=for-the-badge" alt="Security V3" />
+</p>
+
+**Developer documentation for the current Lexus codebase**
+
+</div>
+
+> [!IMPORTANT]
+> **Core invariant:** the AI can propose an action, but it never becomes the authority that performs it. Routing, safety, validation, permissions, hierarchy checks, policy, and execution remain application-controlled.
+
+<div align="center">
+
+**[Architecture](#2-architecture-at-a-glance) · [AI Engine](#5-ai-engine) · [Security](#7-security-engine) · [Cogs](#17-feature-cogs) · [Setup](#22-installation) · [Testing](#24-testing) · [Review Notes](#26-technical-review-notes)**
+
+</div>
+
+---
+
+## At a Glance
+
+| Area | Current implementation |
+|---|---|
+| **Bot runtime** | `main.py` + dynamic cog discovery |
+| **AI** | Unified V3 engine with Gemini/Groq adapters, tools, memory, RAG, research |
+| **Security** | V3 event pipeline with detectors, scoring, state machine, policy, actions |
+| **Persistence** | MongoDB for guild/features + SQLite for AI memory/RAG |
+| **Web service** | FastAPI health/stats endpoints |
+| **Voice/music** | Wavelink + external Lavalink |
+| **Tests** | Security, AI, RAG, research, resilience and performance suites |
+
+> [!NOTE]
+> This document describes the implementation found in the repository at source-review commit `07e9451861`. It deliberately distinguishes the newer V3 systems from older/legacy AI cogs so architectural intent does not get mistaken for runtime reality.
 
 ---
 
@@ -22,131 +60,86 @@ The most important architectural rule is:
 
 The AI model can interpret a request and propose a tool call, but application code remains responsible for validation, permissions, hierarchy, safety policy, execution limits, and the final Discord mutation.
 
+### Architecture Principles
+
+| Principle | Meaning |
+|---|---|
+| **Decision ≠ Generation** | Model output is input to application logic, not authority. |
+| **Detection ≠ Action** | Security detectors produce evidence; policy decides what may happen. |
+| **Bounded execution** | Tool calls, output size, memory, caches and action rates are capped. |
+| **Failure isolation** | Provider, detector and extension failures are handled without taking down the entire bot. |
+| **Audit before enforce** | Security can calculate destructive responses without applying them in audit mode. |
+
+
 ---
 
 ## 2. Architecture at a Glance
 
 ### 2.1 Runtime
 
-```text
-Discord Gateway
-      |
-      v
-     main.py
-      |
-      +--> Dynamic command prefix
-      +--> Cog discovery / loading
-      +--> MongoDB connection (optional)
-      +--> Security engine startup
-      +--> FastAPI health server
-      +--> Lavalink connection
-      |
-      v
-   Discord Cogs
-      |
-      +--> Feature systems
-      +--> SecurityCog ---> SecurityEngine
-      +--> AIEngineCog ----> AIEngine
+```mermaid
+flowchart TD
+    D[Discord Gateway] --> M[main.py]
+    M --> P[Dynamic Prefix]
+    M --> C[Cog Discovery & Loading]
+    M --> DB[(MongoDB)]
+    M --> S[Security Engine]
+    M --> API[FastAPI Health Server]
+    M --> L[Lavalink / Wavelink]
+    C --> F[Feature Cogs]
+    C --> SC[SecurityCog]
+    C --> AC[AIEngineCog]
+    SC --> S
+    AC --> AI[Unified AI Engine]
 ```
 
 ### 2.2 AI request pipeline
 
-```text
-User request
-    |
-    v
-RequestRouter
-    |
-    v
-SafetyGate
-    |
-    v
-Planner
-    |
-    v
-ContextBuilder
-    |
-    +--> conversation history
-    +--> durable memory
-    +--> live Discord context
-    |
-    v
-ProviderManager
-    |
-    +--> Gemini
-    +--> Groq
-    |
-    v
-Model response / tool calls
-    |
-    v
-ToolCallValidator
-    |
-    v
-AIPermissionGuard
-    |
-    v
-ToolExecutor
-    |
-    v
-ToolRegistry
-    |
-    v
-Discord API
+```mermaid
+flowchart TD
+    U[User Request] --> R[RequestRouter]
+    R --> G[SafetyGate]
+    G --> PL[Planner]
+    PL --> CT[ContextBuilder]
+    CT --> PM[ProviderManager]
+    PM --> GE[Gemini]
+    PM --> GR[Groq]
+    GE --> T[Model Response / Tool Calls]
+    GR --> T
+    T --> V[ToolCallValidator]
+    V --> PG[AIPermissionGuard]
+    PG --> E[ToolExecutor]
+    E --> TR[ToolRegistry]
+    TR --> DA[Discord API]
+    CT --> MEM[(SQLite Memory / RAG)]
 ```
 
 ### 2.3 Security request pipeline
 
-```text
-Discord event
-    |
-    v
-EventDeduplicator
-    |
-    v
-Guild configuration
-    |
-    v
-Trust assessment
-    |
-    v
-Detector(s)
-    |
-    +--> Spam
-    +--> Raid / distributed activity
-    +--> Join gate
-    +--> Anti-nuke
-    +--> Permission guard
-    +--> Bot guard
-    +--> Webhook guard
-    |
-    v
-Evidence
-    |
-    v
-Heat + state machine
-    |
-    v
-Incident correlation
-    |
-    v
-Risk + severity
-    |
-    v
-PolicyEngine
-    |
-    v
-ActionEngine
-    |
-    +--> log / alert
-    +--> timeout
-    +--> quarantine
-    +--> kick / ban
-    +--> channel lock
-    +--> guild lockdown
-    |
-    v
-Persistence + structured logging
+```mermaid
+flowchart TD
+    EV[Discord Event] --> DD[Event Deduplicator]
+    DD --> CFG[Guild Configuration]
+    CFG --> TR[Trust Assessment]
+    TR --> DET[Detectors]
+    DET --> SP[Spam]
+    DET --> RD[Raid / Join Gate]
+    DET --> AN[Anti-Nuke / Permission Guard]
+    DET --> BW[Bot / Webhook Guard]
+    SP --> EVG[Evidence]
+    RD --> EVG
+    AN --> EVG
+    BW --> EVG
+    EVG --> HS[Heat + State Machine]
+    HS --> IC[Incident Correlation]
+    IC --> RS[Risk + Severity]
+    RS --> PE[PolicyEngine]
+    PE --> AE[ActionEngine]
+    AE --> LG[Log / Alert]
+    AE --> Q[Quarantine / Timeout]
+    AE --> K[Kick / Ban]
+    AE --> LCK[Channel Lock / Lockdown]
+    AE --> PS[(Persistence + Logs)]
 ```
 
 ---
@@ -254,7 +247,22 @@ lexus_dc/
 
 ---
 
-# 4. Core Runtime
+## Quick Start
+
+```bash
+git clone https://github.com/krishna3251/lexus_dc.git
+cd lexus_dc
+python -m pip install -r requirements.txt
+cp .env.example .env
+python main.py
+```
+
+> [!TIP]
+> Start Lexus Security in `audit` mode, verify `/security status`, inspect the baseline and incident telemetry, then move to `enforce` when the configuration is understood.
+
+---
+
+## 4. Core Runtime
 
 ## 4.1 `main.py`
 
@@ -282,7 +290,9 @@ The default prefix is `lx `, and direct bot mentions are also accepted.
 
 ---
 
-# 5. AI Engine
+---
+
+## 5. AI Engine
 
 ## 5.1 Unified AI models
 
@@ -399,7 +409,7 @@ The repository also contains older AI paths, notably `chat_lex.py` and `coder_le
 
 ---
 
-# 6. AI Memory and Research
+## 6. AI Memory and Research
 
 ## 6.1 SQLite memory
 
@@ -462,7 +472,9 @@ Sources are deduplicated and quality ordered. For current/news requests the rese
 
 ---
 
-# 7. Security Engine
+---
+
+## 7. Security Engine
 
 ## 7.1 Per-guild configuration
 
@@ -500,7 +512,7 @@ In audit mode destructive actions are simulated/logged. In enforce mode policy-s
 
 ---
 
-# 8. Security Detection Modules
+## 8. Security Detection Modules
 
 | Module | Primary role |
 |---|---|
@@ -516,7 +528,7 @@ Detector failures are isolated inside the security event pipeline so one broken 
 
 ---
 
-# 9. Security Heat and State Machine
+## 9. Security Heat and State Machine
 
 ## 9.1 Heat
 
@@ -566,7 +578,7 @@ State down-shifts have a minimum dwell time of five seconds.
 
 ---
 
-# 10. Trust Model
+## 10. Trust Model
 
 Possible actor trust levels:
 
@@ -598,7 +610,7 @@ Current risk multipliers:
 
 ---
 
-# 11. Risk and Severity
+## 11. Risk and Severity
 
 Risk combines evidence score, confidence, trust, cross-detector correlation, and active raid state. The final value is bounded to 0-100.
 
@@ -614,7 +626,7 @@ Multiple detectors can increase correlation risk when an incident spans more tha
 
 ---
 
-# 12. Security Policy
+## 12. Security Policy
 
 The policy layer converts risk/severity/trust/state into action types.
 
@@ -630,7 +642,7 @@ Audit mode prevents real destructive mutations even when policy calculates them.
 
 ---
 
-# 13. Action Engine
+## 13. Action Engine
 
 Supported security actions include:
 
@@ -662,7 +674,7 @@ The point is to keep an incident response from accidentally becoming an API-rate
 
 ---
 
-# 14. Quarantine, Lockdown, Baseline, Recovery
+## 14. Quarantine, Lockdown, Baseline, Recovery
 
 ## Quarantine
 
@@ -691,7 +703,7 @@ The current recovery implementation includes conservative restoration of deleted
 
 ---
 
-# 15. Security Commands
+## 15. Security Commands
 
 The security cog exposes:
 
@@ -717,7 +729,7 @@ Typical initial workflow:
 
 ---
 
-# 16. Unified AI Commands
+## 16. Unified AI Commands
 
 ```text
 lx ask <prompt>
@@ -730,7 +742,9 @@ The status/reload commands are owner-only.
 
 ---
 
-# 17. Feature Cogs
+---
+
+## 17. Feature Cogs
 
 The repository currently contains 29 Discord cogs.
 
@@ -768,7 +782,7 @@ The repository currently contains 29 Discord cogs.
 
 ---
 
-# 18. Key User-Facing Commands
+## 18. Key User-Facing Commands
 
 ### Moderation
 
@@ -828,7 +842,7 @@ The search cog provides hybrid commands for weather, YouTube, and Google search.
 
 ---
 
-# 19. Persistence
+## 19. Persistence
 
 ## MongoDB
 
@@ -861,7 +875,7 @@ SQLite   -> AI memory + RAG
 
 ---
 
-# 20. FastAPI Health Service
+## 20. FastAPI Health Service
 
 Available endpoints:
 
@@ -883,7 +897,7 @@ The health server is intended to support hosting-platform health checks.
 
 ---
 
-# 21. Environment Variables
+## 21. Environment Variables
 
 ## Required
 
@@ -951,7 +965,9 @@ SECURITY_ACTION_BUDGET_WINDOW=10.0
 
 ---
 
-# 22. Installation
+---
+
+## 22. Installation
 
 ```bash
 git clone https://github.com/krishna3251/lexus_dc.git
@@ -982,7 +998,7 @@ Primary packages declared by the repository include:
 
 ---
 
-# 23. Deployment Notes
+## 23. Deployment Notes
 
 The project is structured for a long-running bot process with:
 
@@ -1010,7 +1026,9 @@ For production, configure a real Lavalink password instead of relying on the fal
 
 ---
 
-# 24. Testing
+---
+
+## 24. Testing
 
 The repository includes tests for both the security engine and AI subsystem.
 
@@ -1067,7 +1085,7 @@ python -m compileall .
 
 ---
 
-# 25. Development Rules
+## 25. Development Rules
 
 ## AI
 
@@ -1090,7 +1108,9 @@ python -m compileall .
 
 ---
 
-# 26. Technical Review Notes
+---
+
+## 26. Technical Review Notes
 
 ## 26.1 Security mode is split across configuration layers
 
@@ -1146,7 +1166,9 @@ The README is visually polished and communicates the intended architecture, but 
 
 ---
 
-# 27. Recommended Development Order
+---
+
+## 27. Recommended Development Order
 
 For security changes:
 
@@ -1180,7 +1202,9 @@ This keeps new behavior inside the same authority boundaries instead of creating
 
 ---
 
-# 28. Architecture Summary
+---
+
+## 28. Architecture Summary
 
 Lexus is currently a hybrid codebase:
 
@@ -1209,15 +1233,30 @@ That boundary is the foundation for safely migrating the remaining legacy AI fun
 
 ## Source Files Worth Reading First
 
-1. `main.py`
-2. `core/events.py`
-3. `security/models.py`
-4. `security/engine.py`
-5. `security/policies.py`
-6. `security/actions.py`
-7. `services/ai_engine/models.py`
-8. `services/ai_engine/router.py`
-9. `services/ai_engine/engine.py`
-10. `services/ai_engine/tools.py`
-11. `services/ai_engine/memory.py`
-12. `services/ai_engine/research.py`
+<details>
+<summary><strong>Open the recommended reading order</strong></summary>
+
+```text
+01  main.py
+02  core/events.py
+03  security/models.py
+04  security/engine.py
+05  security/policies.py
+06  security/actions.py
+07  services/ai_engine/models.py
+08  services/ai_engine/router.py
+09  services/ai_engine/engine.py
+10  services/ai_engine/tools.py
+11  services/ai_engine/memory.py
+12  services/ai_engine/research.py
+```
+
+</details>
+
+<div align="center">
+
+**Lexus · AI Engine · Security Engine · Discord Automation**
+
+<sub>Documentation generated from repository source review. Keep this file aligned with the implementation as V3 evolves.</sub>
+
+</div>
