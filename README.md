@@ -17,6 +17,21 @@
   </a>
 </p>
 
+<p align="center">
+  <img
+    src="https://readme-typing-svg.demolab.com/?font=Fira+Code&weight=600&size=18&duration=2600&pause=900&color=FF58C7&center=true&vCenter=true&width=900&height=48&lines=AI+ENGINE+%E2%80%A2+SECURITY+ENGINE+%E2%80%A2+DISCORD+AUTOMATION;Reasoning+with+guardrails+%E2%80%A2+Actions+with+policy;Built+to+stay+cool+when+Discord+gets+chaotic&repeat=true"
+    alt="Lexus animated typing tagline"
+  />
+</p>
+
+<p align="center">
+  <img
+    src="https://capsule-render.vercel.app/api?type=rect&color=0:ff2a76,100:35bfff&height=42&section=header&text=LEXUS%20SYSTEMS&fontSize=18&fontColor=ffffff&animation=twinkling"
+    alt="Animated Lexus systems divider"
+    width="100%"
+  />
+</p>
+
 ---
 
 ## 🧠 What is Lexus?
