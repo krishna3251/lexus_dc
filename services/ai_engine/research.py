@@ -443,6 +443,8 @@ class WebResearchService:
             )
             if grounded.success:
                 grounded.sources = self._quality_sorted(grounded.sources)
+                for index, source in enumerate(grounded.sources, start=1):
+                    source.source_id = f"S{index}"
                 await self._cache_grounded_answer(prompt, grounded)
                 grounded.rag_hits = len(rag_result.items)
                 return grounded
