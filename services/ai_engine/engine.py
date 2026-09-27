@@ -19,6 +19,7 @@ from .personality import HYDERABADI_STYLE
 from .permissions import AIPermissionGuard
 from .planner import Planner
 from .providers import ProviderError, ProviderManager
+from .research import ResearchResult, WebResearchService
 from .router import RequestRouter
 from .safety import SafetyGate
 from .telemetry import AITelemetry
@@ -61,6 +62,7 @@ class AIEngine:
         self.executor = ToolExecutor(self.tools)
         self.telemetry = AITelemetry()
         self.memory = AIMemoryService()
+        self.research = WebResearchService(provider_manager=self.providers)
         self._locks: TTLCache[int, asyncio.Lock] = TTLCache(
             max_size=5000,
             default_ttl=900.0,
@@ -100,6 +102,7 @@ class AIEngine:
         """Reload provider credentials from the current process environment."""
         old_manager = self.providers
         self.providers = ProviderManager()
+        self.research.providers = self.providers
         await old_manager.close()
 
     async def close(self) -> None:
@@ -300,7 +303,7 @@ class AIEngine:
             {"role": "user", "content": request.prompt.strip()},
         ]
 
-        web_search = route.intent is AIIntent.SEARCH
+        web_search = False
         tool_schemas = self.tools.schemas() if plan.allow_tools else []
         tools_used: list[str] = []
         all_tool_calls: list[ToolCall] = []
@@ -491,6 +494,29 @@ class AIEngine:
             tools_used=tools_used,
         )
         return result
+
+
+def provider_from_string(name: str):
+    from .models import AIProvider
+    value = (name or "").casefold()
+    if value == "gemini":
+        return AIProvider.GEMINI
+    if value == "groq":
+        return AIProvider.GROQ
+    return None
+
+
+def _format_research_answer(result: ResearchResult) -> str:
+    answer = result.answer.strip()
+    if not answer:
+        return result.evidence.strip()
+    if not result.sources:
+        return answer
+    lines = [answer, "", "Sources:"]
+    for source in result.sources[:8]:
+        title = source.title.strip() or source.domain or "Source"
+        lines.append(f"[{source.source_id}] {title} — {source.url}")
+    return "\n".join(lines)
 
 
 def _serialize_tool_result(result: dict[str, Any], max_chars: int) -> str:
