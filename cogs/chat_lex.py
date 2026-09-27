@@ -570,8 +570,9 @@ class LexusBot(commands.Cog):
                 messages=deque(maxlen=8),
                 last_activity=current_time
             )
-        
-        self.sessions[user_id].last_activity = current_time
+
+        # Do not refresh last_activity merely by reading the session.
+        # The caller updates it only after a request passes the cooldown.
         return self.sessions[user_id]
 
     def build_dynamic_system_prompt(self, context: BehavioralContext, 
