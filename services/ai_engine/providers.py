@@ -1,9 +1,4 @@
-"""OpenAI-compatible provider adapters for Gemini and Groq.
-
-Both providers expose chat-completions style interfaces. Keeping the adapter
-small lets the engine share one tool-calling loop without coupling the rest
-of Lexus to a vendor SDK.
-"""
+"""OpenAI-compatible adapters for Gemini and Groq with failover."""
 
 from __future__ import annotations
 
@@ -41,17 +36,8 @@ class CompatibleProvider:
             max_retries=0,
         )
 
-    def health(self) -> dict[str, float]:
-        now = time.monotonic()
-        return {
-            provider.provider.value: max(
-                0.0,
-                self._cooldown_until.get(provider.provider, 0.0) - now,
-            )
-            for provider in self.providers
-        }
-
-    async def close(self) -> None:        await self.client.close()
+    async def close(self) -> None:
+        await self.client.close()
 
     async def complete(
         self,
@@ -71,16 +57,9 @@ class CompatibleProvider:
                 64, min(max_output_tokens, 4096)
             )
             kwargs["parallel_tool_calls"] = False
-
-            # GPT-OSS supports explicit reasoning effort. Low is appropriate
-            # for Discord latency while retaining agentic reasoning.
             kwargs["reasoning_effort"] = "low"
 
             if web_search:
-                # GPT-OSS 120B has a Groq-hosted browser_search tool. Groq
-                # performs the search and tool loop server-side, so the app
-                # receives the completed answer rather than executing search
-                # itself.
                 kwargs["tools"] = [{"type": "browser_search"}]
                 kwargs["tool_choice"] = "required"
             elif tools:
@@ -96,14 +75,15 @@ class CompatibleProvider:
             response = await self.client.chat.completions.create(**kwargs)
         except Exception as exc:
             raise ProviderError(
-                f"{self.provider.value} request failed: {type(exc).__name__}: {exc}"
+                f"{self.provider.value} request failed: "
+                f"{type(exc).__name__}: {exc}"
             ) from exc
 
         if not response.choices:
             raise ProviderError(f"{self.provider.value} returned no choices")
 
         message = response.choices[0].message
-        assistant_message = {
+        assistant_message: dict[str, Any] = {
             "role": "assistant",
             "content": message.content,
         }
@@ -113,10 +93,7 @@ class CompatibleProvider:
 
         for raw in raw_tool_calls:
             try:
-                arguments = raw.function.arguments or "{}"
-                import json
-
-                parsed_args = json.loads(arguments)
+                parsed_args = json.loads(raw.function.arguments or "{}")
                 if not isinstance(parsed_args, dict):
                     raise ValueError("tool arguments must decode to an object")
 
@@ -133,7 +110,6 @@ class CompatibleProvider:
                     self.provider.value,
                     exc,
                 )
-                continue
 
         if parsed_calls:
             assistant_message["tool_calls"] = [
@@ -142,7 +118,10 @@ class CompatibleProvider:
                     "type": "function",
                     "function": {
                         "name": call.name,
-                        "arguments": json.dumps(call.arguments, separators=(",", ":")),
+                        "arguments": json.dumps(
+                            call.arguments,
+                            separators=(",", ":"),
+                        ),
                     },
                 }
                 for call in parsed_calls
@@ -159,20 +138,21 @@ class CompatibleProvider:
 
 
 class ProviderManager:
-    """Builds the configured provider chain.
-
-    Model IDs are intentionally fixed in code so deployment only needs API
-    credentials in environment variables. Provider order is Gemini -> Groq.
-    """
+    """Provider chain with transient-failure cooldowns and search routing."""
 
     GEMINI_MODEL = "gemini-3.8-flash"
-    GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    GEMINI_BASE_URL = (
+        "https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
 
     GROQ_MODEL = "openai/gpt-oss-120b"
     GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
+    PROVIDER_COOLDOWN_SECONDS = 300.0
+
     def __init__(self) -> None:
         self.providers: list[CompatibleProvider] = []
+        self._cooldown_until: dict[AIProvider, float] = {}
 
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         if gemini_key:
@@ -204,6 +184,19 @@ class ProviderManager:
     def names(self) -> list[str]:
         return [f"{item.provider.value}:{item.model}" for item in self.providers]
 
+    def health(self) -> dict[str, Any]:
+        now = time.monotonic()
+        return {
+            item.provider.value: {
+                "model": item.model,
+                "cooldown_seconds": max(
+                    0.0,
+                    self._cooldown_until.get(item.provider, 0.0) - now,
+                ),
+            }
+            for item in self.providers
+        }
+
     async def complete(
         self,
         messages: list[dict[str, Any]],
@@ -216,68 +209,110 @@ class ProviderManager:
                 "No AI provider configured. Set GEMINI_API_KEY or GROQ_API_KEY."
             )
 
-        errors: list[str] = []
         now = time.monotonic()
 
-        ordered = [
-            provider for provider in self.providers
-            if self._cooldown_until.get(provider.provider, 0.0) <= now
-        ]
-        if not ordered and self.providers:
-            ordered = [
-                min(
-                    self.providers,
-                    key=lambda item: self._cooldown_until.get(item.provider, 0.0),
-                )
-            ]
-
         if web_search:
-            ordered = [
-                item for item in ordered
+            groq_providers = [
+                item for item in self.providers
                 if item.provider is AIProvider.GROQ
             ]
-
-            if not ordered:
+            if not groq_providers:
                 raise ProviderError(
                     "Web search requires GROQ_API_KEY because Lexus uses "
                     "Groq's built-in browser search."
                 )
 
+            ordered = [
+                item for item in groq_providers
+                if self._cooldown_until.get(item.provider, 0.0) <= now
+            ]
+            if not ordered:
+                remaining = max(
+                    0.0,
+                    self._cooldown_until.get(
+                        AIProvider.GROQ,
+                        0.0,
+                    ) - now,
+                )
+                raise ProviderError(
+                    f"Groq browser search is temporarily cooling down for "
+                    f"{remaining:.0f}s."
+                )
+        else:
+            ordered = [
+                item for item in self.providers
+                if self._cooldown_until.get(item.provider, 0.0) <= now
+            ]
+
+            if not ordered:
+                ordered = [
+                    min(
+                        self.providers,
+                        key=lambda item: self._cooldown_until.get(
+                            item.provider,
+                            0.0,
+                        ),
+                    )
+                ]
+
+        errors: list[str] = []
+
         for provider in ordered:
             try:
                 reply = await provider.complete(
-                    messages,
-                    tools,
-                    max_output_tokens,
-                    web_search=web_search and provider.provider is AIProvider.GROQ,
+                    messages=messages,
+                    tools=tools,
+                    max_output_tokens=max_output_tokens,
+                    web_search=(
+                        web_search and provider.provider is AIProvider.GROQ
+                    ),
                 )
                 self._cooldown_until.pop(provider.provider, None)
                 return reply
             except ProviderError as exc:
                 errors.append(str(exc))
                 logger.error("%s", exc)
+
                 if self._is_transient_failure(exc):
-                    self._cooldown_until[provider.provider] = (
-                        time.monotonic() + self.PROVIDER_COOLDOWN_SECONDS
+                    until = (
+                        time.monotonic()
+                        + self.PROVIDER_COOLDOWN_SECONDS
                     )
+                    self._cooldown_until[provider.provider] = until
                     logger.warning(
-                        "AI provider %s cooling down for %.0fs after transient failure",
+                        "AI provider %s cooling down for %.0fs",
                         provider.provider.value,
                         self.PROVIDER_COOLDOWN_SECONDS,
                     )
 
-        raise ProviderError("All AI providers failed: " + " | ".join(errors))
+        raise ProviderError(
+            "All AI providers failed: " + " | ".join(errors)
+        )
 
     @staticmethod
     def _is_transient_failure(exc: Exception) -> bool:
+        status = getattr(exc, "status_code", None)
+        if status == 429 or (
+            isinstance(status, int) and 500 <= status <= 504
+        ):
+            return True
+
         text = str(exc).casefold()
         return any(
             marker in text
             for marker in (
-                " 429 ", "429 -", "rate limit",
-                " 500 ", " 502 ", " 503 ", " 504 ",
-                "timeout", "timed out",
-                "service unavailable", "temporarily unavailable", "unavailable",
+                "429",
+                "rate limit",
+                "500",
+                "502",
+                "503",
+                "504",
+                "timeout",
+                "timed out",
+                "service unavailable",
+                "temporarily unavailable",
+                "high demand",
+                "unavailable",
             )
         )
 
@@ -285,5 +320,9 @@ class ProviderManager:
         for provider in self.providers:
             try:
                 await provider.close()
-            except Exception:
-                logger.exception("Failed closing %s provider", provider.provider.value)
+            except Exception as exc:
+                logger.warning(
+                    "Failed closing %s provider: %s",
+                    provider.provider.value,
+                    exc,
+                )
