@@ -26,6 +26,12 @@ async def connect():
     if not mongo_uri:
         logger.warning("MONGO_URI not set – MongoDB features disabled.")
         return None
+    if not mongo_uri.startswith(("mongodb://", "mongodb+srv://")):
+        logger.error(
+            "MONGO_URI is invalid. Use a MongoDB connection URI starting with "
+            "mongodb:// or mongodb+srv://, not a mongosh command."
+        )
+        return None
     try:
         _client = AsyncIOMotorClient(mongo_uri, serverSelectionTimeoutMS=5000)
         # Verify connection
