@@ -91,6 +91,12 @@ class AIEngine:
             "telemetry": self.telemetry.snapshot(),
         }
 
+    async def reload_providers(self) -> None:
+        """Reload provider credentials from the current process environment."""
+        old_manager = self.providers
+        self.providers = ProviderManager()
+        await old_manager.close()
+
     async def close(self) -> None:
         await self.providers.close()
 
