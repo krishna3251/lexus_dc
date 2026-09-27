@@ -120,9 +120,6 @@ class ToolRegistry:
         if required and not getattr(user.guild_permissions, required, False):
             return False, f"User lacks required permission: {required}."
 
-        if not user.guild_permissions.administrator and guild.owner_id != user.id:
-            return False, "Only a member with the required moderation permission may use this action."
-
         # Targeted actions must never outrank the human requester.
         target_id = _optional_int(arguments.get("member_id"))
         if target_id:
