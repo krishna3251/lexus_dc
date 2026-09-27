@@ -1,7 +1,7 @@
 """Discord interface for the Lexus AI Engine.
 
-This cog intentionally exposes a single clear entry point: `lx ask ...`
-and its slash equivalent. Existing chat/coder cogs remain untouched.
+This cog exposes the unified V3 AI entry points while keeping existing cogs
+coexisting with the engine.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         self.bot = bot
         self.engine = AIEngine()
         self.engine.register_default_tools(bot)
-        # Protect against duplicate event delivery / duplicate listeners.
         self._handled_messages: TTLCache[int, bool] = TTLCache(
             max_size=10000,
             default_ttl=90.0,
@@ -37,10 +36,12 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def cog_load(self) -> None:
         self.bot.ai_engine = self.engine
         await self.engine.memory.initialize()
+        memory_health = self.engine.memory.health()
         logger.info(
-            "🤖 Lexus AI Engine loaded | providers=%s | tools=%d",
+            "🤖 Lexus AI Engine loaded | providers=%s | tools=%d | memory=%s",
             ", ".join(self.engine.provider_names) if self.engine.provider_names else "none",
             len(self.engine.tools.names()),
+            memory_health["backend"],
         )
 
     async def cog_unload(self) -> None:
@@ -89,15 +90,15 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         providers = self.engine.provider_names or ["none"]
         await ctx.send(
             "✅ AI provider config reloaded. Providers: "
-            + ", ".join(f"`{item}`" for item in providers)
+            + ", ".join(str(item) for item in providers)
         )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Handle natural AI chat through the unified AI Engine."""
         if message.author.bot:
             return
 
-        # Never steal an existing valid prefix command.
         try:
             ctx = await self.bot.get_context(message)
             if ctx.valid:
@@ -110,13 +111,19 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         if not prompt:
             return
 
-        mongo_claim = await self.engine.memory.claim_message(message.id)
-        if mongo_claim is False:
-            logger.warning("Ignoring duplicate AI message across processes | message=%s", message.id)
+        db_claim = await self.engine.memory.claim_message(message.id)
+        if db_claim is False:
+            logger.warning(
+                "Ignoring duplicate AI message across processes | message=%s",
+                message.id,
+            )
             return
 
         if self._handled_messages.contains(message.id):
-            logger.warning("Ignoring duplicate AI natural-chat event | message=%s", message.id)
+            logger.warning(
+                "Ignoring duplicate AI natural-chat event | message=%s",
+                message.id,
+            )
             return
         self._handled_messages.set(message.id, True)
 
@@ -239,22 +246,37 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             title="Lexus AI Engine",
             color=discord.Color.green() if self.engine.available else discord.Color.red(),
         )
-        embed.add_field(name="Status", value="READY" if self.engine.available else "NOT CONFIGURED", inline=True)
-        embed.add_field(name="Providers", value="\n".join(f"`{item}`" for item in providers), inline=False)
-        embed.add_field(name="Tools", value=str(tools), inline=True)
         embed.add_field(
-            name="Memory",
-            value="✅ MongoDB" if health["memory_available"] else "❌ MongoDB offline",
+            name="Status",
+            value="READY" if self.engine.available else "NOT CONFIGURED",
             inline=True,
         )
+        embed.add_field(
+            name="Providers",
+            value="\n".join(str(item) for item in providers),
+            inline=False,
+        )
+        embed.add_field(name="Tools", value=str(tools), inline=True)
+
+        memory_value = (
+            "✅ SQLite"
+            if health["memory_available"]
+            else "❌ SQLite unavailable"
+        )
+        if health["memory_available"]:
+            size_kib = health["memory_size_bytes"] / 1024
+            memory_value += f" ({size_kib:.1f} KiB)"
+
+        embed.add_field(name="Memory", value=memory_value, inline=True)
         embed.add_field(
             name="Web Search",
             value="✅ Ready" if health["web_search_available"] else "❌ GROQ_API_KEY missing",
             inline=True,
         )
+
         cooldowns = health["provider_health"]
         cooldown_text = "\n".join(
-            f"`{name}`: {data['cooldown_seconds']:.0f}s"
+            f"{name}: {data['cooldown_seconds']:.0f}s"
             for name, data in cooldowns.items()
             if data["cooldown_seconds"] > 0
         ) or "None"
@@ -265,7 +287,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         embed.add_field(
             name="Models",
-            value="`gemini-3.8-flash`\n`openai/gpt-oss-120b`",
+            value="gemini-3.8-flash\nopenai/gpt-oss-120b",
             inline=False,
         )
         await ctx.send(embed=embed)
