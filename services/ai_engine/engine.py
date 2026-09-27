@@ -243,10 +243,14 @@ class AIEngine:
                 )
             except ProviderError as exc:
                 logger.error("AI engine provider failure: %s", exc)
+                provider_error = str(exc)
+                if "Web search requires GROQ_API_KEY" in provider_error:
+                    user_text = "Arre miyan, live web search ke liye GROQ_API_KEY configured nahi hai."
+                else:
+                    user_text = "Arre yaar, AI side pe abhi thoda scene hai. Ek baar phir try karo."
                 result = AIResult(
                     success=False,
-                    text="The AI providers are unavailable right now.",
-                    provider=provider_name,
+                    text=user_text,                    provider=provider_name,
                     model=model_name,
                     intent=route.intent,
                     confidence=route.confidence,
@@ -255,8 +259,24 @@ class AIEngine:
                     iterations=iteration,
                     error=str(exc),
                 )
-                self.telemetry.finish(
-                    started,
+                request_id = f"{request.user_id}:{started:.6f}"
+                await self.memory.add_turn(
+                    user_id=request.user_id,
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    role="user",
+                    content=request.prompt,
+                    request_id=request_id,
+                )
+                await self.memory.add_turn(
+                    user_id=request.user_id,
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    role="assistant",
+                    content=final_text,
+                    request_id=request_id,
+                )
+                self.telemetry.finish(                    started,
                     success=False,
                     intent=route.intent.value,
                     provider=provider_name.value if hasattr(provider_name, "value") else provider_name,
@@ -270,9 +290,12 @@ class AIEngine:
             messages.append(reply.assistant_message)
 
             if not reply.tool_calls:
-                final_text = reply.text.strip() or "I got an empty response from the AI provider."
-                result = AIResult(
-                    success=True,
+                final_text = reply.text.strip()
+                if not final_text:
+                    final_text = "Arre yaar, provider se empty reply aaya. Ek baar phir try karo."
+                if web_search:
+                    tools_used.append("browser_search")
+                result = AIResult(                    success=True,
                     text=final_text,
                     provider=provider_name,
                     model=model_name,
