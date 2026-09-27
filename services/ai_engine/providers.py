@@ -64,12 +64,6 @@ class CompatibleProvider:
             if self.provider is AIProvider.GROQ:
                 kwargs["parallel_tool_calls"] = False
 
-        # Gemini documents reasoning_effort on its OpenAI compatibility layer.
-        # Groq also accepts reasoning_effort on supported models, but the value
-        # is kept conservative for predictable latency.
-        if self.provider is AIProvider.GEMINI:
-            kwargs["reasoning_effort"] = "low"
-
         try:
             response = await self.client.chat.completions.create(**kwargs)
         except Exception as exc:
