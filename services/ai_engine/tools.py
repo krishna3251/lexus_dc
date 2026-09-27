@@ -62,6 +62,9 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._tools)
 
+    def get(self, name: str) -> Optional[ToolSpec]:
+        return self._tools.get(name)
+
     async def execute(
         self,
         name: str,
@@ -308,6 +311,7 @@ def register_discord_tools(registry: ToolRegistry) -> None:
                 "additionalProperties": False,
             },
             handler=_get_security_status,
+            required_permission="manage_guild",
         )
     )
 
