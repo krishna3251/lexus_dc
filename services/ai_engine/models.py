@@ -12,6 +12,25 @@ class AIProvider(str, Enum):
     GROQ = "groq"
 
 
+class AIIntent(str, Enum):
+    CHAT = "chat"
+    SERVER_QUERY = "server_query"
+    SECURITY_QUERY = "security_query"
+    ACTION_REQUEST = "action_request"
+    HELP = "help"
+    SEARCH = "search"
+    UNKNOWN = "unknown"
+
+
+@dataclass(slots=True)
+class RouteDecision:
+    intent: AIIntent
+    confidence: float
+    allow_tools: bool
+    allow_mutations: bool
+    reason: str
+
+
 @dataclass(slots=True)
 class AIRequest:
     user_id: int
@@ -53,6 +72,8 @@ class AIResult:
     text: str
     provider: Optional[AIProvider] = None
     model: Optional[str] = None
+    intent: Optional[AIIntent] = None
+    confidence: float = 0.0
     tool_calls: list[ToolCall] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     iterations: int = 0
