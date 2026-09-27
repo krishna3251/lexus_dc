@@ -250,7 +250,8 @@ class AIEngine:
                     user_text = "Arre yaar, AI side pe abhi thoda scene hai. Ek baar phir try karo."
                 result = AIResult(
                     success=False,
-                    text=user_text,                    provider=provider_name,
+                    text=user_text,
+                    provider=provider_name,
                     model=model_name,
                     intent=route.intent,
                     confidence=route.confidence,
@@ -259,24 +260,8 @@ class AIEngine:
                     iterations=iteration,
                     error=str(exc),
                 )
-                request_id = f"{request.user_id}:{started:.6f}"
-                await self.memory.add_turn(
-                    user_id=request.user_id,
-                    guild_id=request.guild_id,
-                    channel_id=request.channel_id,
-                    role="user",
-                    content=request.prompt,
-                    request_id=request_id,
-                )
-                await self.memory.add_turn(
-                    user_id=request.user_id,
-                    guild_id=request.guild_id,
-                    channel_id=request.channel_id,
-                    role="assistant",
-                    content=final_text,
-                    request_id=request_id,
-                )
-                self.telemetry.finish(                    started,
+                self.telemetry.finish(
+                    started,
                     success=False,
                     intent=route.intent.value,
                     provider=provider_name.value if hasattr(provider_name, "value") else provider_name,
@@ -295,7 +280,8 @@ class AIEngine:
                     final_text = "Arre yaar, provider se empty reply aaya. Ek baar phir try karo."
                 if web_search:
                     tools_used.append("browser_search")
-                result = AIResult(                    success=True,
+                result = AIResult(
+                    success=True,
                     text=final_text,
                     provider=provider_name,
                     model=model_name,
@@ -304,6 +290,23 @@ class AIEngine:
                     tools_used=tools_used,
                     tool_calls=all_tool_calls,
                     iterations=iteration,
+                )
+                request_id = f"{request.user_id}:{started:.6f}"
+                await self.memory.add_turn(
+                    user_id=request.user_id,
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    role="user",
+                    content=request.prompt,
+                    request_id=request_id,
+                )
+                await self.memory.add_turn(
+                    user_id=request.user_id,
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    role="assistant",
+                    content=final_text,
+                    request_id=request_id,
                 )
                 self.telemetry.finish(
                     started,
