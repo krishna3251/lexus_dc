@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/lexus-banner.svg" alt="Lexus" width="100%" />
+  <img src="ChatGPT Image Sep 27, 2026, 05_50_05 PM.png" alt="Lexus" width="100%" />
 </p>
 
 <p align="center">
