@@ -1,190 +1,538 @@
-# 🤖 Lexus Discord Bot
+<!--
+████████████████████████████████████████████████████████████████████████████
+                            L E X U S
+                    Discord Bot • AI • Security
+████████████████████████████████████████████████████████████████████████████
+-->
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Discord.py](https://img.shields.io/badge/discord.py-2.3%2B-blueviolet)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-teal)
-![MongoDB](https://img.shields.io/badge/MongoDB-Motor-green)
-![License: MIT](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/status-active-success)
+<p align="center">
+  <a href="https://github.com/krishna3251/lexus_dc">
+    <img src="https://capsule-render.vercel.app/api?type=transparent&fontColor=2ea043&fontSize=60&height=100&width=760&text=LEXUS%20%F0%9F%A4%96" alt="Lexus 🤖" />
+  </a>
+</p>
 
-Lexus is a modular, multipurpose Discord bot built with **discord.py 2.x**, backed by **MongoDB (Motor)** for persistence and featuring an integrated **FastAPI** service for health checks and real-time server statistics.
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=22&pause=900&color=2EA043&center=true&vCenter=true&width=900&height=42&lines=Discord%20Bot%20%E2%80%A2%20AI%20Engine%20%E2%80%A2%20Security%20Engine;Think%20%E2%80%A2%20Inspect%20%E2%80%A2%20Decide%20%E2%80%A2%20Execute;Built%20to%20behave%20like%20a%20system%2C%20not%20a%20pile%20of%20commands." alt="Lexus typing headlines" />
+</p>
 
----
-
-## ✨ Features
-
-- 🛡️ **Lexus V3 Security Engine**
-  - **Decoupled Architecture**: Strictly separates detection from decision and decision from action (`Event -> Normalize -> Evidence -> Tracker -> Correlation -> Risk -> Policy -> Action -> Incident -> Recovery`).
-  - **Multi-Window Anti-Spam**: Detects rapid message bursts, exact repeats, near-duplicate text via token signatures, mention floods, invite/link bursts, and channel hopping.
-  - **Guild-Scope Raid Detection**: Tracks join velocity and distributed multi-actor coordinated spam with automatic hysteresis state transitions (`NORMAL <-> ELEVATED <-> RAID <-> PANIC <-> RECOVERY`).
-  - **Anti-Nuke & Permission Guard**: Detects mass channel/role deletions, @everyone privilege escalation, Administrator grants, unauthorized bot joins, and rapid webhook creation with cross-action risk scoring.
-  - **Idempotent Quarantine & Lockdown**: Secure role-based containment with role history preservation and reversible emergency lockdowns.
-  - **Structural Baseline & Recovery**: Captures trusted server configurations and performs damage analysis against baselines with safe reconstruction.
-  - **Audit Mode vs Enforce Mode**: Supports non-destructive monitoring/simulation (`audit`) or active automated containment (`enforce`).
-
-- 💬 **AI & Coding Assistance**
-  - **Lexus AI Chat** (`cogs/chat_lex.py`): Behaviorally-aware conversational AI with emotion and intent analysis (OpenRouter / NVIDIA AI APIs)
-  - **Lexus Coder** (`cogs/coder_lex.py`): Intelligent code generation, explanation, debugging, and review with code-continuation support
-
-- 🔧 **Server Administration & Utilities**
-  - Interactive channel permissions console (`cogs/channel_perms.py`)
-  - Mass role assignment with execution controls (`cogs/mass_role_add_cog.py`)
-  - User and channel message purge protocols (`cogs/purge_member_cog.py`, `cogs/slash_commands_cog.py`)
-  - Multi-channel command broadcasting (`cogs/broadcast.py`)
-  - Configurable server prefix management (`cogs/prefix_cog.py`)
-  - Welcome and goodbye messages with customizable embeds and join DMs (`cogs/welcome.py`)
-  - Auto-role assignment on member join and persistent reaction-role buttons (`cogs/autorole.py`)
-  - Comprehensive audit logging for edits, deletions, joins, leaves, bans, and role changes (`cogs/logging_cog.py`)
-
-- 🎟️ **Community & Engagement**
-  - Private thread-based support tickets with transcripts (`cogs/tickets.py`)
-  - XP leveling system with rank cards and server leaderboards (`cogs/leveling.py`)
-  - Reaction-based polls with optional auto-close timer (`cogs/polls.py`)
-  - Persistent reminders stored in MongoDB (`cogs/reminders.py`)
-  - Multi-engine search for YouTube, weather, Wikipedia, and Google (`cogs/search.py`)
-  - Smart pinger with contextual messages and GIF integration (`cogs/gif_cog.py`)
-  - Detailed server and member information cards (`cogs/serverinfo.py`, `cogs/minfo.py`)
-
-- 🌐 **Web API & Hosting**
-  - Built-in FastAPI server for hosting platform health checks (`/health`, `/`)
-  - Real-time bot and server metrics endpoint (`/stats`) secured by optional API key
-  - Wavelink/Lavalink audio node integration
+<p align="center">
+  <a href="https://github.com/krishna3251/lexus_dc/stargazers">
+    <img src="https://img.shields.io/github/stars/krishna3251/lexus_dc?style=for-the-badge&color=2ea043" alt="GitHub stars" />
+  </a>
+  <a href="https://github.com/krishna3251/lexus_dc/network/members">
+    <img src="https://img.shields.io/github/forks/krishna3251/lexus_dc?style=for-the-badge&color=238636" alt="GitHub forks" />
+  </a>
+  <a href="https://github.com/krishna3251/lexus_dc/issues">
+    <img src="https://img.shields.io/github/issues/krishna3251/lexus_dc?style=for-the-badge&color=f78166" alt="GitHub issues" />
+  </a>
+  <a href="https://github.com/krishna3251/lexus_dc/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-2ea043?style=for-the-badge" alt="MIT License" />
+  </a>
+</p>
 
 ---
 
-## 🏗️ Architecture Overview
+## 🧠 What is Lexus?
+
+**Lexus** is a modular Discord bot built around two ideas:
+
+> **AI should reason. Security should decide.**
+
+It combines everyday Discord utilities with a dedicated **V3 Security Engine** and a new **AI Engine** designed around provider abstraction, tool calling, guarded execution, and deterministic application-side policies.
+
+The goal is not to make Lexus look complicated.
+
+The goal is to make the internals **harder to break**.
+
+---
+
+## ⚡ Core Systems
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🛡️ Lexus V3 Security Engine
+
+A layered defensive engine for server protection.
+
+- Multi-window anti-spam
+- Distributed raid detection
+- Join-gate analysis
+- Anti-nuke detection
+- Dangerous permission monitoring
+- Bot addition guard
+- Webhook abuse detection
+- Quarantine and containment
+- Panic / lockdown states
+- Structural baselines
+- Recovery analysis
+- Audit Log correlation
+- Incident correlation
+- Bounded action budgets
+- Audit and enforce modes
+
+</td>
+<td width="50%" valign="top">
+
+### 🤖 Lexus AI Engine
+
+A provider-agnostic agent layer for reasoning and controlled Discord tools.
+
+- Gemini primary provider
+- Groq fallback provider
+- Tool / function calling
+- Local request routing
+- Context building
+- Execution planning
+- Safety gate
+- Permission guard
+- Tool validation
+- Bounded tool execution
+- Request deduplication
+- Provider fallback
+- Telemetry
+- Discord inspection tools
+- Guarded moderation tools
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🔐 Security Philosophy
+
+Lexus is deliberately built around a strict separation of responsibilities:
+
+```text
+Discord Event
+     │
+     ▼
+Normalize
+     │
+     ▼
+Detect / Observe
+     │
+     ▼
+Evidence
+     │
+     ▼
+Correlation
+     │
+     ▼
+Risk / Heat
+     │
+     ▼
+Security Policy
+     │
+     ├──────────────► LOG / ALERT
+     │
+     └──────────────► ACTION
+                           │
+                           ▼
+                    Discord API
+```
+
+The AI Engine follows the same principle:
+
+```text
+User Request
+     │
+     ▼
+Local Router
+     │
+     ▼
+Safety Gate
+     │
+     ▼
+Context Builder
+     │
+     ▼
+Execution Plan
+     │
+     ▼
+Gemini / Groq
+     │
+     ▼
+Tool Validation
+     │
+     ▼
+Permission Guard
+     │
+     ▼
+Tool Executor
+     │
+     ▼
+Discord Result
+     │
+     ▼
+Final Response
+```
+
+**The model is never the final authority for Discord mutations.**
+
+Role hierarchy, Discord permissions, protected assets, security policy, and tool limits remain application-controlled.
+
+---
+
+## 🧩 Current AI Tool Surface
+
+Lexus currently exposes a deliberately small, guarded tool set:
+
+### Read
+
+```text
+get_server_overview
+get_member
+list_channels
+list_roles
+get_bot_status
+get_security_status
+get_recent_security_incidents
+get_recent_audit_logs
+```
+
+### Mutating
+
+```text
+timeout_member
+kick_member
+ban_member
+lock_channel
+```
+
+Every mutation passes application-side checks before a Discord API call is attempted.
+
+That means:
+
+```text
+AI: "Ban this member."
+        │
+        ▼
+Requester permission?
+        │
+        ▼
+Target hierarchy?
+        │
+        ▼
+Bot hierarchy?
+        │
+        ▼
+Protected target?
+        │
+        ▼
+Tool policy?
+        │
+        ▼
+Discord API
+```
+
+---
+
+## 🏗️ Project Structure
 
 ```text
 lexus_dc/
-├── core/               # Centralized config, structured logging, errors, permissions, events
+│
+├── core/
 │   ├── config.py
 │   ├── logging.py
 │   ├── errors.py
 │   ├── permissions.py
 │   ├── events.py
 │   └── lifecycle.py
-├── services/           # Persistent data & bounded memory infrastructure
-│   ├── database.py     # Resilient MongoDB service with in-memory fallback
-│   ├── cache.py        # Bounded LRU/TTL caches
-│   └── snapshots.py    # Structural guild snapshots & diffing engine
-├── security/           # Lexus V3 Security Engine
-│   ├── engine.py       # Central pipeline orchestrator
-│   ├── models.py       # Normalized event models, evidence, and states
-│   ├── scoring.py      # Exponential heat decay, risk scoring, state machine
-│   ├── event_tracker.py# Sliding windows and token-bucket rate limiters
-│   ├── dedup.py        # Event deduplication cache
-│   ├── spam.py         # Multi-window spam detector
-│   ├── raid.py         # Guild join velocity & distributed raid detector
-│   ├── join_gate.py    # Account age & join threat analysis
-│   ├── anti_nuke.py    # Structural nuke & cross-action risk detector
-│   ├── permission_guard.py # Dangerous permission diff engine
-│   ├── bot_guard.py    # Unauthorized bot addition guard
-│   ├── webhook_guard.py# Webhook abuse detector
-│   ├── quarantine.py   # Isolated quarantine & role preservation
-│   ├── lockdown.py     # Reversible public channel lockdown
-│   ├── baseline.py     # Safe structural baselines
-│   ├── recovery.py     # Post-incident recovery analysis
-│   ├── audit.py        # Budgeted audit log correlation
-│   ├── actions.py      # Rate-limited idempotent action engine
-│   ├── incidents.py    # Incident correlation & lifecycle tracking
-│   ├── policies.py     # Policy evaluation matrix (audit vs enforce)
-│   └── simulator.py    # Offline attack testing harness
+│
+├── services/
+│   ├── database.py
+│   ├── cache.py
+│   ├── snapshots.py
+│   └── ai_engine/
+│       ├── __init__.py
+│       ├── models.py
+│       ├── providers.py
+│       ├── router.py
+│       ├── context.py
+│       ├── planner.py
+│       ├── permissions.py
+│       ├── safety.py
+│       ├── validator.py
+│       ├── executor.py
+│       ├── telemetry.py
+│       ├── tools.py
+│       └── engine.py
+│
+├── security/
+│   ├── engine.py
+│   ├── models.py
+│   ├── scoring.py
+│   ├── event_tracker.py
+│   ├── spam.py
+│   ├── raid.py
+│   ├── join_gate.py
+│   ├── anti_nuke.py
+│   ├── permission_guard.py
+│   ├── bot_guard.py
+│   ├── webhook_guard.py
+│   ├── quarantine.py
+│   ├── lockdown.py
+│   ├── baseline.py
+│   ├── recovery.py
+│   ├── audit.py
+│   ├── actions.py
+│   ├── incidents.py
+│   ├── dedup.py
+│   ├── policies.py
+│   └── simulator.py
+│
 ├── cogs/
-│   ├── security.py     # /security administration slash commands
-│   └── ...             # Existing feature extensions
-├── tests/              # 47 unit, integration, failure & benchmark tests
-├── main.py             # Bot initialization, cog loader, and lifecycle
-├── mongo_helper.py     # Centralized async MongoDB database interface
-└── requirements.txt    # Production dependencies
+│   ├── security.py
+│   ├── ai_engine.py
+│   ├── chat_lex.py
+│   ├── coder_lex.py
+│   └── ...
+│
+├── tests/
+│   └── ...
+│
+├── api.py
+├── main.py
+├── mongo_helper.py
+├── stats_store.py
+├── requirements.txt
+├── .env.example
+├── SECURITY.md
+└── LICENSE
 ```
 
 ---
 
-## 🛡️ Lexus Security Engine (V3)
+## 🛠️ Tech Stack
 
-### Security Modes
-- **`audit`**: Detects events, calculates risk scores, correlates incidents, and logs simulated responses without punishing members or altering channels. Ideal for initial deployment and threshold calibration.
-- **`enforce`**: Actively applies containment policies (Timeout, Quarantine, Channel Lock, Lockdown) when risk and confidence thresholds are crossed.
-
-### Administration Commands (`/security`)
-- `/security status` — Displays real-time server security state, protection modules, active telemetry, and incidents.
-- `/security setup` — Guided setup to establish a quarantine role, log channel, and trusted baseline.
-- `/security config [mode] [profile]` — Configure operation mode (`audit`/`enforce`) and strictness (`standard`/`strict`).
-- `/security logs` — Review recent security incident history.
-- `/security trust [action] [user/role]` — Whitelist trusted administrators or roles from automated punishment.
-- `/security quarantine [action] [member]` — Manually quarantine or release an actor, restoring original roles on release.
-- `/security lockdown [action]` — Manually trigger or release emergency public channel lockdowns.
-- `/security baseline [action]` — Capture trusted server structure or view structural diffs.
-- `/security recovery` — Inspect structural changes following an attack.
-
-### Technical Limitations & Discord Boundaries
-- **Role Hierarchy**: Lexus cannot modify or discipline members whose highest role is above or equal to Lexus's highest role.
-- **Platform Scope**: Lexus cannot inspect private user DMs, view IP addresses, or bypass Discord permissions.
-- **Action Budget**: An automated circuit breaker restricts mutations per time window to prevent API storms and avoid compounding Discord rate limit delays.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/discord.py-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
+  <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
+  <img src="https://img.shields.io/badge/Groq-000000?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" />
+  <img src="https://img.shields.io/badge/OpenRouter-111827?style=for-the-badge" alt="OpenRouter" />
+  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Uvicorn-499848?style=for-the-badge&logo=gunicorn&logoColor=white" alt="Uvicorn" />
+  <img src="https://img.shields.io/badge/Lavalink-5865F2?style=for-the-badge" alt="Lavalink" />
+  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
+</p>
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- Python **3.10** or higher
-- A Discord Bot Token (from the [Discord Developer Portal](https://discord.com/developers/applications))
-- (Optional) A MongoDB cluster (e.g., free MongoDB Atlas M0 cluster)
-- (Optional) A Lavalink server instance for music
-
-### 2. Installation
-Clone the repository and install dependencies:
+### 1. Clone
 
 ```bash
 git clone https://github.com/krishna3251/lexus_dc.git
 cd lexus_dc
-pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
-Copy `.env.example` to `.env` and fill in your credentials:
+### 2. Install
 
 ```bash
-cp .env.example .env
+python -m pip install -r requirements.txt
 ```
 
-Required minimum configuration:
+### 3. Configure
+
+Create a `.env` file from `.env.example`.
+
+Minimum:
+
 ```env
-DISCORD_TOKEN=your_discord_bot_token_here
+DISCORD_TOKEN=your_discord_bot_token
 ```
 
-### 4. Running the Bot
-Start Lexus:
+AI Engine credentials:
+
+```env
+GEMINI_API_KEY=
+GROQ_API_KEY=
+```
+
+Provider model IDs are managed by the AI Engine rather than being exposed as deployment configuration.
+
+Optional integrations include MongoDB, Lavalink, OpenRouter, search APIs, media APIs, and the FastAPI health service.
+
+### 4. Run
 
 ```bash
 python main.py
 ```
 
-The bot will:
-1. Start the background FastAPI service on `$PORT` (default: `10000`)
-2. Connect to MongoDB (if configured)
-3. Dynamically discover and load all cogs from `cogs/`
-4. Connect to Discord and synchronize application slash commands
-5. Establish Lavalink connection (if configured)
+---
+
+## 🎮 Example AI Usage
+
+Ask Lexus something simple:
+
+```text
+lx ask how many channels are in this server?
+```
+
+Lexus can inspect live server state through a guarded read-only tool.
+
+For an authorized moderation action:
+
+```text
+lx ask timeout @user for 5 minutes because they are spamming
+```
+
+The AI can request the action, but Lexus still performs the permission and hierarchy checks before Discord is touched.
 
 ---
 
-## 📡 Web Endpoints
+## 🛡️ Security Commands
 
-When running, Lexus serves a lightweight FastAPI server:
+Lexus V3 exposes server security administration through `/security`.
 
-| Endpoint | Method | Description |
-| -------- | ------ | ----------- |
-| `/` | `GET`, `HEAD` | Root health status |
-| `/health` | `GET` | Service liveness check |
-| `/stats` | `GET` | Member, channel, role, and boost statistics (secured by `API_SECRET_KEY` if set) |
+```text
+/security status
+/security setup
+/security config
+/security logs
+/security trust
+/security quarantine
+/security lockdown
+/security baseline
+/security recovery
+```
+
+### Security Modes
+
+| Mode | Behavior |
+| --- | --- |
+| `audit` | Detect, score, correlate, log and simulate without destructive enforcement |
+| `enforce` | Apply configured containment actions when policy thresholds are crossed |
+
+Start with **audit mode** while calibrating a server.
+
+---
+
+## 📡 FastAPI Endpoints
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/` | GET / HEAD | Root health response |
+| `/health` | GET | Service health check |
+| `/stats` | GET | Bot and server statistics |
+
+The API can bind to the `PORT` environment variable for hosting platforms.
+
+---
+
+## 🧪 Testing
+
+The repository includes security and AI-engine test coverage for areas such as:
+
+```text
+✓ Sliding windows
+✓ Token buckets
+✓ Heat decay
+✓ Risk scoring
+✓ Permission diffs
+✓ Event deduplication
+✓ Hysteresis
+✓ Spam detection
+✓ Raid detection
+✓ AI tool loops
+✓ AI safety gates
+✓ AI routing
+✓ Failure isolation
+```
+
+Run:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+Also compile the project before deployment:
+
+```bash
+python -m compileall .
+```
+
+---
+
+## ⚙️ Design Principles
+
+> **Decision ≠ Generation**
+
+> **Detection ≠ Action**
+
+> **AI ≠ Authority**
+
+> **Security must remain deterministic**
+
+> **Failure must be visible**
+
+> **Caches must be bounded**
+
+> **Every mutation needs a policy boundary**
+
+These are not decorative sentences. They are architectural constraints.
+
+---
+
+## 🚧 Development Status
+
+| Component | Status |
+| --- | --- |
+| Modular Discord bot | 🟢 Active |
+| V3 Security Engine baseline | 🟢 Implemented |
+| Security event pipeline | 🟢 Implemented |
+| Anti-spam / anti-raid | 🟢 Implemented |
+| Anti-nuke / permission guard | 🟢 Implemented |
+| Quarantine / lockdown | 🟢 Implemented |
+| AI provider abstraction | 🟢 Implemented |
+| AI tool-calling foundation | 🟢 Implemented |
+| AI routing / safety / execution layers | 🟢 Implemented |
+| AI long-term memory | 🟡 Planned |
+| Advanced planner / reasoning improvements | 🟡 In development |
+| Full migration of legacy AI cogs | 🟡 Planned |
+| Production-scale AI benchmark suite | 🟡 In development |
+
+**Lexus is under active development.**
+
+The AI Engine is being built incrementally so the existing bot does not have to be sacrificed to the gods of refactoring.
+
+---
+
+## 🔗 Project Links
+
+<p align="center">
+  <a href="https://github.com/krishna3251/lexus_dc">
+    <img src="https://img.shields.io/badge/Repository-GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="Repository" />
+  </a>
+  <a href="https://github.com/krishna3251/lexus_dc/issues">
+    <img src="https://img.shields.io/badge/Issues-Report%20a%20problem-f78166?style=for-the-badge&logo=github" alt="Issues" />
+  </a>
+  <a href="https://github.com/krishna3251/lexus_dc/security">
+    <img src="https://img.shields.io/badge/Security-Policy-2ea043?style=for-the-badge&logo=github" alt="Security" />
+  </a>
+</p>
 
 ---
 
 ## 📜 License
 
-Distributed under the [MIT License](file:///c:/Users/krish/Downloads/lexus_dc-main/lexus_dc-main/LICENSE).
+Lexus is distributed under the **MIT License**.
 
-## 💡 Author
+See [LICENSE](LICENSE).
 
-Created by **Krishna** ([@krishna3251](https://github.com/krishna3251))
+---
+
+<p align="center">
+  <i>Built with Python, Discord, APIs, too many edge cases, and an unreasonable refusal to let the bot do stupid things.</i>
+</p>
+
+<p align="center">
+  <sub>© Krishna • Lexus Discord Bot</sub>
+</p>
