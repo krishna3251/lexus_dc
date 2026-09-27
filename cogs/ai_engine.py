@@ -82,6 +82,15 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         return result.text or "The AI engine could not complete that request."
 
+    @commands.command(name="aireload", help="Reload AI provider settings from the current process environment.")
+    @commands.is_owner()
+    async def ai_reload(self, ctx: commands.Context) -> None:
+        await self.engine.reload_providers()
+        providers = self.engine.provider_names or ["none"]
+        await ctx.send(
+            "✅ AI provider config reloaded. Providers: "
+            + ", ".join(f"`{item}`" for item in providers)
+        )
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Handle natural AI chat through the unified AI Engine."""
