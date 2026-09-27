@@ -8,6 +8,7 @@ database is required.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
@@ -65,7 +66,7 @@ class RAGStore:
         self.default_ttl_seconds = max(3600, int(default_ttl_seconds))
         self.embedder = GeminiEmbeddingService()
         self._initialized = False
-        self._embed_semaphore = __import__("asyncio").Semaphore(2)
+        self._embed_semaphore = asyncio.Semaphore(2)
 
     @property
     def available(self) -> bool:
@@ -249,8 +250,6 @@ class RAGStore:
         ttl_seconds: int | None = None,
         embed: bool = True,
     ) -> bool:
-        import asyncio
-
         self.initialize()
         title = str(title).strip()[:300]
         text = str(text).strip()[:8000]
