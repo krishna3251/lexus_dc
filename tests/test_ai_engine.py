@@ -271,6 +271,11 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(route.allow_tools)
         self.assertFalse(route.allow_mutations)
 
+    def test_product_price_is_treated_as_current_search(self):
+        route = RequestRouter.route("iphone 18 pro ka price kitna hai")
+        self.assertEqual(route.intent.value, "search")
+        self.assertFalse(route.allow_mutations)
+
     def test_hyderabadi_search_safety_is_unchanged(self):
         assessment = SafetyGate.assess("latest news miyan", RequestRouter.route("latest news").intent)
         self.assertTrue(assessment.allowed)
