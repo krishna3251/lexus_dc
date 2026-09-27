@@ -46,6 +46,10 @@ The goal is not to make Lexus look complicated.
 
 The goal is to make the internals **harder to break**.
 
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=rect&color=0:ff2a76,100:35bfff&height=34&section=header&text=ARCHITECTURE%20BY%20DESIGN&fontSize=15&fontColor=ffffff&animation=twinkling&fontAlignY=52" alt="Animated architecture divider" width="100%" />
+</p>
+
 ---
 
 ## ⚡ Core Systems
@@ -100,6 +104,10 @@ A provider-agnostic agent layer for reasoning and controlled Discord tools.
 </td>
 </tr>
 </table>
+
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:35bfff,50:7c4dff,100:ff2a76&height=38&section=header&animation=fadeIn" alt="Animated security divider" width="100%" />
+</p>
 
 ---
 
@@ -230,6 +238,10 @@ Tool policy?
 Discord API
 ```
 
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=rect&color=0:35bfff,100:ff58c7&height=34&section=header&text=GUARDED%20TOOL%20PIPELINE&fontSize=15&fontColor=ffffff&animation=blinking&fontAlignY=52" alt="Animated tool pipeline divider" width="100%" />
+</p>
+
 ---
 
 ## 🏗️ Project Structure
@@ -322,6 +334,10 @@ lexus_dc/
   <img src="https://img.shields.io/badge/Uvicorn-499848?style=for-the-badge&logo=gunicorn&logoColor=white" alt="Uvicorn" />
   <img src="https://img.shields.io/badge/Lavalink-5865F2?style=for-the-badge" alt="Lavalink" />
   <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
+</p>
+
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:ff2a76,55:8b5cf6,100:35bfff&height=36&section=header&animation=twinkling" alt="Animated deployment divider" width="100%" />
 </p>
 
 ---
@@ -480,6 +496,10 @@ python -m compileall .
 > **Every mutation needs a policy boundary**
 
 These are not decorative sentences. They are architectural constraints.
+
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=rect&color=0:ff58c7,100:35bfff&height=34&section=header&text=BUILD%20%2F%20TEST%20%2F%20IMPROVE&fontSize=15&fontColor=ffffff&animation=twinkling&fontAlignY=52" alt="Animated development divider" width="100%" />
+</p>
 
 ---
 
