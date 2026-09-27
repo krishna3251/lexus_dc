@@ -65,6 +65,7 @@ class RAGStore:
         self.default_ttl_seconds = max(3600, int(default_ttl_seconds))
         self.embedder = GeminiEmbeddingService()
         self._initialized = False
+        self._embed_semaphore = __import__("asyncio").Semaphore(2)
 
     @property
     def available(self) -> bool:
@@ -264,7 +265,8 @@ class RAGStore:
         model = None
         if embed and self.embedder.available:
             try:
-                vector = await self.embedder.embed_document(title, text)
+                async with self._embed_semaphore:
+                    vector = await self.embedder.embed_document(title, text)
                 embedding_blob = self._pack(vector)
                 dimensions = len(vector)
                 model = self.embedder.model
@@ -328,7 +330,8 @@ class RAGStore:
         query_vector: list[float] = []
         if self.embedder.available:
             try:
-                query_vector = await self.embedder.embed_query(query)
+                async with self._embed_semaphore:
+                    query_vector = await self.embedder.embed_query(query)
             except Exception:
                 query_vector = []
 
@@ -400,3 +403,7 @@ class RAGStore:
             if len(selected) >= max(1, limit):
                 break
         return RAGResult(selected)
+
+
+    async def close(self) -> None:
+        await self.embedder.close()
