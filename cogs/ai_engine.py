@@ -74,6 +74,80 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         return result.text or "The AI engine could not complete that request."
 
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Handle natural AI chat through the unified AI Engine."""
+        if message.author.bot:
+            return
+
+        # Never steal an existing valid prefix command.
+        try:
+            ctx = await self.bot.get_context(message)
+            if ctx.valid:
+                return
+        except Exception:
+            logger.exception("AI natural-chat context lookup failed")
+            return
+
+        prompt = await self._extract_natural_prompt(message)
+        if not prompt:
+            return
+
+        channel = (
+            message.channel
+            if isinstance(message.channel, discord.abc.GuildChannel)
+            else None
+        )
+
+        async with message.channel.typing():
+            response = await self._run(
+                message.author,
+                message.guild,
+                channel,
+                prompt,
+            )
+
+        await self._send_message_chunks(message.channel, response)
+
+    async def _extract_natural_prompt(self, message: discord.Message) -> str | None:
+        """Extract a prompt from the configured prefix or bot mention."""
+        content = message.content.strip()
+        if not content:
+            return None
+
+        if self.bot.user and self.bot.user in message.mentions:
+            pattern = rf"<@!?{self.bot.user.id}>\\s*"
+            prompt = re.sub(pattern, "", content, count=1).strip()
+            return prompt or None
+
+        try:
+            prefixes = await self.bot.get_prefix(message)
+        except Exception:
+            prefixes = ["lx "]
+
+        if isinstance(prefixes, str):
+            prefixes = [prefixes]
+
+        for prefix in prefixes:
+            if prefix and content.startswith(prefix):
+                prompt = content[len(prefix):].strip()
+                return prompt or None
+
+        return None
+
+    async def _send_message_chunks(
+        self,
+        channel: discord.abc.Messageable,
+        response: str,
+    ) -> None:
+        """Send an AI response without exceeding Discord message limits."""
+        chunks = [
+            response[i : i + 1900]
+            for i in range(0, len(response), 1900)
+        ] or [response]
+        for chunk in chunks:
+            await channel.send(chunk)
+
     @commands.command(
         name="ask",
         help="Ask Lexus AI Engine a question or request an allowed bot action.",
