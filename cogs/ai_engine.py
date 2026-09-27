@@ -110,6 +110,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         if not prompt:
             return
 
+        mongo_claim = await self.engine.memory.claim_message(message.id)
+        if mongo_claim is False:
+            logger.warning("Ignoring duplicate AI message across processes | message=%s", message.id)
+            return
+
         if self._handled_messages.contains(message.id):
             logger.warning("Ignoring duplicate AI natural-chat event | message=%s", message.id)
             return
