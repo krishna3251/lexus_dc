@@ -48,21 +48,37 @@ class CompatibleProvider:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         max_output_tokens: int,
+        web_search: bool = False,
     ) -> ProviderReply:
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "max_tokens": max(64, min(max_output_tokens, 4096)),
             "temperature": 0.35,
         }
 
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-            # Groq documents this switch for its tool-calling API. Gemini's
-            # OpenAI-compatibility layer is left on its documented defaults.
-            if self.provider is AIProvider.GROQ:
-                kwargs["parallel_tool_calls"] = False
+        if self.provider is AIProvider.GROQ:
+            kwargs["max_completion_tokens"] = max(
+                64, min(max_output_tokens, 4096)
+            )
+            kwargs["parallel_tool_calls"] = False
+
+            if web_search:
+                # GPT-OSS 120B has a Groq-hosted browser_search tool. Groq
+                # performs the search and tool loop server-side, so the app
+                # receives the completed answer rather than executing search
+                # itself.
+                kwargs["tools"] = [{"type": "browser_search"}]
+                kwargs["tool_choice"] = "required"
+                kwargs["reasoning_effort"] = "low"
+                kwargs["citation_options"] = "enabled"
+            elif tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+        else:
+            kwargs["max_tokens"] = max(64, min(max_output_tokens, 4096))
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
 
         try:
             response = await self.client.chat.completions.create(**kwargs)
@@ -181,6 +197,7 @@ class ProviderManager:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         max_output_tokens: int,
+        web_search: bool = False,
     ) -> ProviderReply:
         if not self.providers:
             raise ProviderError(
@@ -188,12 +205,27 @@ class ProviderManager:
             )
 
         errors: list[str] = []
-        for provider in self.providers:
+
+        ordered = self.providers
+        if web_search:
+            ordered = [
+                item for item in self.providers
+                if item.provider is AIProvider.GROQ
+            ]
+
+            if not ordered:
+                raise ProviderError(
+                    "Web search requires GROQ_API_KEY because Lexus uses "
+                    "Groq's built-in browser search."
+                )
+
+        for provider in ordered:
             try:
                 return await provider.complete(
                     messages,
                     tools,
                     max_output_tokens,
+                    web_search=web_search and provider.provider is AIProvider.GROQ,
                 )
             except ProviderError as exc:
                 errors.append(str(exc))
