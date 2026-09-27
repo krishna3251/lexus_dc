@@ -62,6 +62,7 @@ class ResearchResult:
     sources: list[ResearchSource] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
     provider: str = ""
+    model: str = ""
     mode: str = ""
     rag_hits: int = 0
     error: str | None = None
@@ -246,6 +247,7 @@ Cached RAG context:
             sources=deduped,
             queries=list(dict.fromkeys(executed_queries)),
             provider="gemini",
+            model=self.model,
             mode="google_grounding",
         )
 
@@ -450,6 +452,8 @@ class WebResearchService:
             cse = await self.google.search(plan)
             if cse.success:
                 cse.sources = self._quality_sorted(cse.sources)
+            for index, source in enumerate(cse.sources, start=1):
+                source.source_id = f"S{index}"
                 cse.evidence = self._evidence_from_sources(cse.sources)
                 await self._cache_sources(cse.sources)
                 cse.rag_hits = len(rag_result.items)
@@ -472,6 +476,7 @@ class WebResearchService:
                     answer=reply.text.strip(),
                     queries=plan.queries,
                     provider=reply.provider.value,
+                    model=reply.model,
                     mode="groq_browser_search",
                     rag_hits=len(rag_result.items),
                 )
