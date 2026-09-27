@@ -90,7 +90,8 @@ class AIEngine:
             "memory_available": memory_health["available"],
             "memory_backend": memory_health["backend"],
             "memory_size_bytes": memory_health["size_bytes"],
-            "web_search_available": any(item.startswith("groq:") for item in self.provider_names),
+            "web_search_available": self.research.health()["available"],
+            "research": self.research.health(),
             "provider_health": self.providers.health(),
             "telemetry": self.telemetry.snapshot(),
         }
