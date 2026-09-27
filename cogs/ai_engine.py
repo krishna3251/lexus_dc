@@ -274,10 +274,28 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             memory_value += f" ({size_kib:.1f} KiB)"
 
         embed.add_field(name="Memory", value=memory_value, inline=True)
+        research = health["research"]
+        search_parts = []
+        if research.get("gemini_google"):
+            search_parts.append("Gemini Google")
+        if research.get("google_cse"):
+            search_parts.append("Google CSE")
+        if any(str(item).startswith("groq:") for item in providers):
+            search_parts.append("Groq")
         embed.add_field(
-            name="Web Search",
-            value="✅ Ready" if health["web_search_available"] else "❌ GROQ_API_KEY missing",
-            inline=True,
+            name="Research",
+            value=("✅ " + " + ".join(search_parts)) if search_parts else "❌ No live search provider",
+            inline=False,
+        )
+        rag = research["rag"]
+        embed.add_field(
+            name="RAG",
+            value=(
+                f"✅ SQLite • {rag['items']} items • {rag['embedding_dimensions']}d embeddings"
+                if rag["available"]
+                else "❌ RAG unavailable"
+            ),
+            inline=False,
         )
 
         cooldowns = health["provider_health"]
