@@ -38,7 +38,7 @@ class RequestRouter:
     )
 
     SEARCH_PATTERNS = (
-        r"\b(?:search|look up|find online|latest|current news|on the web)\b",
+        r"\b(?:search|look up|find online|latest|current news|on the web|today|currently|current|recent|news|price|cost|pricing|rate|availability|available|stock|release date|launch date)\b",
     )
 
     @classmethod
