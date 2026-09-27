@@ -153,26 +153,35 @@ class ProviderManager:
     def __init__(self) -> None:
         self.providers: list[CompatibleProvider] = []
         self._cooldown_until: dict[AIProvider, float] = {}
+        try:
+            self.provider_cooldown_seconds = max(
+                60.0,
+                float(os.getenv("AI_PROVIDER_COOLDOWN_SECONDS", "300"))
+            )
+        except (TypeError, ValueError):
+            self.provider_cooldown_seconds = 300.0
 
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
         if gemini_key:
             self.providers.append(
                 CompatibleProvider(
                     AIProvider.GEMINI,
                     gemini_key,
                     self.GEMINI_BASE_URL,
-                    self.GEMINI_MODEL,
+                    gemini_model or self.GEMINI_MODEL,
                 )
             )
 
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key:
             self.providers.append(
                 CompatibleProvider(
                     AIProvider.GROQ,
                     groq_key,
                     self.GROQ_BASE_URL,
-                    self.GROQ_MODEL,
+                    groq_model or self.GROQ_MODEL,
                 )
             )
 
@@ -276,13 +285,13 @@ class ProviderManager:
                 if self._is_transient_failure(exc):
                     until = (
                         time.monotonic()
-                        + self.PROVIDER_COOLDOWN_SECONDS
+                        + self.provider_cooldown_seconds
                     )
                     self._cooldown_until[provider.provider] = until
                     logger.warning(
                         "AI provider %s cooling down for %.0fs",
                         provider.provider.value,
-                        self.PROVIDER_COOLDOWN_SECONDS,
+                        self.provider_cooldown_seconds,
                     )
 
         raise ProviderError(
