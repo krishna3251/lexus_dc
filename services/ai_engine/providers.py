@@ -62,6 +62,10 @@ class CompatibleProvider:
             )
             kwargs["parallel_tool_calls"] = False
 
+            # GPT-OSS supports explicit reasoning effort. Low is appropriate
+            # for Discord latency while retaining agentic reasoning.
+            kwargs["reasoning_effort"] = "low"
+
             if web_search:
                 # GPT-OSS 120B has a Groq-hosted browser_search tool. Groq
                 # performs the search and tool loop server-side, so the app
