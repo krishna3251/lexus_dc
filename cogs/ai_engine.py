@@ -36,6 +36,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def cog_load(self) -> None:
         self.bot.ai_engine = self.engine
         await self.engine.memory.initialize()
+        await self.engine.research.initialize()
         memory_health = self.engine.memory.health()
         logger.info(
             "🤖 Lexus AI Engine loaded | providers=%s | tools=%d | memory=%s",
