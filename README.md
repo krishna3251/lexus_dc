@@ -1,32 +1,19 @@
-<!--
-████████████████████████████████████████████████████████████████████████████
-                            L E X U S
-                    Discord Bot • AI • Security
-████████████████████████████████████████████████████████████████████████████
--->
-
 <p align="center">
-  <a href="https://github.com/krishna3251/lexus_dc">
-    <img src="https://capsule-render.vercel.app/api?type=transparent&fontColor=2ea043&fontSize=60&height=100&width=760&text=LEXUS%20%F0%9F%A4%96" alt="Lexus 🤖" />
-  </a>
-</p>
-
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=22&pause=900&color=2EA043&center=true&vCenter=true&width=900&height=42&lines=Discord%20Bot%20%E2%80%A2%20AI%20Engine%20%E2%80%A2%20Security%20Engine;Think%20%E2%80%A2%20Inspect%20%E2%80%A2%20Decide%20%E2%80%A2%20Execute;Built%20to%20behave%20like%20a%20system%2C%20not%20a%20pile%20of%20commands." alt="Lexus typing headlines" />
+  <img src="./assets/lexus-banner.svg" alt="Lexus" width="100%" />
 </p>
 
 <p align="center">
   <a href="https://github.com/krishna3251/lexus_dc/stargazers">
-    <img src="https://img.shields.io/github/stars/krishna3251/lexus_dc?style=for-the-badge&color=2ea043" alt="GitHub stars" />
+    <img src="https://img.shields.io/github/stars/krishna3251/lexus_dc?style=for-the-badge&color=ff2a76&labelColor=080b16" alt="GitHub stars" />
   </a>
   <a href="https://github.com/krishna3251/lexus_dc/network/members">
-    <img src="https://img.shields.io/github/forks/krishna3251/lexus_dc?style=for-the-badge&color=238636" alt="GitHub forks" />
+    <img src="https://img.shields.io/github/forks/krishna3251/lexus_dc?style=for-the-badge&color=35bfff&labelColor=080b16" alt="GitHub forks" />
   </a>
   <a href="https://github.com/krishna3251/lexus_dc/issues">
-    <img src="https://img.shields.io/github/issues/krishna3251/lexus_dc?style=for-the-badge&color=f78166" alt="GitHub issues" />
+    <img src="https://img.shields.io/github/issues/krishna3251/lexus_dc?style=for-the-badge&color=ff58c7&labelColor=080b16" alt="GitHub issues" />
   </a>
   <a href="https://github.com/krishna3251/lexus_dc/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/license-MIT-2ea043?style=for-the-badge" alt="MIT License" />
+    <img src="https://img.shields.io/badge/license-MIT-48cfff?style=for-the-badge&labelColor=080b16" alt="MIT License" />
   </a>
 </p>
 
