@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+from pymongo.errors import DuplicateKeyError
+
 import mongo_helper
 
 
@@ -33,6 +35,18 @@ class AIMemoryService:
                 name="ai_conversation_ttl",
                 expireAfterSeconds=0,
             )
+            dedupe = mongo_helper.get_collection("ai_message_dedupe")
+            if dedupe is not None:
+                await dedupe.create_index(
+                    [("message_id", 1)],
+                    unique=True,
+                    name="ai_message_unique",
+                )
+                await dedupe.create_index(
+                    [("expires_at", 1)],
+                    name="ai_message_ttl",
+                    expireAfterSeconds=0,
+                )
             await memories.create_index(
                 [("user_id", 1), ("guild_id", 1), ("updated_at", -1)],
                 name="ai_memory_lookup",
@@ -40,6 +54,27 @@ class AIMemoryService:
         except Exception:
             return
 
+    async def claim_message(self, message_id: int) -> bool | None:
+        """Claim a Discord message across bot processes when Mongo is available.
+
+        Returns True for the first claimant, False for a duplicate, and None
+        when Mongo is unavailable so the caller can fall back to local dedupe.
+        """
+        col = mongo_helper.get_collection("ai_message_dedupe")
+        if col is None:
+            return None
+        now = time.time()
+        try:
+            await col.insert_one({
+                "message_id": int(message_id),
+                "created_at": now,
+                "expires_at": now + 120,
+            })
+            return True
+        except DuplicateKeyError:
+            return False
+        except Exception:
+            return None
     async def add_turn(self, user_id: int, guild_id: int | None, channel_id: int | None, role: str, content: str, request_id: str) -> bool:
         col = mongo_helper.get_collection("ai_conversations")
         if col is None or role not in {"user", "assistant"}:
