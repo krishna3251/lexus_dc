@@ -100,15 +100,25 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             else None
         )
 
-        async with message.channel.typing():
-            response = await self._run(
-                message.author,
-                message.guild,
-                channel,
-                prompt,
+        try:
+            async with message.channel.typing():
+                response = await self._run(
+                    message.author,
+                    message.guild,
+                    channel,
+                    prompt,
+                )
+            await self._send_message_chunks(message.channel, response)
+        except Exception:
+            logger.exception(
+                "AI natural chat failed | user=%s guild=%s channel=%s",
+                message.author.id,
+                getattr(message.guild, "id", None),
+                message.channel.id,
             )
-
-        await self._send_message_chunks(message.channel, response)
+            await message.channel.send(
+                "Arre yaar, abhi AI side pe thoda scene hai 😭. Ek baar phir try karo."
+            )
 
     async def _extract_natural_prompt(self, message: discord.Message) -> str | None:
         """Extract a prompt from the configured prefix or bot mention."""
