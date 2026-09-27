@@ -82,11 +82,14 @@ class AIEngine:
             register_discord_tools(self.tools)
 
     def health(self) -> dict[str, Any]:
+        memory_health = self.memory.health()
         return {
             "available": self.available,
             "providers": self.provider_names,
             "tools": len(self.tools.names()),
-            "memory_available": self.memory.available,
+            "memory_available": memory_health["available"],
+            "memory_backend": memory_health["backend"],
+            "memory_size_bytes": memory_health["size_bytes"],
             "web_search_available": any(item.startswith("groq:") for item in self.provider_names),
             "provider_health": self.providers.health(),
             "telemetry": self.telemetry.snapshot(),
@@ -100,6 +103,7 @@ class AIEngine:
 
     async def close(self) -> None:
         await self.providers.close()
+        await self.memory.close()
 
     async def ask(
         self,
