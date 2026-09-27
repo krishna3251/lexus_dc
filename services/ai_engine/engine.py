@@ -102,7 +102,7 @@ class AIEngine:
         """Reload provider credentials from the current process environment."""
         old_manager = self.providers
         self.providers = ProviderManager()
-        self.research.providers = self.providers
+        await self.research.reload(self.providers)
         await old_manager.close()
 
     async def close(self) -> None:
