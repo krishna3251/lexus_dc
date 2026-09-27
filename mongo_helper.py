@@ -14,9 +14,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI", "")
-DB_NAME = os.getenv("MONGO_DB_NAME", "lexus_bot")
-
 _client: AsyncIOMotorClient = None
 _db = None
 
@@ -24,15 +21,17 @@ _db = None
 async def connect():
     """Connect to MongoDB. Call once at bot startup."""
     global _client, _db
-    if not MONGO_URI:
+    mongo_uri = os.getenv("MONGO_URI", "").strip()
+    db_name = os.getenv("MONGO_DB_NAME", "lexus_bot").strip() or "lexus_bot"
+    if not mongo_uri:
         logger.warning("MONGO_URI not set – MongoDB features disabled.")
         return None
     try:
-        _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        _client = AsyncIOMotorClient(mongo_uri, serverSelectionTimeoutMS=5000)
         # Verify connection
         await _client.admin.command("ping")
-        _db = _client[DB_NAME]
-        logger.info(f"✅ Connected to MongoDB database: {DB_NAME}")
+        _db = _client[db_name]
+        logger.info(f"✅ Connected to MongoDB database: {db_name}")
         return _db
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
