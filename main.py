@@ -112,7 +112,7 @@ class Bot(commands.Bot):
             os.makedirs("cogs")
 
         cog_files = [f for f in os.listdir("cogs") if f.endswith(".py") and f != "__init__.py"]
-        priority  = [f for f in cog_files if f.startswith(("help", "admin", "core"))]
+        priority  = [f for f in cog_files if f.startswith(("security", "help", "admin", "core"))]
         rest      = [f for f in cog_files if f not in priority]
 
         loaded: list[str] = []
@@ -137,10 +137,34 @@ class Bot(commands.Bot):
             for fname, exc_type, err_msg in failed:
                 logging.error(f"   ❌ {fname} | {exc_type}: {err_msg}")
 
+        # Lexus V3 Security Engine Startup Report
+        try:
+            from security.engine import security_engine
+            health = security_engine.get_health_status()
+            logging.info("🛡️  Lexus Security Engine:")
+            logging.info(f"   Engine:           {'Ready' if health['security_ready'] else 'Failed'}")
+            logging.info("   Anti-Spam:        Ready")
+            logging.info("   Anti-Raid:        Ready")
+            logging.info("   Anti-Nuke:        Ready")
+            logging.info("   Permission Guard: Ready")
+            logging.info("   Bot Guard:        Ready")
+            logging.info("   Webhook Guard:    Ready")
+            logging.info(f"   Quarantine:       {'Ready' if health['quarantine_ready'] else 'Not Ready'}")
+            logging.info("   Lockdown:         Ready")
+            logging.info(f"   Recovery:         {'Ready' if health['recovery_ready'] else 'Not Ready'}")
+        except Exception as e:
+            logging.warning(f"Security startup status report unavailable: {e}")
+
         self.status_rotation.start()
 
     async def close(self):
         logging.info("🛑 Closing bot session...")
+        try:
+            from security.engine import security_engine
+            await security_engine.stop()
+        except Exception as e:
+            logging.error(f"Error stopping security engine: {e}")
+
         if MONGO_AVAILABLE and mongo_helper:
             try:
                 await mongo_helper.disconnect()

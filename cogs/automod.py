@@ -107,8 +107,9 @@ class AutomodCog(commands.Cog, name="Automod"):
 
         violations = []
 
-        # Spam detection
-        if cfg.get("spam"):
+        # Spam detection (handled by Lexus V3 Security Engine when enabled)
+        from core.config import config
+        if not config.security_enabled and cfg.get("spam"):
             uid = message.author.id
             now = time.time()
             timestamps = self.spam_tracker.get(uid, [])

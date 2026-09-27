@@ -13,12 +13,14 @@ Lexus is a modular, multipurpose Discord bot built with **discord.py 2.x**, back
 
 ## ✨ Features
 
-- 🛡️ **Moderation & Security**
-  - Slash and prefix commands for kick, ban, timeout, and role management
-  - Anti-nuke protection monitoring channel deletions, member bans, and role deletions
-  - Configurable automod (spam rate limiting, caps filtering, invite link blocking, bad-word filter)
-  - Interactive quarantine system with configurable roles and monitored channels
-  - Perspective API toxicity analysis with automated punishment thresholds and karma tracking
+- 🛡️ **Lexus V3 Security Engine**
+  - **Decoupled Architecture**: Strictly separates detection from decision and decision from action (`Event -> Normalize -> Evidence -> Tracker -> Correlation -> Risk -> Policy -> Action -> Incident -> Recovery`).
+  - **Multi-Window Anti-Spam**: Detects rapid message bursts, exact repeats, near-duplicate text via token signatures, mention floods, invite/link bursts, and channel hopping.
+  - **Guild-Scope Raid Detection**: Tracks join velocity and distributed multi-actor coordinated spam with automatic hysteresis state transitions (`NORMAL <-> ELEVATED <-> RAID <-> PANIC <-> RECOVERY`).
+  - **Anti-Nuke & Permission Guard**: Detects mass channel/role deletions, @everyone privilege escalation, Administrator grants, unauthorized bot joins, and rapid webhook creation with cross-action risk scoring.
+  - **Idempotent Quarantine & Lockdown**: Secure role-based containment with role history preservation and reversible emergency lockdowns.
+  - **Structural Baseline & Recovery**: Captures trusted server configurations and performs damage analysis against baselines with safe reconstruction.
+  - **Audit Mode vs Enforce Mode**: Supports non-destructive monitoring/simulation (`audit`) or active automated containment (`enforce`).
 
 - 💬 **AI & Coding Assistance**
   - **Lexus AI Chat** (`cogs/chat_lex.py`): Behaviorally-aware conversational AI with emotion and intent analysis (OpenRouter / NVIDIA AI APIs)
@@ -54,18 +56,71 @@ Lexus is a modular, multipurpose Discord bot built with **discord.py 2.x**, back
 
 ```text
 lexus_dc/
-├── .env.example        # Environment variable template
-├── .gitignore          # Git exclusion rules
-├── LICENSE             # MIT License
-├── README.md           # Project documentation
-├── SECURITY.md         # Security policy and reporting guidance
-├── api.py              # FastAPI endpoints (health checks & stats)
+├── core/               # Centralized config, structured logging, errors, permissions, events
+│   ├── config.py
+│   ├── logging.py
+│   ├── errors.py
+│   ├── permissions.py
+│   ├── events.py
+│   └── lifecycle.py
+├── services/           # Persistent data & bounded memory infrastructure
+│   ├── database.py     # Resilient MongoDB service with in-memory fallback
+│   ├── cache.py        # Bounded LRU/TTL caches
+│   └── snapshots.py    # Structural guild snapshots & diffing engine
+├── security/           # Lexus V3 Security Engine
+│   ├── engine.py       # Central pipeline orchestrator
+│   ├── models.py       # Normalized event models, evidence, and states
+│   ├── scoring.py      # Exponential heat decay, risk scoring, state machine
+│   ├── event_tracker.py# Sliding windows and token-bucket rate limiters
+│   ├── dedup.py        # Event deduplication cache
+│   ├── spam.py         # Multi-window spam detector
+│   ├── raid.py         # Guild join velocity & distributed raid detector
+│   ├── join_gate.py    # Account age & join threat analysis
+│   ├── anti_nuke.py    # Structural nuke & cross-action risk detector
+│   ├── permission_guard.py # Dangerous permission diff engine
+│   ├── bot_guard.py    # Unauthorized bot addition guard
+│   ├── webhook_guard.py# Webhook abuse detector
+│   ├── quarantine.py   # Isolated quarantine & role preservation
+│   ├── lockdown.py     # Reversible public channel lockdown
+│   ├── baseline.py     # Safe structural baselines
+│   ├── recovery.py     # Post-incident recovery analysis
+│   ├── audit.py        # Budgeted audit log correlation
+│   ├── actions.py      # Rate-limited idempotent action engine
+│   ├── incidents.py    # Incident correlation & lifecycle tracking
+│   ├── policies.py     # Policy evaluation matrix (audit vs enforce)
+│   └── simulator.py    # Offline attack testing harness
+├── cogs/
+│   ├── security.py     # /security administration slash commands
+│   └── ...             # Existing feature extensions
+├── tests/              # 47 unit, integration, failure & benchmark tests
 ├── main.py             # Bot initialization, cog loader, and lifecycle
 ├── mongo_helper.py     # Centralized async MongoDB database interface
-├── requirements.txt    # Production dependencies
-├── stats_store.py      # Shared in-memory stats cache
-└── cogs/               # Modular discord.py extensions
+└── requirements.txt    # Production dependencies
 ```
+
+---
+
+## 🛡️ Lexus Security Engine (V3)
+
+### Security Modes
+- **`audit`**: Detects events, calculates risk scores, correlates incidents, and logs simulated responses without punishing members or altering channels. Ideal for initial deployment and threshold calibration.
+- **`enforce`**: Actively applies containment policies (Timeout, Quarantine, Channel Lock, Lockdown) when risk and confidence thresholds are crossed.
+
+### Administration Commands (`/security`)
+- `/security status` — Displays real-time server security state, protection modules, active telemetry, and incidents.
+- `/security setup` — Guided setup to establish a quarantine role, log channel, and trusted baseline.
+- `/security config [mode] [profile]` — Configure operation mode (`audit`/`enforce`) and strictness (`standard`/`strict`).
+- `/security logs` — Review recent security incident history.
+- `/security trust [action] [user/role]` — Whitelist trusted administrators or roles from automated punishment.
+- `/security quarantine [action] [member]` — Manually quarantine or release an actor, restoring original roles on release.
+- `/security lockdown [action]` — Manually trigger or release emergency public channel lockdowns.
+- `/security baseline [action]` — Capture trusted server structure or view structural diffs.
+- `/security recovery` — Inspect structural changes following an attack.
+
+### Technical Limitations & Discord Boundaries
+- **Role Hierarchy**: Lexus cannot modify or discipline members whose highest role is above or equal to Lexus's highest role.
+- **Platform Scope**: Lexus cannot inspect private user DMs, view IP addresses, or bypass Discord permissions.
+- **Action Budget**: An automated circuit breaker restricts mutations per time window to prevent API storms and avoid compounding Discord rate limit delays.
 
 ---
 

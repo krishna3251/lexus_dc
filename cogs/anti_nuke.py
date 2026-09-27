@@ -141,7 +141,11 @@ class AntiNukeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        """Someone's deleting channels? Not on my watch."""
+        """Someone's deleting channels? Delegated to Lexus V3 Security Engine if active."""
+        from core.config import config
+        if config.security_enabled:
+            return
+
         async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
             if entry.target.id == channel.id:
                 member = entry.user
@@ -153,7 +157,11 @@ class AntiNukeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild, user):
-        """Mass banning? How original."""
+        """Mass banning? Delegated to Lexus V3 Security Engine if active."""
+        from core.config import config
+        if config.security_enabled:
+            return
+
         async for entry in guild.audit_logs(action=discord.AuditLogAction.ban, limit=1):
             if entry.target.id == user.id:
                 member = entry.user
@@ -165,7 +173,11 @@ class AntiNukeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role):
-        """Deleting roles? That's a paddlin'."""
+        """Deleting roles? Delegated to Lexus V3 Security Engine if active."""
+        from core.config import config
+        if config.security_enabled:
+            return
+
         async for entry in role.guild.audit_logs(action=discord.AuditLogAction.role_delete, limit=1):
             if entry.target.id == role.id:
                 member = entry.user
