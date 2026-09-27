@@ -217,7 +217,7 @@ class AIEngine:
                     success=True,
                     text=final_text,
                     provider=provider_from_string(research_result.provider),
-                    model=research_result.provider,
+                    model=research_result.model or research_result.provider,
                     intent=route.intent,
                     confidence=route.confidence,
                     tools_used=["rag_retrieval"] if research_result.rag_hits else [],
@@ -247,7 +247,7 @@ class AIEngine:
                     success=True,
                     intent=route.intent.value,
                     provider=research_result.provider,
-                    model=research_result.provider,
+                    model=research_result.model or research_result.provider,
                     tools_used=result.tools_used,
                 )
                 return result
