@@ -12,6 +12,7 @@ import discord
 from .models import AIRequest, AIResult, ToolCall
 from .providers import ProviderError, ProviderManager
 from .tools import ToolContext, ToolRegistry
+from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class AIEngine:
     ) -> None:
         self.providers = provider_manager or ProviderManager()
         self.tools = tool_registry or ToolRegistry()
-        self._locks: dict[int, asyncio.Lock] = {}
+        self._locks: TTLCache[int, asyncio.Lock] = TTLCache(max_size=5000, default_ttl=900.0)
 
     @property
     def available(self) -> bool:
@@ -77,7 +78,10 @@ class AIEngine:
             )
 
         lock_key = request.user_id
-        lock = self._locks.setdefault(lock_key, asyncio.Lock())
+        lock = self._locks.get(lock_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks.set(lock_key, lock)
 
         async with lock:
             return await self._ask_locked(request, context)
