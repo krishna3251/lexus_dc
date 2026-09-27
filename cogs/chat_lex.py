@@ -802,7 +802,16 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
         if message.author.bot or not message.guild:
             return
         
-        # Quick channel check
+        # The V3 AI Engine owns explicit `lx ...`, `lex ...`, and bot-mention
+        # requests. Leave those messages to the unified engine to avoid
+        # duplicate replies from the legacy behavioral cog.
+        if getattr(self.bot, "ai_engine", None) is not None:
+            stripped = message.content.strip()
+            mentioned = bool(self.bot.user and self.bot.user in message.mentions)
+            if mentioned or stripped.startswith(("lx ", "lex ")):
+                return
+
+        # Quick channel check for legacy AI-channel behavior.
         if message.channel.id not in self.ai_channels:
             return
 
