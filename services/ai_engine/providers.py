@@ -59,8 +59,10 @@ class CompatibleProvider:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-            # Keep tool execution sequential for deterministic Discord mutations.
-            kwargs["parallel_tool_calls"] = False
+            # Groq documents this switch for its tool-calling API. Gemini's
+            # OpenAI-compatibility layer is left on its documented defaults.
+            if self.provider is AIProvider.GROQ:
+                kwargs["parallel_tool_calls"] = False
 
         # Gemini documents reasoning_effort on its OpenAI compatibility layer.
         # Groq also accepts reasoning_effort on supported models, but the value
