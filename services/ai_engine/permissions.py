@@ -23,9 +23,14 @@ class AIPermissionGuard:
     def check(spec: ToolSpec, context: ToolContext, allow_mutations: bool) -> PermissionDecision:
         if not spec.mutating:
             required = spec.required_permission
-            if required and isinstance(context.user, discord.Member):
+            if required:
+                if not isinstance(context.user, discord.Member):
+                    return PermissionDecision(False, "This tool requires a server-member context.")
                 if not getattr(context.user.guild_permissions, required, False):
-                    return PermissionDecision(False, f"Requester lacks required permission: {required}.")
+                    return PermissionDecision(
+                        False,
+                        f"Requester lacks required permission: {required}.",
+                    )
             return PermissionDecision(True, "read-only tool")
 
         if not allow_mutations:
