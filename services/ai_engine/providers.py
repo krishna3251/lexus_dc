@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -40,8 +41,17 @@ class CompatibleProvider:
             max_retries=0,
         )
 
-    async def close(self) -> None:
-        await self.client.close()
+    def health(self) -> dict[str, float]:
+        now = time.monotonic()
+        return {
+            provider.provider.value: max(
+                0.0,
+                self._cooldown_until.get(provider.provider, 0.0) - now,
+            )
+            for provider in self.providers
+        }
+
+    async def close(self) -> None:        await self.client.close()
 
     async def complete(
         self,
@@ -73,9 +83,6 @@ class CompatibleProvider:
                 # itself.
                 kwargs["tools"] = [{"type": "browser_search"}]
                 kwargs["tool_choice"] = "required"
-                kwargs["reasoning_effort"] = "low"
-                # Groq-specific field passed through the OpenAI SDK.
-                kwargs["extra_body"] = {"citation_options": "enabled"}
             elif tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
@@ -210,11 +217,23 @@ class ProviderManager:
             )
 
         errors: list[str] = []
+        now = time.monotonic()
 
-        ordered = self.providers
+        ordered = [
+            provider for provider in self.providers
+            if self._cooldown_until.get(provider.provider, 0.0) <= now
+        ]
+        if not ordered and self.providers:
+            ordered = [
+                min(
+                    self.providers,
+                    key=lambda item: self._cooldown_until.get(item.provider, 0.0),
+                )
+            ]
+
         if web_search:
             ordered = [
-                item for item in self.providers
+                item for item in ordered
                 if item.provider is AIProvider.GROQ
             ]
 
@@ -226,17 +245,41 @@ class ProviderManager:
 
         for provider in ordered:
             try:
-                return await provider.complete(
+                reply = await provider.complete(
                     messages,
                     tools,
                     max_output_tokens,
                     web_search=web_search and provider.provider is AIProvider.GROQ,
                 )
+                self._cooldown_until.pop(provider.provider, None)
+                return reply
             except ProviderError as exc:
                 errors.append(str(exc))
                 logger.error("%s", exc)
+                if self._is_transient_failure(exc):
+                    self._cooldown_until[provider.provider] = (
+                        time.monotonic() + self.PROVIDER_COOLDOWN_SECONDS
+                    )
+                    logger.warning(
+                        "AI provider %s cooling down for %.0fs after transient failure",
+                        provider.provider.value,
+                        self.PROVIDER_COOLDOWN_SECONDS,
+                    )
 
         raise ProviderError("All AI providers failed: " + " | ".join(errors))
+
+    @staticmethod
+    def _is_transient_failure(exc: Exception) -> bool:
+        text = str(exc).casefold()
+        return any(
+            marker in text
+            for marker in (
+                " 429 ", "429 -", "rate limit",
+                " 500 ", " 502 ", " 503 ", " 504 ",
+                "timeout", "timed out",
+                "service unavailable", "temporarily unavailable", "unavailable",
+            )
+        )
 
     async def close(self) -> None:
         for provider in self.providers:
