@@ -117,7 +117,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             return None
 
         if self.bot.user and self.bot.user in message.mentions:
-            pattern = rf"<@!?{self.bot.user.id}>\\s*"
+            pattern = rf"<@!?{self.bot.user.id}>\s*"
             prompt = re.sub(pattern, "", content, count=1).strip()
             return prompt or None
 
