@@ -108,6 +108,7 @@ class AIEngine:
     async def close(self) -> None:
         await self.providers.close()
         await self.memory.close()
+        await self.research.close()
 
     async def ask(
         self,
