@@ -196,14 +196,11 @@ if __name__ == "__main__":
 
 
     async def test_router_marks_normal_chat_read_only(self):
-        engine = AIEngine(provider_manager=FakeProviderManager(), tool_registry=ToolRegistry())
-        result = await engine.ask(
-            AIRequest(user_id=1, guild_id=None, channel_id=None, prompt="hello there"),
-            FakeToolContext(),
-        )
-        self.assertFalse(result.success)
-        self.assertEqual(result.intent.value, "chat")
-        self.assertEqual(result.error, "provider" if result.error == "provider" else result.error)
+        from services.ai_engine.router import RequestRouter
+
+        route = RequestRouter.route("hello there")
+        self.assertEqual(route.intent.value, "chat")
+        self.assertFalse(route.allow_mutations)
 
     async def test_safety_blocks_secret_exfiltration(self):
         engine = AIEngine(provider_manager=FakeProviderManager(), tool_registry=ToolRegistry())
