@@ -7,6 +7,7 @@ and its slash equivalent. Existing chat/coder cogs remain untouched.
 from __future__ import annotations
 
 import logging
+import re
 
 import discord
 from discord import app_commands
@@ -128,7 +129,9 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         if isinstance(prefixes, str):
             prefixes = [prefixes]
 
-        for prefix in prefixes:
+        prefixes = list(prefixes) + ["lx ", "lex "]
+
+        for prefix in dict.fromkeys(prefixes):
             if prefix and content.startswith(prefix):
                 prompt = content[len(prefix):].strip()
                 return prompt or None
