@@ -81,6 +81,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             result.model,
             result.error,
         )
+        if result.error and "Web search requires GROQ_API_KEY" in result.error:
+            return ""
         return result.text or "The AI engine could not complete that request."
 
     @commands.command(name="aireload", help="Reload AI provider settings from the current process environment.")
