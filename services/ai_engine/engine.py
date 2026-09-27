@@ -88,6 +88,7 @@ class AIEngine:
             "tools": len(self.tools.names()),
             "memory_available": self.memory.available,
             "web_search_available": any(item.startswith("groq:") for item in self.provider_names),
+            "provider_health": self.providers.health(),
             "telemetry": self.telemetry.snapshot(),
         }
 
