@@ -216,6 +216,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         embed.add_field(name="Providers", value="\n".join(f"`{item}`" for item in providers), inline=False)
         embed.add_field(name="Tools", value=str(tools), inline=True)
         embed.add_field(
+            name="Web Search",
+            value="✅ Ready" if any(item.startswith("groq:") for item in providers) else "❌ GROQ_API_KEY missing",
+            inline=True,
+        )
+        embed.add_field(
             name="Models",
             value="`gemini-3.8-flash`\n`openai/gpt-oss-120b`",
             inline=False,
