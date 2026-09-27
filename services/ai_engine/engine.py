@@ -246,6 +246,14 @@ class AIEngine:
                 provider_error = str(exc)
                 if "Web search requires GROQ_API_KEY" in provider_error:
                     user_text = "Arre miyan, live web search ke liye GROQ_API_KEY configured nahi hai."
+                elif "AuthenticationError" in provider_error or "401" in provider_error:
+                    user_text = "Arre, AI key ka auth scene hai. API key check karna padega."
+                elif "RateLimitError" in provider_error or "429" in provider_error:
+                    user_text = "Thoda load zyada hai miyan. AI provider rate limit pe hai, ek minute baad try karo."
+                elif "NotFoundError" in provider_error or "404" in provider_error:
+                    user_text = "AI model endpoint ka scene gadbad hai. Model configuration check karni padegi."
+                elif "TimeoutError" in provider_error or "timeout" in provider_error.casefold():
+                    user_text = "Arre yaar, AI request time-out ho gayi. Ek baar phir try karo."
                 else:
                     user_text = "Arre yaar, AI side pe abhi thoda scene hai. Ek baar phir try karo."
                 result = AIResult(
