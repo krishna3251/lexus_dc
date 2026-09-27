@@ -13,7 +13,9 @@ from services.cache import TTLCache
 
 from .context import ContextBuilder
 from .executor import ToolExecutor
+from .memory import AIMemoryService
 from .models import AIIntent, AIRequest, AIResult, ToolCall
+from .personality import HYDERABADI_STYLE
 from .permissions import AIPermissionGuard
 from .planner import Planner
 from .providers import ProviderError, ProviderManager
@@ -38,7 +40,7 @@ Core rules:
 - The application is the final authority on permissions, role hierarchy, protected assets, and security policy.
 - Never claim to bypass Discord permissions or Lexus security controls.
 - Keep responses concise and directly useful.
-"""
+""" + HYDERABADI_STYLE
 
 
 class AIEngine:
@@ -58,6 +60,7 @@ class AIEngine:
         self.validator = ToolCallValidator()
         self.executor = ToolExecutor(self.tools)
         self.telemetry = AITelemetry()
+        self.memory = AIMemoryService()
         self._locks: TTLCache[int, asyncio.Lock] = TTLCache(
             max_size=5000,
             default_ttl=900.0,
@@ -83,6 +86,8 @@ class AIEngine:
             "available": self.available,
             "providers": self.provider_names,
             "tools": len(self.tools.names()),
+            "memory_available": self.memory.available,
+            "web_search_available": any(item.startswith("groq:") for item in self.provider_names),
             "telemetry": self.telemetry.snapshot(),
         }
 
