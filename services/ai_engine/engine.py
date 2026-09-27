@@ -256,7 +256,7 @@ class AIEngine:
                 logger.error("AI engine provider failure: %s", exc)
                 provider_error = str(exc)
                 if "Web search requires GROQ_API_KEY" in provider_error:
-                    user_text = "Arre miyan, live web search ke liye GROQ_API_KEY configured nahi hai."
+                    user_text = ""
                 elif "AuthenticationError" in provider_error or "401" in provider_error:
                     user_text = "Arre, AI key ka auth scene hai. API key check karna padega."
                 elif "RateLimitError" in provider_error or "429" in provider_error:
