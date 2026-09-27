@@ -16,6 +16,7 @@ from discord.ext import commands
 from services.ai_engine.engine import AIEngine
 from services.ai_engine.models import AIRequest
 from services.ai_engine.tools import ToolContext
+from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         self.bot = bot
         self.engine = AIEngine()
         self.engine.register_default_tools(bot)
+        # Protect against duplicate event delivery / duplicate listeners.
+        self._handled_messages: TTLCache[int, bool] = TTLCache(
+            max_size=10000,
+            default_ttl=90.0,
+        )
 
     async def cog_load(self) -> None:
         self.bot.ai_engine = self.engine
@@ -94,6 +100,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         prompt = await self._extract_natural_prompt(message)
         if not prompt:
             return
+
+        if self._handled_messages.contains(message.id):
+            logger.warning("Ignoring duplicate AI natural-chat event | message=%s", message.id)
+            return
+        self._handled_messages.set(message.id, True)
 
         channel = (
             message.channel
