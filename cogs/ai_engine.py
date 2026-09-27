@@ -252,6 +252,17 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             value="✅ Ready" if health["web_search_available"] else "❌ GROQ_API_KEY missing",
             inline=True,
         )
+        cooldowns = health["provider_health"]
+        cooldown_text = "\n".join(
+            f"`{name}`: {data["cooldown_seconds"]:.0f}s"
+            for name, data in cooldowns.items()
+            if data["cooldown_seconds"] > 0
+        ) or "None"
+        embed.add_field(
+            name="Failover Cooldown",
+            value=cooldown_text,
+            inline=False,
+        )
         embed.add_field(
             name="Models",
             value="`gemini-3.8-flash`\n`openai/gpt-oss-120b`",
