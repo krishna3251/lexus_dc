@@ -642,7 +642,6 @@ async def _ban_member(
     await guild.ban(
         member,
         reason=f"Lexus AI: {reason}",
-        delete_message_seconds=86400,
     )
     _audit_ai_action(guild, context.user, "ban_member", member.id, reason)
     return {"member_id": member.id, "action": "ban"}
