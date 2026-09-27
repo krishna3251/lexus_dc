@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="600" viewBox="0 0 1500 600">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#02040b"/><stop offset=".48" stop-color="#070b1b"/><stop offset="1" stop-color="#02050d"/></linearGradient>
+  <radialGradient id="glow"><stop stop-color="#ff176f" stop-opacity=".7"/><stop offset=".45" stop-color="#ff176f" stop-opacity=".16"/><stop offset="1" stop-color="#ff176f" stop-opacity="0"/></radialGradient>
+  <linearGradient id="neon" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#ff146d"/><stop offset=".28" stop-color="#ff315d"/><stop offset=".52" stop-color="#ff58c7"/><stop offset=".72" stop-color="#35bfff"/><stop offset="1" stop-color="#1575ff"/></linearGradient>
+  <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#12b8ff"/><stop offset="1" stop-color="#1b5dff"/></linearGradient>
+  <filter id="blur"><feGaussianBlur stdDeviation="20"/></filter>
+  <filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
+  <filter id="shadow"><feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#ff0b70" flood-opacity=".28"/></filter>
+  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="1500" height="600" fill="url(#bg)"/>
+<ellipse cx="750" cy="290" rx="620" ry="330" fill="url(#glow)" opacity=".55" filter="url(#blur)"/>
+<path d="M-80 390 C180 170 360 520 620 300 S1050 130 1580 360" fill="none" stroke="#ff075f" stroke-width="42" opacity=".18" filter="url(#blur)"/>
+<path d="M-100 430 C190 190 350 530 650 305 S1080 160 1600 340" fill="none" stroke="url(#neon)" stroke-width="9" opacity=".82" filter="url(#soft)"/>
+<path d="M-100 440 C190 200 350 540 650 315 S1080 170 1600 350" fill="none" stroke="url(#neon)" stroke-width="4" opacity=".95"/>
+<path d="M0 245 C230 70 410 350 650 210 S1100 50 1510 225" fill="none" stroke="url(#blue)" stroke-width="7" opacity=".6" filter="url(#soft)"/>
+<g fill="#ff2a76" opacity=".7"><circle cx="170" cy="150" r="3"/><circle cx="250" cy="420" r="4"/><circle cx="420" cy="110" r="2"/><circle cx="1080" cy="105" r="3"/><circle cx="1250" cy="190" r="4"/><circle cx="1370" cy="410" r="2"/><circle cx="980" cy="470" r="3"/></g>
+<g fill="#37bfff" opacity=".65"><circle cx="330" cy="200" r="2"/><circle cx="520" cy="450" r="3"/><circle cx="1160" cy="320" r="2"/><circle cx="1300" cy="125" r="2"/></g>
+<text x="750" y="370" text-anchor="middle" font-family="Brush Script MT, Segoe Script, cursive" font-size="250" font-weight="700" letter-spacing="-18" fill="url(#neon)" stroke="#ff3b91" stroke-width="2" paint-order="stroke" filter="url(#shadow)">LEXUS</text>
+<text x="750" y="370" text-anchor="middle" font-family="Brush Script MT, Segoe Script, cursive" font-size="250" font-weight="700" letter-spacing="-18" fill="none" stroke="#48cfff" stroke-width="4" opacity=".65">LEXUS</text>
+<rect y="475" width="1500" height="125" fill="#01030a" opacity=".8"/>
+<path d="M170 500 Q750 450 1330 500" fill="none" stroke="url(#neon)" stroke-width="2" opacity=".3"/>
+</svg>
