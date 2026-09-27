@@ -74,7 +74,8 @@ class CompatibleProvider:
                 kwargs["tools"] = [{"type": "browser_search"}]
                 kwargs["tool_choice"] = "required"
                 kwargs["reasoning_effort"] = "low"
-                kwargs["citation_options"] = "enabled"
+                # Groq-specific field passed through the OpenAI SDK.
+                kwargs["extra_body"] = {"citation_options": "enabled"}
             elif tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
