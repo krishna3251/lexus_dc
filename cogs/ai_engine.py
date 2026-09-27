@@ -254,7 +254,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         cooldowns = health["provider_health"]
         cooldown_text = "\n".join(
-            f"`{name}`: {data["cooldown_seconds"]:.0f}s"
+            f"`{name}`: {data['cooldown_seconds']:.0f}s"
             for name, data in cooldowns.items()
             if data["cooldown_seconds"] > 0
         ) or "None"
