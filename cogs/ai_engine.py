@@ -189,10 +189,12 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         response: str,
     ) -> None:
         """Send an AI response without exceeding Discord message limits."""
+        if not response or not response.strip():
+            return
         chunks = [
             response[i : i + 1900]
             for i in range(0, len(response), 1900)
-        ] or [response]
+        ]
         for chunk in chunks:
             await channel.send(chunk)
 
@@ -233,7 +235,9 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             prompt,
         )
 
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)] or [response]
+        if not response or not response.strip():
+            return
+        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
         await interaction.followup.send(chunks[0])
         for chunk in chunks[1:]:
             await interaction.followup.send(chunk)
@@ -295,7 +299,9 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         await ctx.send(embed=embed)
 
     async def _send_chunked(self, ctx: commands.Context, response: str) -> None:
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)] or [response]
+        if not response or not response.strip():
+            return
+        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
         for chunk in chunks:
             await ctx.send(chunk)
 
