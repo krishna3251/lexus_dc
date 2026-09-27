@@ -145,11 +145,17 @@ class GeminiGoogleResearch:
         if not self.available:
             return ResearchResult(False, error="gemini_search_not_configured")
 
+        depth_instruction = (
+            "Perform a multi-query research pass and cross-check important claims across independent sources."
+            if deep
+            else "Perform a focused search pass and use multiple sources when the topic is news or otherwise contentious."
+        )
         instructions = f"""
 Research the user's request using Google Search.
 User request: {prompt}
 
 You are the evidence-gathering stage of a production answer system.
+{depth_instruction}
 - Search the live web for current facts.
 - For news/current events, prefer multiple independent reputable sources.
 - Prefer primary/official sources when they exist.
