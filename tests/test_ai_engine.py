@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from services.ai_engine.engine import AIEngine
 from services.ai_engine.models import AIProvider, AIRequest, ProviderReply, ToolCall
+from services.ai_engine.providers import ProviderManager
 from services.ai_engine.router import RequestRouter
 from services.ai_engine.safety import SafetyGate
 from services.ai_engine.tools import ToolContext, ToolRegistry, ToolSpec
@@ -89,6 +92,22 @@ class FakeToolContext:
 
 
 class TestAIEngine(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_manager_is_strictly_groq_first(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GROQ_API_KEY": "test-groq-key",
+                "GEMINI_API_KEY": "test-gemini-key",
+            },
+            clear=False,
+        ):
+            manager = ProviderManager()
+            self.assertEqual(
+                [provider.provider for provider in manager.providers],
+                [AIProvider.GROQ, AIProvider.GEMINI],
+            )
+            await manager.close()
+
     async def test_agent_tool_loop(self):
         registry = ToolRegistry()
 
