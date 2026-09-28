@@ -87,8 +87,8 @@ A layered defensive engine for server protection.
 
 A provider-agnostic agent layer for reasoning and controlled Discord tools.
 
-- Gemini primary provider
-- Groq fallback provider
+- Groq primary provider
+- Gemini fallback provider
 - Tool / function calling
 - Local request routing
 - Context building
@@ -162,7 +162,7 @@ Context Builder
 Execution Plan
      │
      ▼
-Gemini / Groq
+Groq / Gemini
      │
      ▼
 Tool Validation
@@ -318,8 +318,8 @@ lexus_dc/
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
-  <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
   <img src="https://img.shields.io/badge/Groq-000000?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" />
+  <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
   <img src="https://img.shields.io/badge/OpenRouter-111827?style=for-the-badge" alt="OpenRouter" />
   <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
