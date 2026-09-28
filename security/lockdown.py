@@ -41,6 +41,7 @@ class LockdownManager:
             )
 
         original_overwrites: dict[int, discord.PermissionOverwrite] = {}
+        locked_channels = 0
         everyone = guild.default_role
 
         for ch in guild.text_channels:
@@ -65,8 +66,27 @@ class LockdownManager:
                 locked_ow.create_public_threads = False
                 locked_ow.create_private_threads = False
                 await ch.set_permissions(everyone, overwrite=locked_ow, reason=f"Lexus Lockdown: {reason}")
+                locked_channels += 1
             except Exception as e:
                 logger.warning(f"Could not lock channel {ch.name} in {guild.name}: {e}")
+
+        if locked_channels == 0:
+            security_logger.event(
+                incident_id="LOCKDOWN",
+                guild_id=guild.id,
+                actor_id=None,
+                event_type="LOCKDOWN_ACTIVE",
+                risk="CRITICAL",
+                score=95.0,
+                action="LOCKDOWN",
+                result="FAILED",
+                details="No eligible channels could be locked",
+            )
+            return ActionResult(
+                success=False,
+                action=SecurityActionType.LOCKDOWN,
+                error="No eligible channels could be locked",
+            )
 
         self._active_lockdowns.set(guild.id, original_overwrites)
         security_logger.event(
@@ -78,13 +98,13 @@ class LockdownManager:
             score=95.0,
             action="LOCKDOWN",
             result="SUCCESS",
-            details=f"Locked {len(locked_channels)} public channels: {reason}"
+            details=f"Locked {locked_channels} public channels: {reason}"
         )
 
         return ActionResult(
             success=True,
             action=SecurityActionType.LOCKDOWN,
-            reason=f"Lockdown activated across {len(locked_channels)} channels"
+            reason=f"Lockdown activated across {locked_channels} channels"
         )
 
     async def unlock_guild(
