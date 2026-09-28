@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord import app_commands
 import time
 import logging
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 
 from core.events import SecurityEventType
 from security.models import (
@@ -611,23 +611,6 @@ class SecurityCog(commands.Cog, name="Security"):
             member=actor_member,
             extra_context={"audit_attribution": audit_meta},
         )
-
-
-    @commands.Cog.listener()
-    async def on_webhooks_update(self, channel: discord.abc.GuildChannel):
-        guild = channel.guild
-        audit_res = await audit_correlator.find_actor_for_event(
-            guild, discord.AuditLogAction.webhook_create
-        )
-        actor_id = audit_res[0] if audit_res else None
-        evt = SecurityEvent(
-            guild_id=guild.id,
-            actor_id=actor_id,
-            channel_id=channel.id,
-            event_type=SecurityEventType.WEBHOOK_CREATE,
-            timestamp=time.time()
-        )
-        await security_engine.process_event(evt, guild=guild)
 
 
 async def setup(bot: commands.Bot):
