@@ -207,6 +207,27 @@ class SecurityEngine:
         if not config.security_enabled:
             return []
 
+        # Lexus itself can legitimately create roles, change permissions,
+        # quarantine members, and lock channels. Never feed those mutations
+        # back into anti-nuke as if an external actor performed them.
+        if (
+            self.bot
+            and self.bot.user
+            and event.actor_id == self.bot.user.id
+        ):
+            security_logger.event(
+                incident_id="SELF_EVENT",
+                guild_id=guild_id,
+                actor_id=event.actor_id,
+                event_type=event.event_type.value,
+                risk="SYSTEM",
+                score=0.0,
+                action="IGNORE_SELF",
+                result="IGNORED",
+                details="Security event originated from Lexus itself",
+            )
+            return []
+
         # 3. Trust assessment
         trust = self.determine_trust_level(guild_id, event.actor_id, config, member)
 
