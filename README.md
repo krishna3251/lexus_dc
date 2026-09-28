@@ -29,9 +29,14 @@
   <a href="#-core-systems">Systems</a> ·
   <a href="#-security-philosophy">Security</a> ·
   <a href="#-current-ai-tool-surface">AI Tools</a> ·
-  <a href="#-getting-started">Setup</a> ·
+  <a href="#-project-structure">Structure</a> ·
   <a href="#-testing">Testing</a>
 </p>
+
+> [!IMPORTANT]
+> **Lexus is a private, non-self-hostable project.**
+>
+> This repository is intended for **project documentation, technical reference, feature showcase, architecture, and development history**. Installation, deployment, configuration, credential setup, and self-hosting instructions are intentionally not provided.
 
 ## 🧠 What is Lexus?
 
@@ -39,7 +44,7 @@
 
 > **AI should reason. Security should decide.**
 
-It combines everyday Discord utilities with a dedicated **V3 Security Engine** and a new **AI Engine** designed around provider abstraction, tool calling, guarded execution, and deterministic application-side policies.
+It combines everyday Discord automation with a dedicated **V3 Security Engine** and an **AI Engine** designed around provider abstraction, tool calling, guarded execution, and deterministic application-side policies.
 
 The goal is not to make Lexus look complicated.
 
@@ -70,7 +75,7 @@ A layered defensive engine for server protection.
 - Panic / lockdown states
 - Structural baselines
 - Recovery analysis
-- Audit Log correlation
+- Audit-log correlation
 - Incident correlation
 - Bounded action budgets
 - Audit and enforce modes
@@ -183,7 +188,7 @@ Role hierarchy, Discord permissions, protected assets, security policy, and tool
 
 ## 🧩 Current AI Tool Surface
 
-Lexus currently exposes a deliberately small, guarded tool set:
+Lexus currently exposes a deliberately small, guarded tool set.
 
 ### Read
 
@@ -305,14 +310,8 @@ lexus_dc/
 ├── api.py
 ├── main.py
 ├── mongo_helper.py
-├── stats_store.py
-├── requirements.txt
-├── .env.example
-├── SECURITY.md
-└── LICENSE
+└── stats_store.py
 ```
-
----
 
 ## 🛠️ Tech Stack
 
@@ -326,60 +325,11 @@ lexus_dc/
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/Uvicorn-499848?style=for-the-badge&logo=gunicorn&logoColor=white" alt="Uvicorn" />
   <img src="https://img.shields.io/badge/Lavalink-5865F2?style=for-the-badge" alt="Lavalink" />
-  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
 </p>
-
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com/?font=Inter&weight=600&size=13&duration=2200&pause=850&color=35BFFF&center=true&vCenter=true&width=760&height=26&lines=CLONE%20%E2%80%A2%20CONFIGURE%20%E2%80%A2%20RUN&repeat=true" alt="Animated getting started label" />
-</p>
-
-## 🚀 Getting Started
-
-### 1. Clone
-
-```bash
-git clone https://github.com/krishna3251/lexus_dc.git
-cd lexus_dc
-```
-
-### 2. Install
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-### 3. Configure
-
-Create a `.env` file from `.env.example`.
-
-Minimum:
-
-```env
-DISCORD_TOKEN=your_discord_bot_token
-```
-
-AI Engine credentials:
-
-```env
-GEMINI_API_KEY=
-GROQ_API_KEY=
-```
-
-Provider model IDs are managed by the AI Engine rather than being exposed as deployment configuration.
-
-Optional integrations include MongoDB, Lavalink, OpenRouter, search APIs, media APIs, and the FastAPI health service.
-
-### 4. Run
-
-```bash
-python main.py
-```
-
----
 
 ## 🎮 Example AI Usage
 
-Ask Lexus something simple:
+Examples below demonstrate **Lexus capabilities only**. They are not installation or deployment instructions.
 
 ```text
 lx ask how many channels are in this server?
@@ -420,11 +370,11 @@ Lexus V3 exposes server security administration through `/security`.
 | `audit` | Detect, score, correlate, log and simulate without destructive enforcement |
 | `enforce` | Apply configured containment actions when policy thresholds are crossed |
 
-Start with **audit mode** while calibrating a server.
+Security behavior is controlled by the bot's application-side policy engine.
 
 ---
 
-## 📡 FastAPI Endpoints
+## 📡 FastAPI Surface
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -432,7 +382,7 @@ Start with **audit mode** while calibrating a server.
 | `/health` | GET | Service health check |
 | `/stats` | GET | Bot and server statistics |
 
-The API can bind to the `PORT` environment variable for hosting platforms.
+The API is part of Lexus' internal service surface and is documented here for architectural reference.
 
 ---
 
@@ -456,17 +406,7 @@ The repository includes security and AI-engine test coverage for areas such as:
 ✓ Failure isolation
 ```
 
-Run:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-Also compile the project before deployment:
-
-```bash
-python -m compileall .
-```
+Testing information is included as project documentation only.
 
 ---
 
@@ -486,7 +426,7 @@ python -m compileall .
 
 > **Every mutation needs a policy boundary**
 
-These are not decorative sentences. They are architectural constraints.
+These are architectural constraints, not decorative slogans.
 
 <p align="center">
   <img src="https://readme-typing-svg.demolab.com/?font=Inter&weight=600&size=13&duration=2200&pause=850&color=FF58C7&center=true&vCenter=true&width=760&height=26&lines=BUILD%20%E2%80%A2%20TEST%20%E2%80%A2%20IMPROVE&repeat=true" alt="Animated development label" />
