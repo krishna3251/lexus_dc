@@ -3,9 +3,9 @@
 Pipeline:
 1. deterministic query planning
 2. local RAG recall from cached research/memory artifacts
-3. live Google Search grounding through Gemini when available
-4. Google Custom Search fallback
-5. Groq browser-search emergency fallback
+3. Groq browser search as the primary live research path
+4. live Google Search grounding through Gemini as the research fallback
+5. Google Custom Search fallback
 6. source deduplication and quality scoring
 7. compact evidence packaging for the answer model
 8. asynchronous caching into the local SQLite vector store
@@ -458,8 +458,34 @@ class WebResearchService:
         rag_result = await self.rag.search(prompt, limit=4)
         rag_context = self._format_rag_context(rag_result.items)
 
-        # Primary path: live Google grounding through Gemini. This does not
-        # depend on Groq being configured.
+        # Primary live research path: Groq browser search.
+        # This keeps the same provider priority as normal AI generation:
+        # Groq first, Gemini second.
+        if self.providers is not None:
+            try:
+                reply = await self.providers.complete(
+                    messages=[{
+                        "role": "user",
+                        "content": prompt,
+                    }],
+                    tools=[],
+                    max_output_tokens=900,
+                    web_search=True,
+                )
+                if reply.text.strip():
+                    return ResearchResult(
+                        success=True,
+                        answer=reply.text.strip(),
+                        queries=plan.queries,
+                        provider=reply.provider.value,
+                        model=reply.model,
+                        mode="groq_browser_search",
+                        rag_hits=len(rag_result.items),
+                    )
+            except ProviderError as exc:
+                logger.info("Groq browser-search primary failed; trying Gemini research: %s", exc)
+
+        # Fallback live research path: Google grounding through Gemini.
         if self.gemini.available:
             grounded = await self.gemini.search(
                 prompt,
@@ -485,30 +511,6 @@ class WebResearchService:
                 await self._cache_sources(cse.sources)
                 cse.rag_hits = len(rag_result.items)
                 return cse
-
-        # Emergency fallback: existing Groq browser search, if configured.
-        if self.providers is not None:
-            try:
-                reply = await self.providers.complete(
-                    messages=[{
-                        "role": "user",
-                        "content": prompt,
-                    }],
-                    tools=[],
-                    max_output_tokens=900,
-                    web_search=True,
-                )
-                return ResearchResult(
-                    success=bool(reply.text.strip()),
-                    answer=reply.text.strip(),
-                    queries=plan.queries,
-                    provider=reply.provider.value,
-                    model=reply.model,
-                    mode="groq_browser_search",
-                    rag_hits=len(rag_result.items),
-                )
-            except ProviderError as exc:
-                logger.warning("Groq browser-search fallback failed: %s", exc)
 
         # Last local option: answer from cached RAG only, but explicitly mark
         # it as cached knowledge so callers can decide whether to trust it.
