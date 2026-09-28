@@ -8,8 +8,8 @@ from typing import Any, Optional
 
 
 class AIProvider(str, Enum):
-    GEMINI = "gemini"
     GROQ = "groq"
+    GEMINI = "gemini"
 
 
 class AIIntent(str, Enum):
