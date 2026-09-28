@@ -91,9 +91,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def ai_reload(self, ctx: commands.Context) -> None:
         await self.engine.reload_providers()
         providers = self.engine.provider_names or ["none"]
+        jev_state = "enabled" if self.engine.health()["jev"]["available"] else "unavailable"
         await ctx.send(
             "✅ AI provider config reloaded. Providers: "
             + ", ".join(str(item) for item in providers)
+            + f" | Jev: {jev_state}"
         )
 
     @commands.Cog.listener()
@@ -310,9 +312,24 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             value=cooldown_text,
             inline=False,
         )
+        jev = health["jev"]
+        jev_value = (
+            f"✅ {jev['model']} • tool gate enabled"
+            if jev["available"] and jev["tool_gate_enabled"]
+            else (
+                f"✅ {jev['model']} • decision layer"
+                if jev["available"]
+                else "⚪ Jev decision layer unavailable"
+            )
+        )
+        embed.add_field(
+            name="Decision Layer",
+            value=jev_value,
+            inline=False,
+        )
         embed.add_field(
             name="Models",
-            value="openai/gpt-oss-120b (Groq primary)\ngemini-3.8-flash (fallback)",
+            value="openai/gpt-oss-120b (Groq primary)\ngemini-3.8-flash (fallback)\ntypesafe-ai/jev (typed decisions)",
             inline=False,
         )
         await ctx.send(embed=embed)
