@@ -89,6 +89,8 @@ A provider-agnostic agent layer for reasoning and controlled Discord tools.
 
 - Groq primary provider
 - Gemini fallback provider
+- Jev typed decision layer via Vercel AI Gateway
+- Conservative Jev tool-need gate for read-oriented requests
 - Tool / function calling
 - Local request routing
 - Context building
@@ -156,6 +158,9 @@ Local Router
 Safety Gate
      │
      ▼
+Jev Tool-Need Gate ──► skip unnecessary Discord tool schemas
+     │
+     ▼
 Context Builder
      │
      ▼
@@ -212,7 +217,20 @@ ban_member
 lock_channel
 ```
 
-Every mutation passes application-side checks before a Discord API call is attempted.
+### Decision layer
+
+```text
+Jev (typesafe-ai/jev)
+        │
+        ├── typed boolean / choice / score
+        ├── compact decision state
+        ├── short-lived result cache
+        └── conservative tool-need gate
+```
+
+Jev is intentionally separate from the Groq/Gemini generation chain. It never receives permission to execute Discord mutations. Its current Lexus integration is a narrow optimization that can remove unnecessary live-tool schemas from read-oriented requests.
+
+Every mutation still passes application-side checks before a Discord API call is attempted.
 
 That means:
 
@@ -272,6 +290,7 @@ lexus_dc/
 │       ├── executor.py
 │       ├── telemetry.py
 │       ├── tools.py
+│       ├── jev.py
 │       └── engine.py
 │
 ├── security/
@@ -320,6 +339,7 @@ lexus_dc/
   <img src="https://img.shields.io/badge/discord.py-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
   <img src="https://img.shields.io/badge/Groq-000000?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" />
   <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
+  <img src="https://img.shields.io/badge/TypeSafe_Jev-7C3AED?style=for-the-badge" alt="TypeSafe Jev" />
   <img src="https://img.shields.io/badge/OpenRouter-111827?style=for-the-badge" alt="OpenRouter" />
   <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
@@ -443,6 +463,7 @@ These are architectural constraints, not decorative slogans.
 | Anti-nuke / permission guard | 🟢 Implemented |
 | Quarantine / lockdown | 🟢 Implemented |
 | AI provider abstraction | 🟢 Implemented |
+| Jev decision layer | 🟢 Implemented |
 | AI tool-calling foundation | 🟢 Implemented |
 | AI routing / safety / execution layers | 🟢 Implemented |
 | AI long-term memory | 🟡 Planned |
