@@ -42,6 +42,21 @@ class PermissionGuard:
         score = diff.total_risk_score
         confidence = 0.85
 
+        # A permission change without a matching Audit Log actor is evidence of
+        # a dangerous mutation, but not enough evidence to identify a culprit.
+        # Keep the event visible while preventing the policy layer from treating
+        # an unattributed single event as a confirmed attack.
+        audit_meta = event.metadata.get("audit") if isinstance(event.metadata, dict) else None
+        attribution_known = bool(
+            event.actor_id
+            and isinstance(audit_meta, dict)
+            and audit_meta.get("attribution") == "audit_log"
+        )
+        if not attribution_known:
+            confidence = min(confidence, 0.45)
+            reasons.append("Audit actor attribution unavailable; containment requires confirmed actor")
+
+
         # 1. @everyone role escalation (severe threat)
         if is_everyone_role and diff.added_dangerous:
             score = 100.0
