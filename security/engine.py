@@ -433,10 +433,17 @@ class SecurityEngine:
     def get_health_status(self) -> dict[str, Any]:
         """Report component readiness without exaggerating capabilities."""
         db_connected = security_db.is_connected()
+        audit_ready = bool(
+            self.bot
+            and any(
+                guild.me is not None and guild.me.guild_permissions.view_audit_log
+                for guild in getattr(self.bot, "guilds", [])
+            )
+        )
         return {
             "security_ready": True,
             "database_ready": db_connected,
-            "audit_ready": True,
+            "audit_ready": audit_ready,
             "quarantine_ready": True,
             "recovery_ready": True,
             "events_processed": self.events_processed,
