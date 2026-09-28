@@ -50,8 +50,6 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     })
 
     def __init__(self, bot: commands.Bot) -> None:
-
-    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.engine = AIEngine()
         self.engine.register_default_tools(bot)
