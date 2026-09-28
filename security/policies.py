@@ -59,7 +59,19 @@ class PolicyEngine:
         # an unrelated event into a server-wide lockdown.
         if is_structural and severity == Severity.CRITICAL:
             actions.append(SecurityActionType.ALERT)
+
+            # Structural events are high-impact by definition. Containment is
+            # allowed only when Lexus can attribute the change to a concrete
+            # actor. Missing audit attribution must never become permission to
+            # lock the whole server.
             if actor_trust == TrustLevel.UNKNOWN:
+                return actions
+
+            # Trusted/staff actors may legitimately perform structural changes.
+            # Do not automatically quarantine them from one signal. If another
+            # detector classifies the actor as suspicious, the normal containment
+            # path below can still engage.
+            if actor_trust in (TrustLevel.TRUSTED, TrustLevel.STAFF):
                 return actions
 
             if not is_audit and confidence >= conf_threshold:
