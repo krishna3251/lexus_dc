@@ -9,7 +9,7 @@
   <a href="https://github.com/krishna3251/lexus_dc"><img src="https://img.shields.io/badge/Repository-krishna3251%2Flexus__dc-111827?style=for-the-badge&logo=github" alt="Repository" /></a>
   <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-2.x-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
-  <img src="https://img.shields.io/badge/AI-Gemini%20%2B%20Groq-7C3AED?style=for-the-badge" alt="AI" />
+  <img src="https://img.shields.io/badge/AI-Groq%20%2B%20Gemini%20%2B%20Jev-7C3AED?style=for-the-badge" alt="AI" />
   <img src="https://img.shields.io/badge/Security-V3-E11D48?style=for-the-badge" alt="Security V3" />
 </p>
 
@@ -22,7 +22,7 @@
 
 <div align="center">
 
-**[Architecture](#2-architecture-at-a-glance) · [AI Engine](#5-ai-engine) · [Security](#7-security-engine) · [Cogs](#17-feature-cogs) · [Setup](#22-installation) · [Testing](#24-testing) · [Review Notes](#26-technical-review-notes)**
+**[Architecture](#2-architecture-at-a-glance) · [AI Engine](#5-ai-engine) · [Security](#7-security-engine) · [Cogs](#17-feature-cogs) · [Testing](#22-testing) · [Review Notes](#24-technical-review-notes)**
 
 </div>
 
@@ -33,7 +33,7 @@
 | Area | Current implementation |
 |---|---|
 | **Bot runtime** | `main.py` + dynamic cog discovery |
-| **AI** | Unified V3 engine with Gemini/Groq adapters, tools, memory, RAG, research |
+| **AI** | Unified V3 engine with Groq/Gemini generation, Jev typed decisions, tools, memory, RAG, research |
 | **Security** | V3 event pipeline with detectors, scoring, state machine, policy, actions |
 | **Persistence** | MongoDB for guild/features + SQLite for AI memory/RAG |
 | **Web service** | FastAPI health/stats endpoints |
@@ -41,7 +41,7 @@
 | **Tests** | Security, AI, RAG, research, resilience and performance suites |
 
 > [!NOTE]
-> This document describes the implementation found in the repository at source-review commit `07e9451861`. It deliberately distinguishes the newer V3 systems from older/legacy AI cogs so architectural intent does not get mistaken for runtime reality.
+> This document describes the current main-branch implementation. It deliberately distinguishes the newer V3 systems from older/legacy AI cogs so architectural intent does not get mistaken for runtime reality.
 
 ---
 
@@ -101,11 +101,12 @@ flowchart TD
     R --> G[SafetyGate]
     G --> PL[Planner]
     PL --> CT[ContextBuilder]
-    CT --> PM[ProviderManager]
-    PM --> GE[Gemini]
+    CT --> JG[Jev Tool-Need Gate]
+    JG --> PM[ProviderManager]
     PM --> GR[Groq]
-    GE --> T[Model Response / Tool Calls]
-    GR --> T
+    PM --> GE[Gemini Fallback]
+    GR --> T[Model Response / Tool Calls]
+    GE --> T
     T --> V[ToolCallValidator]
     V --> PG[AIPermissionGuard]
     PG --> E[ToolExecutor]
@@ -240,25 +241,15 @@ lexus_dc/
 ├── mongo_helper.py
 ├── stats_store.py
 ├── requirements.txt
-├── .env.example
 ├── SECURITY.md
 └── LICENSE
 ```
 
 ---
 
-## Quick Start
+> [!IMPORTANT]
+> **Public repository boundary:** Lexus is a private, non-self-hostable project. This repository is for documentation, technical reference, architecture, feature showcase, and development history. Installation, deployment, credential setup, environment-variable instructions, and self-hosting procedures are intentionally omitted.
 
-```bash
-git clone https://github.com/krishna3251/lexus_dc.git
-cd lexus_dc
-python -m pip install -r requirements.txt
-cp .env.example .env
-python main.py
-```
-
-> [!TIP]
-> Start Lexus Security in `audit` mode, verify `/security status`, inspect the baseline and incident telemetry, then move to `enforce` when the configuration is understood.
 
 ---
 
@@ -298,8 +289,9 @@ The default prefix is `lx `, and direct bot mentions are also accepted.
 
 The V3 AI engine defines:
 
-- `AIProvider`: `gemini`, `groq`
+- `AIProvider`: `groq`, `gemini`
 - `AIIntent`: `chat`, `server_query`, `security_query`, `action_request`, `help`, `search`, `unknown`
+- **Jev decision layer:** separate typed evaluation service for narrow decisions; it is not part of the generative provider enum.
 
 Requests and results use dataclasses so routing decisions, provider replies, tool calls, and errors have explicit structures.
 
@@ -392,14 +384,17 @@ Model proposes
 
 ## 5.8 Provider layer
 
-The unified provider manager uses OpenAI-compatible adapters.
+The unified provider manager uses OpenAI-compatible adapters with strict generation priority:
 
-| Provider | Current default model |
+| Layer | Current default |
 |---|---|
-| Gemini | `gemini-3.8-flash` |
-| Groq | `openai/gpt-oss-120b` |
+| Primary generation | Groq · `openai/gpt-oss-120b` |
+| Generation fallback | Gemini · `gemini-3.8-flash` |
+| Decision layer | Jev · `typesafe-ai/jev` through Vercel AI Gateway |
 
-Transient provider failures can place a provider into cooldown. The current default cooldown is 300 seconds.
+Groq remains first for generation. A previous cooldown does not silently promote Gemini. Jev is a separate decision path and never becomes a generation fallback.
+
+Transient generation failures can place a provider into cooldown. The current default cooldown is 300 seconds.
 
 ### Unified vs legacy AI
 
@@ -409,8 +404,38 @@ The repository also contains older AI paths, notably `chat_lex.py` and `coder_le
 
 ---
 
-## 6. AI Memory and Research
+## 5.9 Jev Decision Layer
 
+`services/ai_engine/jev.py` is a deliberately separate decision service.
+
+```text
+Read-oriented request
+       │
+       ▼
+Jev
+       │
+       ├── "live Discord tools required" → continue with tool schemas
+       └── "not required" → omit live tool schemas
+```
+
+The gate is conservative. Lexus only disables live Discord tools when Jev assigns a very low probability that they are needed. If Jev is unavailable, times out, or returns an unusable answer, the deterministic planner remains unchanged.
+
+The service also provides:
+
+- typed Boolean / Choice / Score evaluation
+- bounded decision state
+- short-lived result caching
+- transient-failure cooldown
+- response normalization
+- no Discord mutation authority
+
+The design follows the core invariant:
+
+> **Jev decides; Lexus policy still authorizes and executes.**
+
+`AI_GATEWAY_API_KEY` is intentionally not documented here because this public repository does not provide installation or credential-configuration instructions.
+
+## 6. AI Memory and Research
 ## 6.1 SQLite memory
 
 `AIMemoryService` uses local SQLite for AI memory so the V3 AI subsystem does not depend on MongoDB.
@@ -463,9 +488,9 @@ The research coordinator follows this general order:
 
 1. deterministic query planning
 2. local RAG recall
-3. Gemini Google grounding, when available
-4. Google Custom Search, when available
-5. provider fallback
+3. Groq browser search as the primary live path
+4. Gemini Google grounding as the live-search fallback
+5. Google Custom Search, when available
 6. cached RAG-only answer when live research is unavailable
 
 Sources are deduplicated and quality ordered. For current/news requests the research instructions prefer multiple reputable sources and primary sources when available.
@@ -897,138 +922,23 @@ The health server is intended to support hosting-platform health checks.
 
 ---
 
-## 21. Environment Variables
+## 21. Public Repository Boundary
 
-## Required
+Lexus is intentionally documented as a **private, non-self-hostable project**.
 
-```env
-DISCORD_TOKEN=
-```
+This repository does not publish:
 
-## Infrastructure
+- installation commands
+- deployment instructions
+- environment-variable or credential setup
+- secret-management walkthroughs
+- local runtime instructions
+- hosting-platform setup
 
-```env
-PORT=10000
-API_SECRET_KEY=
-MONGO_URI=
-MONGO_DB_NAME=lexus_bot
-AI_SQLITE_PATH=
-```
-
-## Unified AI
-
-```env
-GEMINI_API_KEY=
-GEMINI_MODEL=
-GROQ_API_KEY=
-GROQ_MODEL=
-AI_PROVIDER_COOLDOWN_SECONDS=
-```
-
-## Research / embeddings
-
-```env
-GEMINI_EMBEDDING_MODEL=
-GEMINI_EMBEDDING_DIMENSIONS=
-GEMINI_RESEARCH_MODEL=
-GOOGLE_CSE_ID=
-GOOGLE_API_KEY=
-```
-
-## Legacy/feature integrations
-
-```env
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-NVIDIA_API_KEY=
-NGC_API_KEY=
-PERSPECTIVE_API_KEY=
-TENOR_API_KEY=
-GIPHY_API_KEY=
-YOUTUBE_API_KEY=
-OPENWEATHER_API_KEY=
-HELP_LOGGER_WEBHOOK=
-SUPPORT_SERVER_URL=
-GITHUB_REPO_URL=
-```
-
-## Security
-
-```env
-SECURITY_ENABLED=true
-SECURITY_MODE=audit
-SECURITY_LOG_LEVEL=INFO
-SECURITY_LOG_DIR=logs
-SECURITY_ACTION_BUDGET_LIMIT=10
-SECURITY_ACTION_BUDGET_WINDOW=10.0
-```
+The source may be inspected for architecture and technical reference, but the public documentation is not an installation guide.
 
 ---
-
----
-
-## 22. Installation
-
-```bash
-git clone https://github.com/krishna3251/lexus_dc.git
-cd lexus_dc
-
-python -m pip install -r requirements.txt
-
-cp .env.example .env
-```
-
-Configure the required credentials, then:
-
-```bash
-python main.py
-```
-
-Primary packages declared by the repository include:
-
-- discord.py
-- Wavelink
-- PyNaCl
-- python-dotenv
-- aiohttp
-- FastAPI
-- Uvicorn
-- Motor
-- OpenAI
-
----
-
-## 23. Deployment Notes
-
-The project is structured for a long-running bot process with:
-
-- environment-based configuration
-- optional MongoDB
-- local SQLite AI memory
-- optional external Lavalink
-- background FastAPI health checks
-
-Security/moderation features may require:
-
-- View Audit Log
-- Manage Roles
-- Manage Channels
-- Moderate Members
-- Kick Members
-- Ban Members
-- Manage Webhooks
-- Send Messages
-- Read Message History
-
-Exact permissions depend on which cogs and features are enabled.
-
-For production, configure a real Lavalink password instead of relying on the fallback hard-coded in `main.py`.
-
----
-
----
-
-## 24. Testing
+## 22. Testing
 
 The repository includes tests for both the security engine and AI subsystem.
 
@@ -1070,6 +980,9 @@ The repository includes tests for both the security engine and AI subsystem.
 - research query freshness
 - bounded deep research
 - RAG lexical retrieval
+- Jev answer normalization and validation
+- Jev result caching
+- Jev conservative tool-need gating
 
 Run:
 
@@ -1085,11 +998,13 @@ python -m compileall .
 
 ---
 
-## 25. Development Rules
+## 23. Development Rules
 
 ## AI
 
 - Never let model output directly authorize a Discord mutation.
+- Keep Jev decisions separate from generative provider routing.
+- Treat Jev as a decision signal, never as permission.
 - Keep routing, safety, validation, permissions, and execution separate.
 - Keep tool arguments and outputs bounded.
 - Preserve provider failure visibility.
@@ -1110,9 +1025,9 @@ python -m compileall .
 
 ---
 
-## 26. Technical Review Notes
+## 24. Technical Review Notes
 
-## 26.1 Security mode is split across configuration layers
+## 24.1 Security mode is split across configuration layers
 
 `CoreConfig` reads process-level `SECURITY_MODE` with an `audit` default.
 
@@ -1125,22 +1040,17 @@ python -m compileall .
 /security status
 ```
 
-## 26.2 Provider-model documentation is stale
+## 24.2 Provider priority and model configuration
 
-The `.env.example` comment says model IDs are fixed in code, but the provider manager actually reads:
+The unified provider manager reads optional model overrides for Groq and Gemini, while keeping Groq as the strict primary and Gemini as the fallback.
 
-```env
-GEMINI_MODEL=
-GROQ_MODEL=
-```
+Jev does not belong in this generation provider chain. It is isolated in `services/ai_engine/jev.py` and uses the separate AI Gateway evaluation endpoint.
 
-Those environment variables can override the built-in defaults.
-
-## 26.3 V3 AI and legacy AI are separate paths
+## 24.3 V3 AI, Jev, and legacy AI are separate paths
 
 The repository contains a modern unified AI engine and several older AI implementations. Full migration has not happened yet, so changes to one path do not automatically affect the others.
 
-## 26.4 Member mention parsing should be corrected
+## 24.4 Member mention parsing should be corrected
 
 `services/ai_engine/tools.py` currently contains a mention pattern equivalent to:
 
@@ -1156,11 +1066,11 @@ r"<@!?(\d+)>"
 
 Direct numeric member ID handling exists elsewhere, but mention parsing should receive a regression test.
 
-## 26.5 Lavalink fallback password
+## 24.5 Lavalink fallback password
 
 `main.py` includes a fallback Lavalink password when the environment value is absent. Production deployments should always provide an explicit secret.
 
-## 26.6 README drift
+## 24.6 Documentation alignment
 
 The README is visually polished and communicates the intended architecture, but it does not fully separate the unified V3 AI stack from the legacy AI cogs and contains the provider-model documentation mismatch noted above.
 
@@ -1168,7 +1078,7 @@ The README is visually polished and communicates the intended architecture, but 
 
 ---
 
-## 27. Recommended Development Order
+## 25. Recommended Development Order
 
 For security changes:
 
@@ -1204,7 +1114,7 @@ This keeps new behavior inside the same authority boundaries instead of creating
 
 ---
 
-## 28. Architecture Summary
+## 26. Architecture Summary
 
 Lexus is currently a hybrid codebase:
 
