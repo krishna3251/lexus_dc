@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from difflib import SequenceMatcher
 
 import discord
 from discord import app_commands
@@ -22,7 +23,33 @@ logger = logging.getLogger(__name__)
 
 
 class AIEngineCog(commands.Cog, name="AI Engine"):
-    """Lexus V3 agent interface."""
+    """Lexus V3 agent interface.
+
+    Natural chat accepts the bot's common names and typo variants so users
+    do not need to remember one exact spelling to wake Lexus.
+    """
+
+    # Explicit variants cover the names people commonly use for Lexus.
+    # Fuzzy matching is deliberately limited to the first token so normal
+    # conversation is not accidentally routed into the AI engine.
+    WAKE_ALIASES = frozenset({
+        "lex",
+        "lexus",
+        "luexu",
+        "lexiya",
+        "lexi",
+        "lexu",
+        "leks",
+        "leksa",
+        "luxe",
+        "badwr",
+        "badwe",
+    })
+    WAKE_GREETINGS = frozenset({
+        "hey", "hi", "hello", "yo", "oye", "ok", "okay", "bro", "bhai"
+    })
+
+    def __init__(self, bot: commands.Bot) -> None:
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -158,16 +185,69 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                 "Arre yaar, abhi AI side pe thoda scene hai 😭. Ek baar phir try karo."
             )
 
+    @classmethod
+    def _normalize_wake_token(cls, token: str) -> str:
+        """Normalize punctuation/casing around a spoken-style wake name."""
+        return re.sub(r"[^a-z0-9]", "", token.casefold())
+
+    @classmethod
+    def _is_wake_alias(cls, token: str) -> bool:
+        normalized = cls._normalize_wake_token(token)
+        if not normalized:
+            return False
+        if normalized in cls.WAKE_ALIASES:
+            return True
+
+        # Only fuzzy-match plausible names. This catches small typos without
+        # turning ordinary words such as "let" or "less" into wake words.
+        if len(normalized) < 4:
+            return False
+        return max(
+            SequenceMatcher(None, normalized, alias).ratio()
+            for alias in cls.WAKE_ALIASES
+        ) >= 0.84
+
+    @classmethod
+    def _strip_wake_name(cls, content: str) -> str | None:
+        """Return the user prompt when a supported Lexus name wakes the bot."""
+        tokens = content.split()
+        if not tokens:
+            return None
+
+        index = 0
+        # Accept natural openers such as "hey lex" and "okay lex".
+        if cls._normalize_wake_token(tokens[0]) in cls.WAKE_GREETINGS:
+            index = 1
+            if len(tokens) <= index:
+                return None
+
+        if not cls._is_wake_alias(tokens[index]):
+            return None
+
+        prompt = " ".join(tokens[index + 1:]).strip(" ,:;!?")
+        return prompt or None
+
     async def _extract_natural_prompt(self, message: discord.Message) -> str | None:
-        """Extract a prompt from the configured prefix or bot mention."""
+        """Extract a prompt from mentions, configured prefixes, or Lexus name variants."""
         content = message.content.strip()
         if not content:
             return None
 
         if self.bot.user and self.bot.user in message.mentions:
             pattern = rf"<@!?{self.bot.user.id}>\s*"
-            prompt = re.sub(pattern, "", content, count=1).strip()
+            prompt = re.sub(pattern, "", content, count=1).strip(" ,:;!?")
             return prompt or None
+
+        # Natural wake names: "Lex ...", "Luexu ...", "Lexiya ...",
+        # "Badwr ...", "Badwe ...", plus small typo variations.
+        wake_prompt = self._strip_wake_name(content)
+        if wake_prompt:
+            logger.debug(
+                "AI wake-name matched | message=%s | token=%s",
+                message.id,
+                content.split()[0],
+            )
+            return wake_prompt
 
         try:
             prefixes = await self.bot.get_prefix(message)
@@ -180,7 +260,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         prefixes = list(prefixes) + ["lx ", "lex "]
 
         for prefix in dict.fromkeys(prefixes):
-            if prefix and content.startswith(prefix):
+            if prefix and content.casefold().startswith(prefix.casefold()):
                 prompt = content[len(prefix):].strip()
                 return prompt or None
 
