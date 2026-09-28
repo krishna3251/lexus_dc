@@ -52,9 +52,16 @@ class PolicyEngine:
         # Profile strictness adjustments
         conf_threshold = 0.60 if config.profile == SecurityProfile.STRICT else 0.70
 
-        # CRITICAL structural attacks (Anti-Nuke / Unauthorized escalation)
+        # CRITICAL structural attacks (Anti-Nuke / Unauthorized escalation).
+        # Unknown/unattributed actors are never quarantine or lockdown targets.
+        # The detector may still raise an alert, but containment requires a
+        # confirmed Audit Log actor so a delayed/missing audit entry cannot turn
+        # an unrelated event into a server-wide lockdown.
         if is_structural and severity == Severity.CRITICAL:
             actions.append(SecurityActionType.ALERT)
+            if actor_trust == TrustLevel.UNKNOWN:
+                return actions
+
             if not is_audit and confidence >= conf_threshold:
                 actions.append(SecurityActionType.QUARANTINE)
                 if guild_state == SecurityState.PANIC or risk_score >= 90.0:
@@ -65,12 +72,13 @@ class PolicyEngine:
         if severity == Severity.CRITICAL:
             actions.append(SecurityActionType.ALERT)
             if not is_audit and confidence >= conf_threshold:
-                actions.append(SecurityActionType.QUARANTINE)
+                if actor_trust != TrustLevel.UNKNOWN:
+                    actions.append(SecurityActionType.QUARANTINE)
         elif severity == Severity.HIGH:
             actions.append(SecurityActionType.ALERT)
             if not is_audit:
                 if confidence >= conf_threshold:
-                    if actor_trust in (TrustLevel.NEW_MEMBER, TrustLevel.UNKNOWN, TrustLevel.SUSPICIOUS):
+                    if actor_trust in (TrustLevel.NEW_MEMBER, TrustLevel.SUSPICIOUS):
                         actions.append(SecurityActionType.QUARANTINE)
                     else:
                         actions.append(SecurityActionType.TIMEOUT)
