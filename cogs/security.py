@@ -30,6 +30,29 @@ from services.database import security_db
 
 logger = logging.getLogger(__name__)
 
+async def _resolve_audit_actor(
+    guild: discord.Guild,
+    action_type: discord.AuditLogAction,
+    target_id: Optional[int] = None,
+) -> tuple[Optional[int], Optional[discord.Member], dict[str, Any]]:
+    """Resolve the real Audit Log actor and cached member for a structural event."""
+    audit_res = await audit_correlator.find_actor_for_event(
+        guild, action_type, target_id=target_id
+    )
+    if not audit_res:
+        return None, None, {"attribution": "unavailable", "audit_action": str(action_type)}
+
+    actor_id, audit_meta = audit_res
+    actor_member = guild.get_member(actor_id)
+    if actor_member is None:
+        try:
+            actor_member = await guild.fetch_member(actor_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            actor_member = None
+
+    return actor_id, actor_member, audit_meta
+
+
 
 class SecurityCog(commands.Cog, name="Security"):
     """Lexus V3 Security Engine Management & Defense System."""
@@ -394,25 +417,25 @@ class SecurityCog(commands.Cog, name="Security"):
         """Handle member join event."""
         guild = member.guild
         if member.bot:
-            # Bot addition: attempt audit correlation to identify installer
-            audit_res = await audit_correlator.find_actor_for_event(
+            actor_id, actor_member, audit_meta = await _resolve_audit_actor(
                 guild, discord.AuditLogAction.bot_add, target_id=member.id
             )
-            installer_id = audit_res[0] if audit_res else None
-
             evt = SecurityEvent(
                 guild_id=guild.id,
-                actor_id=installer_id,
+                actor_id=actor_id,
                 target_id=member.id,
                 event_type=SecurityEventType.BOT_ADD,
-                timestamp=time.time()
+                timestamp=time.time(),
+                metadata={"audit": audit_meta},
             )
             await security_engine.process_event(
                 evt,
                 guild=guild,
+                member=actor_member,
                 extra_context={
                     "bot_id": member.id,
-                    "bot_permissions": member.guild_permissions.value
+                    "bot_permissions": member.guild_permissions.value,
+                    "audit_attribution": audit_meta,
                 }
             )
         else:
@@ -431,108 +454,164 @@ class SecurityCog(commands.Cog, name="Security"):
                 extra_context={"created_at": created_at, "has_default_avatar": has_def_avatar}
             )
 
+
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         guild = channel.guild
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.channel_create, target_id=channel.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=channel.id,
             event_type=SecurityEventType.CHANNEL_CREATE,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
-        await security_engine.process_event(evt, guild=guild)
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         guild = channel.guild
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.channel_delete, target_id=channel.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=channel.id,
             event_type=SecurityEventType.CHANNEL_DELETE,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
-        await security_engine.process_event(evt, guild=guild)
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
+
+
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role):
         guild = role.guild
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.role_create, target_id=role.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=role.id,
             event_type=SecurityEventType.ROLE_CREATE,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
-        await security_engine.process_event(evt, guild=guild)
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role):
         guild = role.guild
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.role_delete, target_id=role.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=role.id,
             event_type=SecurityEventType.ROLE_DELETE,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
-        await security_engine.process_event(evt, guild=guild)
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
         guild = after.guild
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.role_update, target_id=after.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=after.id,
             event_type=SecurityEventType.ROLE_UPDATE,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
         await security_engine.process_event(
             evt,
             guild=guild,
+            member=actor_member,
             extra_context={
                 "before_permissions": before.permissions.value,
                 "after_permissions": after.permissions.value,
-                "is_everyone": after.is_default()
+                "is_everyone": after.is_default(),
+                "audit_attribution": audit_meta,
             }
         )
 
+
+
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User | discord.Member):
-        audit_res = await audit_correlator.find_actor_for_event(
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
             guild, discord.AuditLogAction.ban, target_id=user.id
         )
-        actor_id = audit_res[0] if audit_res else None
         evt = SecurityEvent(
             guild_id=guild.id,
             actor_id=actor_id,
             target_id=user.id,
             event_type=SecurityEventType.MEMBER_BAN,
-            timestamp=time.time()
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
         )
-        await security_engine.process_event(evt, guild=guild)
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
+
+
+
+    @commands.Cog.listener()
+    async def on_webhooks_update(self, channel: discord.abc.GuildChannel):
+        guild = channel.guild
+        actor_id, actor_member, audit_meta = await _resolve_audit_actor(
+            guild, discord.AuditLogAction.webhook_create, target_id=None
+        )
+        evt = SecurityEvent(
+            guild_id=guild.id,
+            actor_id=actor_id,
+            channel_id=channel.id,
+            event_type=SecurityEventType.WEBHOOK_CREATE,
+            timestamp=time.time(),
+            metadata={"audit": audit_meta},
+        )
+        await security_engine.process_event(
+            evt,
+            guild=guild,
+            member=actor_member,
+            extra_context={"audit_attribution": audit_meta},
+        )
+
 
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel: discord.abc.GuildChannel):
