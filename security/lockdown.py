@@ -19,8 +19,8 @@ class LockdownManager:
     """Manages server lockdowns, targeted channel freezes, and emergency panic state responses."""
 
     def __init__(self):
-        # Maps guild_id -> list[locked_channel_id]
-        self._active_lockdowns: TTLCache[int, list[int]] = TTLCache(max_size=500, default_ttl=86400.0)
+        # Maps guild_id -> original @everyone overwrites for channels Lexus changed.
+        self._active_lockdowns: TTLCache[int, dict[int, discord.PermissionOverwrite]] = TTLCache(max_size=500, default_ttl=86400.0)
 
     def is_locked_down(self, guild_id: int) -> bool:
         return self._active_lockdowns.contains(guild_id)
@@ -40,7 +40,7 @@ class LockdownManager:
                 error="Bot lacks Manage Channels permission"
             )
 
-        locked_channels: list[int] = []
+        original_overwrites: dict[int, discord.PermissionOverwrite] = {}
         everyone = guild.default_role
 
         for ch in guild.text_channels:
@@ -48,21 +48,27 @@ class LockdownManager:
                 continue
 
             try:
-                # Check current overwrite
                 current_ow = ch.overwrites_for(everyone)
-                if current_ow.send_messages is False:
-                    continue  # Already locked
+                if (
+                    current_ow.send_messages is False
+                    and current_ow.send_messages_in_threads is False
+                    and current_ow.create_public_threads is False
+                    and current_ow.create_private_threads is False
+                ):
+                    continue
 
-                current_ow.send_messages = False
-                current_ow.send_messages_in_threads = False
-                current_ow.create_public_threads = False
-                current_ow.create_private_threads = False
-                await ch.set_permissions(everyone, overwrite=current_ow, reason=f"Lexus Lockdown: {reason}")
-                locked_channels.append(ch.id)
+                original_overwrites[ch.id] = current_ow.copy()
+
+                locked_ow = current_ow.copy()
+                locked_ow.send_messages = False
+                locked_ow.send_messages_in_threads = False
+                locked_ow.create_public_threads = False
+                locked_ow.create_private_threads = False
+                await ch.set_permissions(everyone, overwrite=locked_ow, reason=f"Lexus Lockdown: {reason}")
             except Exception as e:
                 logger.warning(f"Could not lock channel {ch.name} in {guild.name}: {e}")
 
-        self._active_lockdowns.set(guild.id, locked_channels)
+        self._active_lockdowns.set(guild.id, original_overwrites)
         security_logger.event(
             incident_id="LOCKDOWN",
             guild_id=guild.id,
@@ -95,33 +101,38 @@ class LockdownManager:
                 error="Bot lacks Manage Channels permission"
             )
 
-        locked_channel_ids = self._active_lockdowns.get(guild.id) or []
+        original_overwrites = self._active_lockdowns.get(guild.id) or {}
         everyone = guild.default_role
         unlocked_count = 0
 
-        channels_to_unlock = [
-            guild.get_channel(cid) for cid in locked_channel_ids
-        ] if locked_channel_ids else list(guild.text_channels)
-
-        for ch in channels_to_unlock:
+        for channel_id, original_ow in original_overwrites.items():
+            ch = guild.get_channel(channel_id)
             if not ch or not isinstance(ch, discord.TextChannel):
-                continue
-            if ch.id in config.protected_channels or ch.id == config.security_log_channel_id:
                 continue
 
             try:
-                ow = ch.overwrites_for(everyone)
-                # Reset send_messages to None (neutral/inherit)
-                ow.send_messages = None
-                ow.send_messages_in_threads = None
-                ow.create_public_threads = None
-                ow.create_private_threads = None
-                await ch.set_permissions(everyone, overwrite=ow, reason="Lexus Security: Lockdown released")
+                await ch.set_permissions(
+                    everyone,
+                    overwrite=original_ow,
+                    reason="Lexus Security: Lockdown released"
+                )
                 unlocked_count += 1
-            except Exception:
-                continue
+            except Exception as e:
+                logger.warning(f"Could not restore channel {ch.name} in {guild.name}: {e}")
 
         self._active_lockdowns.delete(guild.id)
+
+        security_logger.event(
+            incident_id="LOCKDOWN",
+            guild_id=guild.id,
+            actor_id=None,
+            event_type="LOCKDOWN_RELEASED",
+            risk="CRITICAL",
+            score=0.0,
+            action="LOCKDOWN_RELEASE",
+            result="SUCCESS",
+            details=f"Restored {unlocked_count} channels to their pre-lockdown permissions"
+        )
         return ActionResult(
             success=True,
             action=SecurityActionType.LOCKDOWN,
