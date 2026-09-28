@@ -7,6 +7,7 @@ more appropriate than another prose-generation turn.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -209,7 +210,7 @@ class JevDecisionService:
         )
         if len(serialized) > self.max_state_chars:
             raise ValueError("state_too_large")
-        return state, serialized
+        return json.loads(serialized), serialized
 
     def _cache_key(self, state_json: str, questions: dict[str, Any]) -> str:
         material = json.dumps(
