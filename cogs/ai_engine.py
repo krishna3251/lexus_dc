@@ -277,12 +277,12 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         embed.add_field(name="Memory", value=memory_value, inline=True)
         research = health["research"]
         search_parts = []
+        if any(str(item).startswith("groq:") for item in providers):
+            search_parts.append("Groq Browser Search")
         if research.get("gemini_google"):
-            search_parts.append("Gemini Google")
+            search_parts.append("Gemini Google (fallback)")
         if research.get("google_cse"):
             search_parts.append("Google CSE")
-        if any(str(item).startswith("groq:") for item in providers):
-            search_parts.append("Groq")
         embed.add_field(
             name="Research",
             value=("✅ " + " + ".join(search_parts)) if search_parts else "❌ No live search provider",
