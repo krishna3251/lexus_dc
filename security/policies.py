@@ -68,9 +68,8 @@ class PolicyEngine:
                 return actions
 
             # Trusted/staff actors may legitimately perform structural changes.
-            # Do not automatically quarantine them from one signal. If another
-            # detector classifies the actor as suspicious, the normal containment
-            # path below can still engage.
+            # Do not automatically quarantine them from one structural signal.
+            # They remain visible to alerts and incident correlation for review.
             if actor_trust in (TrustLevel.TRUSTED, TrustLevel.STAFF):
                 return actions
 
