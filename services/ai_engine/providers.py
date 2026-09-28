@@ -219,8 +219,6 @@ class ProviderManager:
                 "No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY."
             )
 
-        now = time.monotonic()
-
         if web_search:
             groq_providers = [
                 item for item in self.providers
@@ -232,22 +230,10 @@ class ProviderManager:
                     "Groq's built-in browser search."
                 )
 
-            ordered = [
-                item for item in groq_providers
-                if self._cooldown_until.get(item.provider, 0.0) <= now
-            ]
-            if not ordered:
-                remaining = max(
-                    0.0,
-                    self._cooldown_until.get(
-                        AIProvider.GROQ,
-                        0.0,
-                    ) - now,
-                )
-                raise ProviderError(
-                    f"Groq browser search is temporarily cooling down for "
-                    f"{remaining:.0f}s."
-                )
+            # Keep Groq as the primary live-search provider. A previous
+            # cooldown never silently promotes Gemini; Groq must fail this
+            # request before the caller moves to Gemini research fallback.
+            ordered = groq_providers
         else:
             # Strict provider priority:
             #   1. Groq is always attempted first when configured.
