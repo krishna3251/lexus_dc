@@ -372,7 +372,11 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # Some deployments/extensions may already acknowledge an interaction before
+        # this command reaches the callback. Never send a second initial response.
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         report = await recovery_engine.analyze_damage(guild)
 
         embed = discord.Embed(title="Lexus Recovery Assessment", color=discord.Color.dark_green())
