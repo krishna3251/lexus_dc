@@ -100,6 +100,7 @@ class SecurityCog(commands.Cog, name="Security"):
             f"Join Gate: {'`Enabled`' if cfg.join_gate_enabled else '`Disabled`'}\n"
             f"Quarantine: {'`Ready`' if cfg.quarantine_role_id else '`Not configured`'}\n"
             f"Lockdown: {'`Active`' if lockdown_manager.is_locked_down(guild.id) else '`Ready`'}"
+            f"Audit Correlation: {'`Ready`' if guild.me and guild.me.guild_permissions.view_audit_log else '`Blocked`'}"
         )
         embed.add_field(name="Protection Modules", value=modules_text, inline=False)
 
