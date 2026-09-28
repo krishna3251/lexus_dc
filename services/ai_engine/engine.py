@@ -13,6 +13,7 @@ from services.cache import TTLCache
 
 from .context import ContextBuilder
 from .executor import ToolExecutor
+from .jev import JevDecisionService
 from .memory import AIMemoryService
 from .models import AIIntent, AIRequest, AIResult, ToolCall
 from .personality import HYDERABADI_STYLE
@@ -66,6 +67,7 @@ class AIEngine:
         self.telemetry = AITelemetry()
         self.memory = AIMemoryService()
         self.research = WebResearchService(provider_manager=self.providers)
+        self.jev = JevDecisionService()
         self._locks: TTLCache[int, asyncio.Lock] = TTLCache(
             max_size=5000,
             default_ttl=900.0,
@@ -97,6 +99,7 @@ class AIEngine:
             "memory_size_bytes": memory_health["size_bytes"],
             "web_search_available": self.research.health()["available"],
             "research": self.research.health(),
+            "jev": self.jev.health(),
             "provider_health": self.providers.health(),
             "telemetry": self.telemetry.snapshot(),
         }
@@ -106,12 +109,22 @@ class AIEngine:
         old_manager = self.providers
         self.providers = ProviderManager()
         await self.research.reload(self.providers)
+        await self.jev.reload()
         await old_manager.close()
 
     async def close(self) -> None:
         await self.providers.close()
         await self.memory.close()
         await self.research.close()
+        await self.jev.close()
+
+    async def evaluate_decision(
+        self,
+        state: Any,
+        questions: dict[str, Any],
+    ):
+        """Evaluate a narrow typed decision without invoking a chat model."""
+        return await self.jev.evaluate(state, questions)
 
     async def ask(
         self,
@@ -204,6 +217,24 @@ class AIEngine:
         ai_context,
         started: float,
     ) -> AIResult:
+        # Jev is used only as a conservative optimisation for read-oriented
+        # requests. It decides whether live Discord inspection is necessary;
+        # application policy still controls every actual tool execution.
+        if (
+            plan.allow_tools
+            and self.tools.names()
+            and route.intent.value in JevDecisionService.TOOL_GATE_INTENTS
+        ):
+            jev_use_tools = await self.jev.should_use_discord_tools(
+                request.prompt,
+                route.intent.value,
+            )
+            if jev_use_tools is False:
+                plan.allow_tools = False
+                plan.reason = (
+                    f"{plan.reason}; Jev classified live Discord tools as unnecessary"
+                )
+
         system = request.system_prompt or DEFAULT_SYSTEM_PROMPT
         system = (
             f"{system}\n\n"
