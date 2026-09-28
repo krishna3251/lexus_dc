@@ -249,24 +249,23 @@ class ProviderManager:
                     f"{remaining:.0f}s."
                 )
         else:
-            # Provider list order is intentional: Groq first, Gemini second.
-            # The first available provider is primary; subsequent providers
-            # are used as automatic fallback when the primary fails.
-            ordered = [
+            # Strict provider priority:
+            #   1. Groq is always attempted first when configured.
+            #   2. Gemini is attempted only when Groq fails.
+            #
+            # Cooldown telemetry is retained for health reporting, but it
+            # never changes the primary/fallback order. This prevents a
+            # previous transient Groq error from silently turning Gemini
+            # into the primary provider for subsequent requests.
+            groq = [
                 item for item in self.providers
-                if self._cooldown_until.get(item.provider, 0.0) <= now
+                if item.provider is AIProvider.GROQ
             ]
-
-            if not ordered:
-                ordered = [
-                    min(
-                        self.providers,
-                        key=lambda item: self._cooldown_until.get(
-                            item.provider,
-                            0.0,
-                        ),
-                    )
-                ]
+            gemini = [
+                item for item in self.providers
+                if item.provider is AIProvider.GEMINI
+            ]
+            ordered = groq + gemini
 
         errors: list[str] = []
 
