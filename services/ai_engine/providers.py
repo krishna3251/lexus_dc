@@ -161,18 +161,7 @@ class ProviderManager:
         except (TypeError, ValueError):
             self.provider_cooldown_seconds = 300.0
 
-        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
-        if gemini_key:
-            self.providers.append(
-                CompatibleProvider(
-                    AIProvider.GEMINI,
-                    gemini_key,
-                    self.GEMINI_BASE_URL,
-                    gemini_model or self.GEMINI_MODEL,
-                )
-            )
-
+        # Groq is the primary provider. Gemini is the fallback.
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key:
@@ -182,6 +171,18 @@ class ProviderManager:
                     groq_key,
                     self.GROQ_BASE_URL,
                     groq_model or self.GROQ_MODEL,
+                )
+            )
+
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
+        if gemini_key:
+            self.providers.append(
+                CompatibleProvider(
+                    AIProvider.GEMINI,
+                    gemini_key,
+                    self.GEMINI_BASE_URL,
+                    gemini_model or self.GEMINI_MODEL,
                 )
             )
 
@@ -215,7 +216,7 @@ class ProviderManager:
     ) -> ProviderReply:
         if not self.providers:
             raise ProviderError(
-                "No AI provider configured. Set GEMINI_API_KEY or GROQ_API_KEY."
+                "No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY."
             )
 
         now = time.monotonic()
@@ -248,6 +249,9 @@ class ProviderManager:
                     f"{remaining:.0f}s."
                 )
         else:
+            # Provider list order is intentional: Groq first, Gemini second.
+            # The first available provider is primary; subsequent providers
+            # are used as automatic fallback when the primary fails.
             ordered = [
                 item for item in self.providers
                 if self._cooldown_until.get(item.provider, 0.0) <= now
