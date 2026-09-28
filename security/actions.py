@@ -15,6 +15,7 @@ from security.models import (
     ActionResult,
     GuildSecurityConfig
 )
+from security.lockdown import lockdown_manager
 from security.event_tracker import TokenBucket
 from core.permissions import can_bot_act_on_member, can_bot_manage_role
 from core.logging import security_logger
@@ -366,23 +367,9 @@ class ActionEngine:
         if not bot.guild_permissions.manage_channels:
             return ActionResult(success=False, action=SecurityActionType.LOCKDOWN, error="Missing Manage Channels")
 
-        locked_count = 0
-        everyone = guild.default_role
-        for ch in guild.text_channels:
-            # Skip protected or log channels
-            if ch.id in config.protected_channels or ch.id == config.security_log_channel_id:
-                continue
-            try:
-                await ch.set_permissions(everyone, send_messages=False, reason=f"Lexus Lockdown: {reason}")
-                locked_count += 1
-            except Exception:
-                continue
-
-        return ActionResult(
-            success=True,
-            action=SecurityActionType.LOCKDOWN,
-            reason=f"Lockdown enabled on {locked_count} channels: {reason}"
-        )
+        # Use the central LockdownManager so automatic lockdowns are reversible
+        # through /security lockdown release as well as manual controls.
+        return await lockdown_manager.lock_guild(guild, reason, config)
 
 
 # Global action engine instance
