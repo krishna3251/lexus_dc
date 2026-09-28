@@ -1,6 +1,7 @@
 """Lexus AI Engine V3: provider abstraction, agent loop, and guarded Discord tools."""
 
 from .engine import AIEngine
+from .jev import JevAnswer, JevDecisionService, JevResult
 from .models import AIRequest, AIResult, AIProvider, AIIntent, RouteDecision, ToolCall
 from .providers import ProviderManager
 
@@ -13,4 +14,7 @@ __all__ = [
     "RouteDecision",
     "ToolCall",
     "ProviderManager",
+    "JevAnswer",
+    "JevResult",
+    "JevDecisionService",
 ]
