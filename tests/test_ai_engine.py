@@ -105,7 +105,7 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
             )
             await manager.close()
 
-    async def test_provider_failure_does_not_fallback_to_gemini(self):
+    async def test_provider_failure_does_not_use_a_second_provider(self):
         with patch.dict(
             os.environ,
             {"GROQ_API_KEY": "test-groq-key"},
