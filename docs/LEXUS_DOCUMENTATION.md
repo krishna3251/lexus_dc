@@ -33,7 +33,7 @@
 | Area | Current implementation |
 |---|---|
 | **Bot runtime** | `main.py` + dynamic cog discovery |
-| **AI** | Unified V3 engine with Groq/Gemini generation, Jev typed decisions, tools, memory, RAG, research |
+| **AI** | Unified V3 engine with Groq generation, Jev typed decisions, tools, memory, lexical RAG, research |
 | **Security** | V3 event pipeline with detectors, scoring, state machine, policy, actions |
 | **Persistence** | MongoDB for guild/features + SQLite for AI memory/RAG |
 | **Web service** | FastAPI health/stats endpoints |
@@ -111,7 +111,6 @@ flowchart TD
     CT --> JG[Jev Tool-Need Gate]
     JG --> PM[ProviderManager]
     PM --> GR[Groq]
-    PM --> GE[Gemini Fallback]
     GR --> T[Model Response / Tool Calls]
     GE --> T
     T --> V[ToolCallValidator]
@@ -1051,7 +1050,7 @@ python -m compileall .
 
 ## 24.2 Provider priority and model configuration
 
-The unified provider manager reads optional model overrides for Groq and Gemini, while keeping Groq as the strict primary and Gemini as the fallback.
+The unified provider manager uses Groq as the sole model provider.
 
 Jev does not belong in this generation provider chain. It is isolated in `services/ai_engine/jev.py` and uses the separate AI Gateway evaluation endpoint.
 
