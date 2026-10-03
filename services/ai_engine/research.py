@@ -302,7 +302,7 @@ class WebResearchService:
 
         # Primary live research path: Groq browser search.
         # This keeps the same provider priority as normal AI generation:
-        # Groq first, Gemini second.
+        # Groq is the only model-backed search path.
         if self.providers is not None:
             try:
                 reply = await self.providers.complete(
