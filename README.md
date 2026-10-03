@@ -87,8 +87,7 @@ A layered defensive engine for server protection.
 
 A provider-agnostic agent layer for reasoning and controlled Discord tools.
 
-- Groq primary provider
-- Gemini fallback provider
+- Groq AI provider
 - Jev typed decision layer via Vercel AI Gateway
 - Conservative Jev tool-need gate for read-oriented requests
 - Tool / function calling
@@ -167,7 +166,7 @@ Context Builder
 Execution Plan
      │
      ▼
-Groq / Gemini
+Groq
      │
      ▼
 Tool Validation
