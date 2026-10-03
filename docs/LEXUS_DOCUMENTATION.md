@@ -9,7 +9,7 @@
   <a href="https://github.com/krishna3251/lexus_dc"><img src="https://img.shields.io/badge/Repository-krishna3251%2Flexus__dc-111827?style=for-the-badge&logo=github" alt="Repository" /></a>
   <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-2.x-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
-  <img src="https://img.shields.io/badge/AI-Groq%20%2B%20Gemini%20%2B%20Jev-7C3AED?style=for-the-badge" alt="AI" />
+  <img src="https://img.shields.io/badge/AI-Groq%20%2B%20Jev-7C3AED?style=for-the-badge" alt="AI" />
   <img src="https://img.shields.io/badge/Security-V3-E11D48?style=for-the-badge" alt="Security V3" />
 </p>
 
@@ -297,7 +297,7 @@ The default prefix is `lx `, and direct bot mentions are also accepted.
 
 The V3 AI engine defines:
 
-- `AIProvider`: `groq`, `gemini`
+- `AIProvider`: `groq`
 - `AIIntent`: `chat`, `server_query`, `security_query`, `action_request`, `help`, `search`, `unknown`
 - **Jev decision layer:** separate typed evaluation service for narrow decisions; it is not part of the generative provider enum.
 
@@ -397,16 +397,16 @@ The unified provider manager uses OpenAI-compatible adapters with strict generat
 | Layer | Current default |
 |---|---|
 | Primary generation | Groq · `openai/gpt-oss-120b` |
-| Generation fallback | Gemini · `gemini-3.8-flash` |
+| Generation provider | Groq · `openai/gpt-oss-120b` |
 | Decision layer | Jev · `typesafe-ai/jev` through Vercel AI Gateway |
 
-Groq remains first for generation. A previous cooldown does not silently promote Gemini. Jev is a separate decision path and never becomes a generation fallback.
+Groq is the sole generation provider. Jev is a separate decision path and never becomes a generation provider.
 
 Transient generation failures can place a provider into cooldown. The current default cooldown is 300 seconds.
 
 ### Unified vs legacy AI
 
-The unified `services/ai_engine/` path currently uses Gemini and Groq.
+The unified `services/ai_engine/` path uses Groq as the sole model provider.
 
 The repository also contains older AI paths, notably `chat_lex.py` and `coder_lex.py`, which still use other integrations such as OpenRouter and NVIDIA. Those should not be confused with the V3 provider manager.
 
@@ -483,11 +483,10 @@ The RAG store is bounded by a maximum item count.
 
 ## 6.3 Embeddings
 
-Gemini embeddings are used when configured:
+External embeddings are no longer required:
 
 ```env
-GEMINI_EMBEDDING_MODEL=gemini-embedding-2
-GEMINI_EMBEDDING_DIMENSIONS=768
+RAG uses bounded lexical retrieval
 ```
 
 ## 6.4 Research pipeline
@@ -497,7 +496,7 @@ The research coordinator follows this general order:
 1. deterministic query planning
 2. local RAG recall
 3. Groq browser search as the primary live path
-4. Gemini Google grounding as the live-search fallback
+4. Google Custom Search as the structured live-search fallback
 5. Google Custom Search, when available
 6. cached RAG-only answer when live research is unavailable
 
