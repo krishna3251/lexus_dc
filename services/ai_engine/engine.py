@@ -534,8 +534,6 @@ class AIEngine:
 def provider_from_string(name: str):
     from .models import AIProvider
     value = (name or "").casefold()
-    if value == "gemini":
-        return AIProvider.GEMINI
     if value == "groq":
         return AIProvider.GROQ
     return None
