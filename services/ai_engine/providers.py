@@ -1,4 +1,4 @@
-"""OpenAI-compatible adapters for Gemini and Groq with failover."""
+"""OpenAI-compatible Groq provider adapter."""
 
 from __future__ import annotations
 
@@ -140,11 +140,6 @@ class CompatibleProvider:
 class ProviderManager:
     """Provider chain with transient-failure cooldowns and search routing."""
 
-    GEMINI_MODEL = "gemini-3.8-flash"
-    GEMINI_BASE_URL = (
-        "https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
-
     GROQ_MODEL = "openai/gpt-oss-120b"
     GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -161,7 +156,7 @@ class ProviderManager:
         except (TypeError, ValueError):
             self.provider_cooldown_seconds = 300.0
 
-        # Groq is the primary provider. Gemini is the fallback.
+        # Groq is the sole AI generation provider.
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key:
@@ -171,18 +166,6 @@ class ProviderManager:
                     groq_key,
                     self.GROQ_BASE_URL,
                     groq_model or self.GROQ_MODEL,
-                )
-            )
-
-        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
-        if gemini_key:
-            self.providers.append(
-                CompatibleProvider(
-                    AIProvider.GEMINI,
-                    gemini_key,
-                    self.GEMINI_BASE_URL,
-                    gemini_model or self.GEMINI_MODEL,
                 )
             )
 
@@ -215,9 +198,7 @@ class ProviderManager:
         web_search: bool = False,
     ) -> ProviderReply:
         if not self.providers:
-            raise ProviderError(
-                "No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY."
-            )
+            raise ProviderError("No AI provider configured. Set GROQ_API_KEY.")
 
         if web_search:
             groq_providers = [
@@ -230,28 +211,10 @@ class ProviderManager:
                     "Groq's built-in browser search."
                 )
 
-            # Keep Groq as the primary live-search provider. A previous
-            # cooldown never silently promotes Gemini; Groq must fail this
-            # request before the caller moves to Gemini research fallback.
+            # Groq is the only live-search provider.
             ordered = groq_providers
         else:
-            # Strict provider priority:
-            #   1. Groq is always attempted first when configured.
-            #   2. Gemini is attempted only when Groq fails.
-            #
-            # Cooldown telemetry is retained for health reporting, but it
-            # never changes the primary/fallback order. This prevents a
-            # previous transient Groq error from silently turning Gemini
-            # into the primary provider for subsequent requests.
-            groq = [
-                item for item in self.providers
-                if item.provider is AIProvider.GROQ
-            ]
-            gemini = [
-                item for item in self.providers
-                if item.provider is AIProvider.GEMINI
-            ]
-            ordered = groq + gemini
+            ordered = list(self.providers)
 
         errors: list[str] = []
 
