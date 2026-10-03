@@ -174,7 +174,7 @@ class AIEngine:
         if not self.available:
             result = AIResult(
                 success=False,
-                text="AI engine is not configured. Add GEMINI_API_KEY or GROQ_API_KEY.",
+                text="AI engine is not configured. Add GROQ_API_KEY.",
                 intent=route.intent,
                 confidence=route.confidence,
                 error="no_provider",
