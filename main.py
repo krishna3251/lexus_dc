@@ -165,6 +165,13 @@ class Bot(commands.Bot):
         except Exception as e:
             logging.error(f"Error stopping security engine: {e}")
 
+        orchestrator = getattr(self, "orchestrator", None)
+        if orchestrator is not None:
+            try:
+                await orchestrator.close()
+            except Exception as e:
+                logging.error(f"Error closing Lexus orchestrator: {e}")
+
         if MONGO_AVAILABLE and mongo_helper:
             try:
                 await mongo_helper.disconnect()

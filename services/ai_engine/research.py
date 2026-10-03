@@ -4,8 +4,7 @@ Pipeline:
 1. deterministic query planning
 2. local RAG recall from cached research/memory artifacts
 3. Groq browser search as the primary live research path
-4. live Google Search grounding through Gemini as the research fallback
-5. Google Custom Search fallback
+4. Google Custom Search fallback
 6. source deduplication and quality scoring
 7. compact evidence packaging for the answer model
 8. asynchronous caching into the local SQLite vector store
@@ -124,154 +123,6 @@ class ResearchPlanner:
         )
 
 
-class GeminiGoogleResearch:
-    ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
-
-    def __init__(self) -> None:
-        self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        self.model = os.getenv("GEMINI_RESEARCH_MODEL", "gemini-3.8-flash").strip()
-
-    @property
-    def available(self) -> bool:
-        return bool(self.api_key)
-
-    async def search(
-        self,
-        prompt: str,
-        *,
-        rag_context: str = "",
-        deep: bool = False,
-    ) -> ResearchResult:
-        if not self.available:
-            return ResearchResult(False, error="gemini_search_not_configured")
-
-        depth_instruction = (
-            "Perform a multi-query research pass and cross-check important claims across independent sources."
-            if deep
-            else "Perform a focused search pass and use multiple sources when the topic is news or otherwise contentious."
-        )
-        instructions = f"""
-Research the user's request using Google Search.
-User request: {prompt}
-
-You are the evidence-gathering stage of a production answer system.
-{depth_instruction}
-- Search the live web for current facts.
-- Write the final answer like a natural, direct chat response, not a research report.
-- Never say or imply that "Lexus" is speaking about itself. Never use phrases such as "Lexus says", "Lexus found", or "according to Lexus".
-- Do not create markdown tables unless the user explicitly asks for a table.
-- Do not add report-style headers such as "AI Headlines", "Analysis", "Quick takeaways", "Key findings", or a dramatic concluding summary unless the user explicitly asks for that structure.
-- For news, prefer a short heading followed by concise bullet points. Each bullet should have a clear headline and the useful fact in 1-3 sentences.
-- Preserve the user's language and tone. Do not force English, Hindi, or Hinglish when another language fits better.
-- Do not add filler, repeated conclusions, or editorial-sounding wrap-up. Answer the user's request and stop.
-- For news/current events, prefer multiple independent reputable sources.
-- Prefer primary/official sources when they exist.
-- Cross-check important claims instead of relying on one snippet.
-- Do not treat cached context below as authoritative. Use it only as a lead.
-- Return a concise factual answer, with uncertainty stated where evidence conflicts.
-- Do not expose hidden chain-of-thought. Give only the answer and source-grounded facts.
-- The application will separately display source links.
-
-Cached RAG context:
-{rag_context or "(none)"}
-""".strip()
-        payload = {
-            "model": self.model,
-            "input": instructions,
-            "tools": [{"type": "google_search"}],
-        }
-        timeout = aiohttp.ClientTimeout(total=35)
-        headers = {
-            "x-goog-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    self.ENDPOINT,
-                    json=payload,
-                    headers=headers,
-                ) as response:
-                    body = await response.json(content_type=None)
-                    if response.status != 200:
-                        raise RuntimeError(
-                            f"Gemini search failed ({response.status}): "
-                            f"{str(body)[:500]}"
-                        )
-        except Exception as exc:
-            logger.warning("Gemini Google Search failed: %s", exc)
-            return ResearchResult(False, error=f"gemini_search_failed:{type(exc).__name__}")
-
-        answer = str(body.get("output_text") or "").strip()
-        sources: list[ResearchSource] = []
-        executed_queries: list[str] = []
-
-        steps = body.get("steps") or body.get("output") or []
-        if isinstance(steps, list):
-            for step in steps:
-                if not isinstance(step, dict):
-                    continue
-                step_type = step.get("type")
-                if step_type == "google_search_call":
-                    args = step.get("arguments") or {}
-                    queries = args.get("queries") or []
-                    executed_queries.extend(str(q)[:500] for q in queries)
-                if step_type != "model_output":
-                    continue
-                blocks = step.get("content") or []
-                for block in blocks:
-                    if not isinstance(block, dict) or block.get("type") != "text":
-                        continue
-                    if not answer:
-                        answer = str(block.get("text") or "").strip()
-                    for annotation in block.get("annotations") or []:
-                        if not isinstance(annotation, dict):
-                            continue
-                        if annotation.get("type") != "url_citation":
-                            continue
-                        url = str(annotation.get("url") or "").strip()
-                        if not url:
-                            continue
-                        sources.append(
-                            ResearchSource(
-                                source_id=f"S{len(sources)+1}",
-                                title=str(annotation.get("title") or self._domain(url)),
-                                url=url[:1500],
-                                snippet="",
-                                domain=self._domain(url),
-                                provider="gemini_google_search",
-                            )
-                        )
-
-        deduped: list[ResearchSource] = []
-        seen = set()
-        for source in sources:
-            key = source.url.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            source.source_id = f"S{len(deduped)+1}"
-            deduped.append(source)
-
-        return ResearchResult(
-            success=bool(answer or deduped),
-            answer=answer,
-            sources=deduped,
-            queries=list(dict.fromkeys(executed_queries)),
-            provider="gemini",
-            model=self.model,
-            mode="google_grounding",
-        )
-
-    @staticmethod
-    def _domain(url: str) -> str:
-        try:
-            return urlparse(url).netloc.removeprefix("www.")
-        except Exception:
-            return ""
-
-
 class GoogleCSEResearch:
     ENDPOINT = "https://www.googleapis.com/customsearch/v1"
 
@@ -363,7 +214,7 @@ class GoogleCSEResearch:
 
 
 class WebResearchService:
-    """Production research coordinator with RAG and provider fallbacks."""
+    """Production research coordinator with Groq/CSE research and local RAG."""
 
     def __init__(
         self,
@@ -372,14 +223,12 @@ class WebResearchService:
     ) -> None:
         self.providers = provider_manager
         self.rag = rag or RAGStore()
-        self.gemini = GeminiGoogleResearch()
         self.google = GoogleCSEResearch()
         self._initialized = False
 
     def health(self) -> dict[str, object]:
         return {
-            "available": self.gemini.available or self.google.available or bool(self.providers and self.providers.available),
-            "gemini_google": self.gemini.available,
+            "available": bool(self.google.available or (self.providers and self.providers.available)),
             "google_cse": self.google.available,
             "rag": self.rag.health(),
         }
@@ -442,14 +291,7 @@ class WebResearchService:
     async def reload(self, provider_manager: ProviderManager | None = None) -> None:
         """Reload research and embedding credentials from the current environment."""
         self.providers = provider_manager
-        try:
-            await self.rag.embedder.close()
-        except Exception:
-            logger.debug("Ignoring embedding session close failure during reload")
-        self.gemini = GeminiGoogleResearch()
         self.google = GoogleCSEResearch()
-        from .embeddings import GeminiEmbeddingService
-        self.rag.embedder = GeminiEmbeddingService()
 
     async def research(self, prompt: str) -> ResearchResult:
         await self.initialize()
@@ -483,22 +325,7 @@ class WebResearchService:
                         rag_hits=len(rag_result.items),
                     )
             except ProviderError as exc:
-                logger.info("Groq browser-search primary failed; trying Gemini research: %s", exc)
-
-        # Fallback live research path: Google grounding through Gemini.
-        if self.gemini.available:
-            grounded = await self.gemini.search(
-                prompt,
-                rag_context=rag_context,
-                deep=plan.deep,
-            )
-            if grounded.success:
-                grounded.sources = self._quality_sorted(grounded.sources)
-                for index, source in enumerate(grounded.sources, start=1):
-                    source.source_id = f"S{index}"
-                await self._cache_grounded_answer(prompt, grounded)
-                grounded.rag_hits = len(rag_result.items)
-                return grounded
+                logger.info("Groq browser-search failed; trying Google Custom Search: %s", exc)
 
         # Structured fallback: Google Custom Search.
         if self.google.available:
@@ -540,33 +367,6 @@ class WebResearchService:
             queries=plan.queries,
             mode="unavailable",
             error="no_search_provider",
-        )
-
-    async def _cache_grounded_answer(
-        self,
-        prompt: str,
-        result: ResearchResult,
-    ) -> None:
-        source_text = "\n".join(
-            f"{source.title}\n{source.url}\n{source.snippet}"
-            for source in result.sources[:6]
-        )
-        text = result.answer.strip()
-        if source_text:
-            text += "\n\nSources:\n" + source_text
-        await self.rag.add(
-            title=f"Research: {prompt[:180]}",
-            text=text[:8000],
-            url=None,
-            domain="gemini-grounding",
-            source_type="research",
-            metadata={
-                "queries": result.queries,
-                "provider": result.provider,
-                "sources": [source.url for source in result.sources[:10]],
-            },
-            ttl_seconds=24 * 60 * 60,
-            embed=True,
         )
 
     @staticmethod

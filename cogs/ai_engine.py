@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.ai_engine.engine import AIEngine
+from services.orchestrator import LexusOrchestrator
 from services.ai_engine.models import AIRequest
 from services.ai_engine.tools import ToolContext
 from services.cache import TTLCache
@@ -51,7 +52,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.engine = AIEngine()
+        self.orchestrator = LexusOrchestrator()
+        self.engine = self.orchestrator.engine
         self.engine.register_default_tools(bot)
         self._handled_messages: TTLCache[int, bool] = TTLCache(
             max_size=10000,
@@ -60,6 +62,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
     async def cog_load(self) -> None:
         self.bot.ai_engine = self.engine
+        self.bot.orchestrator = self.orchestrator
         await self.engine.memory.initialize()
         await self.engine.research.initialize()
         memory_health = self.engine.memory.health()
@@ -73,7 +76,9 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def cog_unload(self) -> None:
         if getattr(self.bot, "ai_engine", None) is self.engine:
             delattr(self.bot, "ai_engine")
-        await self.engine.close()
+        if getattr(self.bot, "orchestrator", None) is self.orchestrator:
+            delattr(self.bot, "orchestrator")
+        await self.orchestrator.close()
 
     async def _run(
         self,
@@ -88,7 +93,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             channel_id=channel.id if channel else None,
             prompt=prompt,
         )
-        result = await self.engine.ask(
+        result = await self.orchestrator.ask(
             request,
             ToolContext(
                 bot=self.bot,
@@ -328,7 +333,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def ai_status(self, ctx: commands.Context) -> None:
         providers = self.engine.provider_names or ["none"]
         tools = len(self.engine.tools.names())
-        health = self.engine.health()
+        health = self.orchestrator.health()
         embed = discord.Embed(
             title="Lexus AI Engine",
             color=discord.Color.green() if self.engine.available else discord.Color.red(),
@@ -344,7 +349,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             inline=False,
         )
         embed.add_field(name="Tools", value=str(tools), inline=True)
-
+        embed.add_field(\n            name="Behavior Sessions",\n            value=str(health["orchestrator"]["active_behavior_sessions"]),\n            inline=True,\n        )\n
         memory_value = (
             "✅ SQLite"
             if health["memory_available"]

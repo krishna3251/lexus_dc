@@ -57,6 +57,8 @@ The repository also contains a substantial set of legacy/feature cogs for modera
 The most important architectural rule is:
 
 > **Decision is separate from generation.**
+>
+> The high-level `LexusOrchestrator` performs the conversational lifecycle and behavioral decisioning first. `AIEngine` remains the generation/tool layer.
 
 The AI model can interpret a request and propose a tool call, but application code remains responsible for validation, permissions, hierarchy, safety policy, execution limits, and the final Discord mutation.
 
@@ -95,9 +97,14 @@ flowchart TD
 
 ### 2.2 AI request pipeline
 
+The Discord-facing lifecycle now follows the Rukiya V2 separation while retaining
+Lexus V3's guarded tool and provider stack:
+
 ```mermaid
 flowchart TD
-    U[User Request] --> R[RequestRouter]
+    U[Discord Message / Command] --> O[LexusOrchestrator]
+    O --> B[Deterministic Behavior Engine]
+    B --> R[RequestRouter]
     R --> G[SafetyGate]
     G --> PL[Planner]
     PL --> CT[ContextBuilder]
@@ -161,8 +168,10 @@ lexus_dc/
 │   ├── database.py
 │   ├── cache.py
 │   ├── snapshots.py
+│   ├── orchestrator.py
 │   └── ai_engine/
 │       ├── __init__.py
+│       ├── behavior.py
 │       ├── models.py
 │       ├── providers.py
 │       ├── router.py

@@ -48,8 +48,8 @@ class JevDecisionService:
     """Small HTTP client for Jev through Vercel AI Gateway.
 
     This service is deliberately not part of ProviderManager because Jev does
-    typed decisions rather than chat completions. The normal Groq -> Gemini
-    generation chain stays untouched.
+    typed decisions rather than chat completions. Groq remains the sole
+    generation provider.
     """
 
     ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate"
