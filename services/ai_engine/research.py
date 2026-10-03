@@ -9,7 +9,7 @@ Pipeline:
 7. compact evidence packaging for the answer model
 8. asynchronous caching into the local SQLite vector store
 
-The pipeline keeps chain-of-thought private. It records only bounded, operational
+The pipeline keeps internal reasoning private. It records only bounded, operational
 research metadata such as search queries, providers, source counts, and scores.
 """
 
@@ -289,7 +289,7 @@ class WebResearchService:
         )
 
     async def reload(self, provider_manager: ProviderManager | None = None) -> None:
-        """Reload research and embedding credentials from the current environment."""
+        """Reload research provider credentials from the current environment."""
         self.providers = provider_manager
         self.google = GoogleCSEResearch()
 
