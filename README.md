@@ -227,7 +227,7 @@ Jev (typesafe-ai/jev)
         └── conservative tool-need gate
 ```
 
-Jev is intentionally separate from the Groq/Gemini generation chain. It never receives permission to execute Discord mutations. Its current Lexus integration is a narrow optimization that can remove unnecessary live-tool schemas from read-oriented requests.
+Jev is intentionally separate from the Groq generation chain. It never receives permission to execute Discord mutations. Its current Lexus integration is a narrow optimization that can remove unnecessary live-tool schemas from read-oriented requests.
 
 Every mutation still passes application-side checks before a Discord API call is attempted.
 
@@ -337,8 +337,7 @@ lexus_dc/
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
   <img src="https://img.shields.io/badge/Groq-000000?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" />
-  <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
-  <img src="https://img.shields.io/badge/TypeSafe_Jev-7C3AED?style=for-the-badge" alt="TypeSafe Jev" />
+    <img src="https://img.shields.io/badge/TypeSafe_Jev-7C3AED?style=for-the-badge" alt="TypeSafe Jev" />
   <img src="https://img.shields.io/badge/OpenRouter-111827?style=for-the-badge" alt="OpenRouter" />
   <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
