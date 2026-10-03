@@ -92,68 +92,46 @@ class FakeToolContext:
 
 
 class TestAIEngine(unittest.IsolatedAsyncioTestCase):
-    async def test_provider_manager_is_strictly_groq_first(self):
+    async def test_provider_manager_uses_groq_only(self):
         with patch.dict(
             os.environ,
-            {
-                "GROQ_API_KEY": "test-groq-key",
-                "GEMINI_API_KEY": "test-gemini-key",
-            },
+            {"GROQ_API_KEY": "test-groq-key"},
             clear=False,
         ):
             manager = ProviderManager()
             self.assertEqual(
                 [provider.provider for provider in manager.providers],
-                [AIProvider.GROQ, AIProvider.GEMINI],
+                [AIProvider.GROQ],
             )
             await manager.close()
 
-    async def test_provider_failover_calls_groq_before_gemini(self):
+    async def test_provider_failure_does_not_fallback_to_gemini(self):
         with patch.dict(
             os.environ,
-            {
-                "GROQ_API_KEY": "test-groq-key",
-                "GEMINI_API_KEY": "test-gemini-key",
-            },
+            {"GROQ_API_KEY": "test-groq-key"},
             clear=False,
         ):
             manager = ProviderManager()
-            calls: list[str] = []
 
             async def groq_fails(**kwargs):
-                calls.append("groq")
                 raise ProviderError("groq request failed: 503")
 
-            async def gemini_succeeds(**kwargs):
-                calls.append("gemini")
-                return ProviderReply(
-                    provider=AIProvider.GEMINI,
-                    model="fallback",
-                    assistant_message={"role": "assistant", "content": "fallback"},
-                    text="fallback",
+            manager.providers[0].complete = groq_fails
+
+            with self.assertRaises(ProviderError) as error:
+                await manager.complete(
+                    messages=[{"role": "user", "content": "hello"}],
+                    tools=[],
+                    max_output_tokens=100,
                 )
 
-            manager.providers[0].complete = groq_fails
-            manager.providers[1].complete = gemini_succeeds
-            manager._cooldown_until[AIProvider.GROQ] = 9999999999.0
-
-            reply = await manager.complete(
-                messages=[{"role": "user", "content": "hello"}],
-                tools=[],
-                max_output_tokens=100,
-            )
-
-            self.assertEqual(calls, ["groq", "gemini"])
-            self.assertEqual(reply.provider, AIProvider.GEMINI)
+            self.assertIn("All AI providers failed", str(error.exception))
             await manager.close()
 
-    async def test_web_search_does_not_skip_groq_due_to_cooldown(self):
+    async def test_web_search_uses_groq_only(self):
         with patch.dict(
             os.environ,
-            {
-                "GROQ_API_KEY": "test-groq-key",
-                "GEMINI_API_KEY": "test-gemini-key",
-            },
+            {"GROQ_API_KEY": "test-groq-key"},
             clear=False,
         ):
             manager = ProviderManager()
@@ -169,8 +147,6 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
                 )
 
             manager.providers[0].complete = groq_search
-            manager._cooldown_until[AIProvider.GROQ] = 9999999999.0
-
             reply = await manager.complete(
                 messages=[{"role": "user", "content": "latest news"}],
                 tools=[],
