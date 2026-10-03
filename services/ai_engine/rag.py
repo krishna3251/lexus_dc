@@ -1,9 +1,8 @@
-"""Low-storage hybrid RAG for Lexus AI.
+"""Low-storage lexical RAG for Lexus AI.
 
-Uses the same local SQLite database as AI memory. Embeddings are stored as
-compact float32 BLOBs. Retrieval combines semantic cosine similarity with
-lexical overlap, freshness, and source-quality signals. No external vector
-database is required.
+Uses the same local SQLite database as AI memory. Retrieval combines lexical
+overlap, freshness, and source-quality signals. No external embedding API or
+vector database is required.
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ class RAGResult:
 
 
 class RAGStore:
-    """Bounded local vector store with hybrid retrieval."""
+    """Bounded local SQLite store with lexical retrieval."""
 
     def __init__(
         self,
@@ -255,8 +254,6 @@ class RAGStore:
         content_hash = hashlib.sha256(
             f"{title}\n{text}\n{url or ''}".encode("utf-8")
         ).hexdigest()
-        # Gemini embeddings were removed. RAG remains available through
-        # bounded lexical retrieval, which requires no external AI credential.
         embedding_blob = None
         dimensions = None
         model = "lexical"
