@@ -410,7 +410,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         embed.add_field(
             name="Models",
-            value="openai/gpt-oss-120b (Groq primary)\ngemini-3.8-flash (fallback)\ntypesafe-ai/jev (typed decisions)",
+            value="openai/gpt-oss-120b (Groq)\ntypesafe-ai/jev (typed decisions)",
             inline=False,
         )
         await ctx.send(embed=embed)
