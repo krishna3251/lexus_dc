@@ -1315,7 +1315,49 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             return
         
         session.last_activity = current_time
+
+        # The unified Rukiya-style orchestrator is now the canonical path for
+        # manual chat as well as configured AI channels. Legacy behavioral code
+        # remains below only as a fallback/debug surface.
+        orchestrator = getattr(self.bot, "orchestrator", None)
+        if orchestrator is not None:
+            try:
+                request = AIRequest(
+                    user_id=ctx.author.id,
+                    guild_id=ctx.guild.id if ctx.guild else None,
+                    channel_id=ctx.channel.id if ctx.channel else None,
+                    prompt=message,
+                    max_output_tokens=700,
+                    max_iterations=4,
+                )
+                async with ctx.typing():
+                    result = await orchestrator.ask(
+                        request,
+                        ToolContext(
+                            bot=self.bot,
+                            guild=ctx.guild,
+                            channel=ctx.channel,
+                            user=ctx.author,
+                        ),
+                    )
+                response = result.text.strip()
+                if response:
+                    if len(response) > 1900:
+                        for i in range(0, len(response), 1900):
+                            await ctx.send(response[i:i + 1900])
+                            if i + 1900 < len(response):
+                                await asyncio.sleep(0.2)
+                    else:
+                        await ctx.send(response)
+                return
+            except Exception:
+                logger.exception("Unified Lexus orchestrator failed in !chat")
+                await ctx.send(
+                    "Arre yaar, AI pipeline mein abhi thoda scene hai. Ek baar phir try karo."
+                )
+                return
         
+        # Legacy fallback
         # Perform behavioral analysis
         try:
             context = self.analyzer.analyze(message, session)
