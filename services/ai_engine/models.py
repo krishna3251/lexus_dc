@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 class AIProvider(str, Enum):
     GROQ = "groq"
-    GEMINI = "gemini"
 
 
 class AIIntent(str, Enum):
