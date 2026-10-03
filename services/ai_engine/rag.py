@@ -20,8 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .embeddings import GeminiEmbeddingService
-
 DEFAULT_SQLITE_PATH = "/home/container/data/lexus_ai.sqlite3"
 
 
@@ -45,8 +43,8 @@ class RAGItem:
 class RAGResult:
     items: list[RAGItem]
     backend: str = "sqlite"
-    embedding_model: str = "gemini-embedding-2"
-    embedding_dimensions: int = 768
+    embedding_model: str = "lexical"
+    embedding_dimensions: int = 0
 
 
 class RAGStore:
@@ -64,9 +62,7 @@ class RAGStore:
         self.db_path = Path(configured or DEFAULT_SQLITE_PATH).expanduser()
         self.max_items = max(100, int(max_items))
         self.default_ttl_seconds = max(3600, int(default_ttl_seconds))
-        self.embedder = GeminiEmbeddingService()
         self._initialized = False
-        self._embed_semaphore = asyncio.Semaphore(2)
 
     @property
     def available(self) -> bool:
@@ -91,8 +87,8 @@ class RAGStore:
             "path": str(self.db_path),
             "size_bytes": size,
             "items": count,
-            "embedding_model": self.embedder.model,
-            "embedding_dimensions": self.embedder.dimensions,
+            "embedding_model": "lexical",
+            "embedding_dimensions": 0,
         }
 
     def _connect(self) -> sqlite3.Connection:
@@ -259,18 +255,11 @@ class RAGStore:
         content_hash = hashlib.sha256(
             f"{title}\n{text}\n{url or ''}".encode("utf-8")
         ).hexdigest()
+        # Gemini embeddings were removed. RAG remains available through
+        # bounded lexical retrieval, which requires no external AI credential.
         embedding_blob = None
         dimensions = None
-        model = None
-        if embed and self.embedder.available:
-            try:
-                async with self._embed_semaphore:
-                    vector = await self.embedder.embed_document(title, text)
-                embedding_blob = self._pack(vector)
-                dimensions = len(vector)
-                model = self.embedder.model
-            except Exception:
-                embedding_blob = None
+        model = "lexical"
         expires_at = time.time() + (ttl_seconds or self.default_ttl_seconds)
 
         def write() -> None:
@@ -326,14 +315,8 @@ class RAGStore:
         if not query:
             return RAGResult([])
 
+        # Retrieval is lexical-only after removing the external embedding service.
         query_vector: list[float] = []
-        if self.embedder.available:
-            try:
-                async with self._embed_semaphore:
-                    query_vector = await self.embedder.embed_query(query)
-            except Exception:
-                query_vector = []
-
         def read() -> list[sqlite3.Row]:
             conn = self._connect()
             try:
@@ -405,4 +388,4 @@ class RAGStore:
 
 
     async def close(self) -> None:
-        await self.embedder.close()
+        return None
