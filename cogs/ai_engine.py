@@ -333,7 +333,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def ai_status(self, ctx: commands.Context) -> None:
         providers = self.engine.provider_names or ["none"]
         tools = len(self.engine.tools.names())
-        health = self.engine.health()
+        health = self.orchestrator.health()
         embed = discord.Embed(
             title="Lexus AI Engine",
             color=discord.Color.green() if self.engine.available else discord.Color.red(),
@@ -349,7 +349,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             inline=False,
         )
         embed.add_field(name="Tools", value=str(tools), inline=True)
-
+        embed.add_field(\n            name="Behavior Sessions",\n            value=str(health["orchestrator"]["active_behavior_sessions"]),\n            inline=True,\n        )\n
         memory_value = (
             "✅ SQLite"
             if health["memory_available"]
