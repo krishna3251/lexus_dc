@@ -42,7 +42,7 @@ class LexusOrchestrator:
 
     @property
     def active_behavior_sessions(self) -> int:
-        return self._sessions.size
+        return len(self._sessions)
 
     def _session_key(self, request: AIRequest) -> tuple[int, int, int]:
         return (
