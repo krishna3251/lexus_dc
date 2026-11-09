@@ -36,7 +36,9 @@
 > [!IMPORTANT]
 > **Lexus is a private, non-self-hostable project.**
 >
-> This repository is intended for **project documentation, technical reference, feature showcase, architecture, and development history**. Installation, deployment, configuration, credential setup, and self-hosting instructions are intentionally not provided.
+> This repository is intended for **project documentation, technical reference, feature showcase, architecture, and development history**. The requested Brain V2 upgrade includes a maintainer configuration reference; this is not a public hosted service or a self-hosting support commitment.
+
+**Lxeus Brain V2:** the existing engine now supports deterministic offline skills, isolated opt-in memory, optional loopback inference, bounded requests, adaptive style, and confirmation-gated AI mutations. See the [implementation, configuration and verification report](docs/LXEUS_BRAIN_V2.md), [environment reference](.env.example), and [measured benchmarks](docs/brain_benchmarks.json).
 
 ## 🧠 What is Lexus?
 
@@ -90,7 +92,9 @@ A provider-agnostic agent layer for reasoning and controlled Discord tools.
 - Groq primary provider
 - Gemini fallback provider
 - Jev typed decision layer via Vercel AI Gateway
-- Conservative Jev tool-need gate for read-oriented requests
+- Deterministic routing; Jev retained for explicit typed evaluations
+- Local skills and optional text-only local inference
+- Private memory controls and opt-in persistent conversation history
 - Tool / function calling
 - Local request routing
 - Context building
@@ -158,7 +162,7 @@ Local Router
 Safety Gate
      │
      ▼
-Jev Tool-Need Gate ──► skip unnecessary Discord tool schemas
+Local Skills / Optional Local Model / External Fallback
      │
      ▼
 Context Builder
@@ -225,12 +229,12 @@ Jev (typesafe-ai/jev)
         ├── typed boolean / choice / score
         ├── compact decision state
         ├── short-lived result cache
-        └── conservative tool-need gate
+        └── explicit typed evaluation API
 ```
 
-Jev is intentionally separate from the Groq/Gemini generation chain. It never receives permission to execute Discord mutations. Its current Lexus integration is a narrow optimization that can remove unnecessary live-tool schemas from read-oriented requests.
+Jev is intentionally separate from the Groq/Gemini generation chain. It never receives permission to execute Discord mutations. Brain V2 retains it for explicit typed evaluations; ordinary request routing is local and does not invoke Jev.
 
-Every mutation still passes application-side checks before a Discord API call is attempted.
+Every AI mutation now requires a scoped, one-use confirmation before application-side checks and a Discord API call. Native moderation commands keep their existing permission path.
 
 That means:
 
@@ -466,7 +470,7 @@ These are architectural constraints, not decorative slogans.
 | Jev decision layer | 🟢 Implemented |
 | AI tool-calling foundation | 🟢 Implemented |
 | AI routing / safety / execution layers | 🟢 Implemented |
-| AI long-term memory | 🟡 Planned |
+| AI approved long-term memory and privacy controls | 🟢 Implemented |
 | Advanced planner / reasoning improvements | 🟡 In development |
 | Full migration of legacy AI cogs | 🟡 Planned |
 | Production-scale AI benchmark suite | 🟡 In development |

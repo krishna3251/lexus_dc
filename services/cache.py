@@ -14,7 +14,7 @@ V = TypeVar("V")
 
 class TTLCache(Generic[K, V]):
     """
-    Thread-safe, bounded LRU cache with per-item TTL expiration.
+    Event-loop-owned bounded LRU cache with per-item TTL expiration.
     Automatically evicts the oldest items when max_size is reached,
     and strips expired entries on retrieval or explicit cleanup.
     """
@@ -77,3 +77,7 @@ class TTLCache(Generic[K, V]):
 
     def clear(self) -> None:
         self._store.clear()
+
+    def keys(self) -> tuple[K, ...]:
+        self.cleanup_expired()
+        return tuple(self._store)

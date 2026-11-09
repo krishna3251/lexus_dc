@@ -28,6 +28,8 @@ class ToolCallValidator:
         registry: ToolRegistry,
         plan: ExecutionPlan,
     ) -> ToolValidation:
+        if not plan.allow_tools:
+            return ToolValidation(False, "Tools are disabled for this request.")
         spec = registry.get(call.name)
         if spec is None:
             return ToolValidation(False, f"Unknown tool: {call.name}")

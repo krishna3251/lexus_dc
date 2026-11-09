@@ -1,0 +1,33 @@
+{
+  "python": "3.12.14",
+  "platform": "Linux",
+  "routing": {
+    "n": 2000,
+    "median_ms": 0.011,
+    "p95_ms": 0.0177
+  },
+  "memory_lookup": {
+    "n": 100,
+    "median_ms": 0.3951,
+    "p95_ms": 0.6067
+  },
+  "retrieval_100_documents": {
+    "n": 25,
+    "median_ms": 1.9266,
+    "p95_ms": 2.3033
+  },
+  "deterministic_end_to_end": {
+    "n": 200,
+    "median_ms": 0.0235,
+    "p95_ms": 0.1036
+  },
+  "deterministic_external_calls": 0,
+  "deterministic_error_rate": 0.0,
+  "deterministic_cache_hit_rate": 0.995,
+  "session_count": 1000,
+  "session_allocation_peak_bytes": 687352,
+  "process_peak_rss_kib": 65648,
+  "model_first_token_ms": null,
+  "model_end_to_end_ms": null,
+  "notes": "Offline synthetic benchmark; 100 curated documents, no model loaded; first-token and model latency unmeasured."
+}

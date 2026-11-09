@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import os
 import time
 from typing import Any
 
 from openai import AsyncOpenAI
+import aiohttp
+from urllib.parse import urlsplit
+
+from .config import BrainConfig
 
 from .models import AIProvider, ProviderReply, ToolCall
 
@@ -29,15 +34,21 @@ class CompatibleProvider:
     ) -> None:
         self.provider = provider
         self.model = model
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=25.0,
-            max_retries=0,
-        )
+        self._api_key = api_key
+        self._base_url = base_url
+        self.client = None
+        self.timeout = 25.0
+
+    def _client(self):
+        if self.client is None:
+            self.client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url,
+                                      timeout=self.timeout, max_retries=0)
+        return self.client
 
     async def close(self) -> None:
-        await self.client.close()
+        if self.client is not None:
+            await self.client.close()
+            self.client = None
 
     async def complete(
         self,
@@ -72,11 +83,11 @@ class CompatibleProvider:
                 kwargs["tool_choice"] = "auto"
 
         try:
-            response = await self.client.chat.completions.create(**kwargs)
+            response = await self._client().chat.completions.create(**kwargs)
         except Exception as exc:
             raise ProviderError(
                 f"{self.provider.value} request failed: "
-                f"{type(exc).__name__}: {exc}"
+                f"{type(exc).__name__} status={getattr(exc, 'status_code', 'unknown')}"
             ) from exc
 
         if not response.choices:
@@ -108,7 +119,7 @@ class CompatibleProvider:
                 logger.warning(
                     "Ignoring malformed tool call from %s: %s",
                     self.provider.value,
-                    exc,
+                    type(exc).__name__,
                 )
 
         if parsed_calls:
@@ -137,6 +148,49 @@ class CompatibleProvider:
         )
 
 
+class LocalModelProvider:
+    """Text-only loopback OpenAI-compatible runtime; no proxy or redirects."""
+    provider = AIProvider.LOCAL
+
+    def __init__(self, base_url: str, model: str, timeout: float):
+        self.base_url, self.model, self.timeout = base_url.rstrip('/'), model, timeout
+        self.session: aiohttp.ClientSession | None = None
+
+    async def complete(self, messages, tools, max_output_tokens, web_search=False):
+        if tools or web_search:
+            raise ProviderError("Local backend is text-only")
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
+        try:
+            async with self.session.post(self.base_url + '/chat/completions',
+                                         json={"model": self.model, "messages": messages,
+                                               "max_tokens": min(max(64, max_output_tokens), 4096),
+                                               "temperature": .35}, allow_redirects=False) as response:
+                if response.status != 200:
+                    raise ProviderError(f"Local inference status={response.status}")
+                body = bytearray()
+                async for chunk in response.content.iter_chunked(8192):
+                    body.extend(chunk)
+                    if len(body) > 131072:
+                        raise ProviderError("Local inference response exceeded size limit")
+                data = json.loads(body)
+                message = data['choices'][0]['message']
+                text = message.get('content')
+                if not isinstance(text, str) or not text.strip() or message.get('tool_calls'):
+                    raise ProviderError("Local inference returned unusable text")
+                return ProviderReply(AIProvider.LOCAL, self.model,
+                                     {"role": "assistant", "content": text[:12000]}, text[:12000])
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Local inference failed: {type(exc).__name__}") from exc
+
+    async def close(self):
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
+
+
 class ProviderManager:
     """Provider chain with transient-failure cooldowns and search routing."""
 
@@ -150,8 +204,26 @@ class ProviderManager:
 
     PROVIDER_COOLDOWN_SECONDS = 300.0
 
-    def __init__(self) -> None:
+    def __init__(self, config: BrainConfig | None = None) -> None:
+        self.config = config or BrainConfig.from_env()
         self.providers: list[CompatibleProvider] = []
+        self.local: LocalModelProvider | None = None
+        self._local_capacity = asyncio.Semaphore(1)
+        self.calls = 0
+        self.local_calls = 0
+        self.failures = 0
+        self.duration_ms = 0.0
+        self._budget_started = time.monotonic()
+        self._budget_calls = 0
+        if self.config.local_enabled and self.config.local_model:
+            url = urlsplit(self.config.local_url)
+            # Only explicit loopback backends are treated as private local inference.
+            if (url.scheme not in {"http", "https"} or url.hostname not in
+                    {"localhost", "127.0.0.1", "::1"} or url.username or url.password
+                    or url.query or url.fragment):
+                raise ValueError("AI_LOCAL_URL must be a loopback inference endpoint")
+            self.local = LocalModelProvider(self.config.local_url, self.config.local_model,
+                                            self.config.local_timeout)
         self._cooldown_until: dict[AIProvider, float] = {}
         try:
             self.provider_cooldown_seconds = max(
@@ -164,7 +236,7 @@ class ProviderManager:
         # Groq is the primary provider. Gemini is the fallback.
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
-        if groq_key:
+        if groq_key and self.config.external_enabled:
             self.providers.append(
                 CompatibleProvider(
                     AIProvider.GROQ,
@@ -176,7 +248,7 @@ class ProviderManager:
 
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
-        if gemini_key:
+        if gemini_key and self.config.external_enabled:
             self.providers.append(
                 CompatibleProvider(
                     AIProvider.GEMINI,
@@ -188,11 +260,12 @@ class ProviderManager:
 
     @property
     def available(self) -> bool:
-        return bool(self.providers)
+        return bool(self.providers or self.local)
 
     @property
     def names(self) -> list[str]:
-        return [f"{item.provider.value}:{item.model}" for item in self.providers]
+        return [f"{item.provider.value}:{item.model}" for item in
+                ([self.local] if self.local else []) + self.providers]
 
     def health(self) -> dict[str, Any]:
         now = time.monotonic()
@@ -204,8 +277,25 @@ class ProviderManager:
                     self._cooldown_until.get(item.provider, 0.0) - now,
                 ),
             }
-            for item in self.providers
+            for item in ([self.local] if self.local else []) + self.providers
         }
+
+    def metrics(self) -> dict[str, Any]:
+        return {"external_calls": self.calls, "local_calls": self.local_calls,
+                "failures": self.failures, "last_completion_ms": round(self.duration_ms, 2),
+                "hourly_calls_used": self._budget_calls,
+                "hourly_call_limit": self.config.external_call_limit,
+                "first_token_ms": None}
+
+    def _charge(self):
+        now = time.monotonic()
+        if now - self._budget_started >= 3600:
+            self._budget_calls = 0
+            self._budget_started = now
+        if self._budget_calls >= self.config.external_call_limit:
+            raise ProviderError("External provider call budget exhausted")
+        self._budget_calls += 1
+        self.calls += 1
 
     async def complete(
         self,
@@ -213,7 +303,28 @@ class ProviderManager:
         tools: list[dict[str, Any]],
         max_output_tokens: int,
         web_search: bool = False,
+        allow_external: bool = True,
+        prefer_local: bool = True,
     ) -> ProviderReply:
+        allow_external = allow_external and self.config.external_enabled
+        # Local models are deliberately text-only until their tool support is tested.
+        if (self.local and not tools and not web_search
+                and (prefer_local or not allow_external or not self.providers)
+                and (not allow_external or sum(len(str(m.get('content') or '')) for m in messages) < 16000)):
+            try:
+                self.local_calls += 1
+                started = time.monotonic()
+                async def run_local():
+                    async with self._local_capacity:
+                        return await self.local.complete(messages, [], max_output_tokens)
+                reply = await asyncio.wait_for(run_local(), timeout=self.config.local_timeout)
+                if reply.text.strip() and not reply.tool_calls:
+                    self.duration_ms = (time.monotonic() - started) * 1000
+                    return reply
+            except (ProviderError, asyncio.TimeoutError):
+                self.failures += 1
+        if not allow_external:
+            raise ProviderError("External inference disabled; no suitable local response available")
         if not self.providers:
             raise ProviderError(
                 "No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY."
@@ -256,32 +367,29 @@ class ProviderManager:
         errors: list[str] = []
 
         for provider in ordered:
-            try:
-                reply = await provider.complete(
-                    messages=messages,
-                    tools=tools,
-                    max_output_tokens=max_output_tokens,
-                    web_search=(
-                        web_search and provider.provider is AIProvider.GROQ
-                    ),
-                )
-                self._cooldown_until.pop(provider.provider, None)
-                return reply
-            except ProviderError as exc:
-                errors.append(str(exc))
-                logger.error("%s", exc)
-
-                if self._is_transient_failure(exc):
-                    until = (
-                        time.monotonic()
-                        + self.provider_cooldown_seconds
+            for attempt in range(self.config.provider_retries + 1):
+                try:
+                    self._charge()
+                    started = time.monotonic()
+                    reply = await provider.complete(
+                        messages=messages,
+                        tools=tools,
+                        max_output_tokens=max_output_tokens,
+                        web_search=(web_search and provider.provider is AIProvider.GROQ),
                     )
-                    self._cooldown_until[provider.provider] = until
-                    logger.warning(
-                        "AI provider %s cooling down for %.0fs",
-                        provider.provider.value,
-                        self.provider_cooldown_seconds,
-                    )
+                    self.duration_ms = (time.monotonic() - started) * 1000
+                    self._cooldown_until.pop(provider.provider, None)
+                    return reply
+                except ProviderError as exc:
+                    self.failures += 1
+                    errors.append(str(exc))
+                    logger.warning("Provider failure | provider=%s type=%s", provider.provider.value, type(exc).__name__)
+                    if self._is_transient_failure(exc) and attempt < self.config.provider_retries:
+                        await asyncio.sleep(0.25 * 2 ** attempt)
+                        continue
+                    break
+            if errors and self._is_transient_failure(ProviderError(errors[-1])):
+                self._cooldown_until[provider.provider] = time.monotonic() + self.provider_cooldown_seconds
 
         raise ProviderError(
             "All AI providers failed: " + " | ".join(errors)
@@ -315,12 +423,12 @@ class ProviderManager:
         )
 
     async def close(self) -> None:
-        for provider in self.providers:
+        for provider in ([self.local] if self.local else []) + self.providers:
             try:
                 await provider.close()
             except Exception as exc:
                 logger.warning(
                     "Failed closing %s provider: %s",
                     provider.provider.value,
-                    exc,
+                    type(exc).__name__,
                 )

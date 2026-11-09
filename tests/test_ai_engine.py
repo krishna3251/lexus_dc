@@ -143,7 +143,7 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
                 max_output_tokens=100,
             )
 
-            self.assertEqual(calls, ["groq", "gemini"])
+            self.assertEqual(calls, ["groq", "groq", "gemini"])
             self.assertEqual(reply.provider, AIProvider.GEMINI)
             await manager.close()
 
@@ -275,7 +275,7 @@ class TestAIEngine(unittest.IsolatedAsyncioTestCase):
 
         engine = AIEngine(provider_manager=provider, tool_registry=registry)
         result = await engine.ask(
-            AIRequest(user_id=1, guild_id=None, channel_id=None, prompt="test"),
+            AIRequest(user_id=1, guild_id=None, channel_id=None, prompt="inspect this server"),
             FakeToolContext(),
         )
 

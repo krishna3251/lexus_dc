@@ -66,6 +66,7 @@ class RAGStore:
         self.default_ttl_seconds = max(3600, int(default_ttl_seconds))
         self.embedder = GeminiEmbeddingService()
         self._initialized = False
+        self._item_count = 0
         self._embed_semaphore = asyncio.Semaphore(2)
 
     @property
@@ -77,20 +78,12 @@ class RAGStore:
             size = self.db_path.stat().st_size if self.db_path.exists() else 0
         except OSError:
             size = 0
-        count = 0
-        if self.available:
-            try:
-                conn = self._connect()
-                count = int(conn.execute("SELECT COUNT(*) FROM rag_items").fetchone()[0])
-                conn.close()
-            except Exception:
-                count = 0
         return {
             "backend": "sqlite",
             "available": self.available,
             "path": str(self.db_path),
             "size_bytes": size,
-            "items": count,
+            "items": self._item_count,
             "embedding_model": self.embedder.model,
             "embedding_dimensions": self.embedder.dimensions,
         }
@@ -132,6 +125,9 @@ class RAGStore:
                 """
             )
             self._cleanup(conn, time.time())
+            # Legacy generated research could include private user context.
+            conn.execute("DELETE FROM rag_items WHERE source_type = 'research'")
+            self._item_count = int(conn.execute("SELECT COUNT(*) FROM rag_items").fetchone()[0])
             conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
         finally:
             conn.close()
@@ -250,7 +246,7 @@ class RAGStore:
         ttl_seconds: int | None = None,
         embed: bool = True,
     ) -> bool:
-        self.initialize()
+        await asyncio.to_thread(self.initialize)
         title = str(title).strip()[:300]
         text = str(text).strip()[:8000]
         if not text:
@@ -312,22 +308,23 @@ class RAGStore:
                     ),
                 )
                 self._cleanup(conn, time.time())
+                self._item_count = int(conn.execute("SELECT COUNT(*) FROM rag_items").fetchone()[0])
             finally:
                 conn.close()
 
         await asyncio.to_thread(write)
         return True
 
-    async def search(self, query: str, limit: int = 6) -> RAGResult:
+    async def search(self, query: str, limit: int = 6, *, embed: bool = True) -> RAGResult:
         import asyncio
 
-        self.initialize()
+        await asyncio.to_thread(self.initialize)
         query = query.strip()
         if not query:
             return RAGResult([])
 
         query_vector: list[float] = []
-        if self.embedder.available:
+        if embed and self.embedder.available:
             try:
                 async with self._embed_semaphore:
                     query_vector = await self.embedder.embed_query(query)
@@ -353,6 +350,9 @@ class RAGStore:
                 conn.close()
 
         rows = await asyncio.to_thread(read)
+        return await asyncio.to_thread(self._rank, query, query_vector, rows, limit)
+
+    def _rank(self, query, query_vector, rows, limit) -> RAGResult:
         now = time.time()
         candidates: list[RAGItem] = []
         for row in rows:

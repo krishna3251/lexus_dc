@@ -1,3 +1,9 @@
+# Current Brain V2 behavior
+
+The AI sections below retain the earlier V3 architecture history. For current routing, memory defaults, explicit Jev use, confirmation-gated actions, configuration and measured validation, use [LXEUS_BRAIN_V2.md](LXEUS_BRAIN_V2.md). The remaining security and feature documentation continues to describe the existing bot. Brain V2 does not automatically migrate legacy AI cogs.
+
+---
+
 <div align="center">
 
 <img src="../ChatGPT%20Image%20Sep%2027,%202026,%2005_50_05%20PM.png" alt="Lexus banner" width="100%" />
