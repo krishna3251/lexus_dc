@@ -14,7 +14,7 @@ from core.config import config
 
 class SecretRedactionFilter(logging.Filter):
     """Redact configured credentials and bearer tokens, including exception text."""
-    SECRET_NAMES = ("DISCORD_TOKEN", "GROQ_API_KEY", "GEMINI_API_KEY", "MONGO_URI",
+    SECRET_NAMES = ("DISCORD_TOKEN", "GROQ_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY", "MONGO_URI",
                     "API_SECRET_KEY", "AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY",
                     "NVIDIA_API_KEY", "GOOGLE_API_KEY", "LAVALINK_PASSWORD")
 

@@ -1,5 +1,7 @@
 # Lxeus Brain V2: implementation and verification
 
+Current search/provider behavior is described in [Groq research](GROQ_RESEARCH.md); it supersedes historical Gemini and search-brevity details below.
+
 Date: 9 November 2026. Repository: `krishna3251/lexus_dc`. Baseline commit: `826d768504d7c643f7357e8d03b4c4ac776fead4`.
 The [14 November conversation/efficiency update](DISCORD_EFFICIENCY.md) supersedes
 the legacy-cog budget/style and token-telemetry limitations recorded in this original report.

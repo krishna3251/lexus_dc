@@ -35,6 +35,9 @@ class BrainConfig:
     local_timeout: float = 15.0
     external_call_limit: int = 200
     provider_retries: int = 1
+    research_timeout: float = 150.0
+    research_output_tokens: int = 2400
+    research_queries: int = 3
 
     @classmethod
     def from_env(cls) -> BrainConfig:
@@ -54,4 +57,7 @@ class BrainConfig:
             local_timeout=number("AI_LOCAL_TIMEOUT", 15, 1, 60),
             external_call_limit=int(number("AI_EXTERNAL_CALL_LIMIT", 200, 0, 100000)),
             provider_retries=int(number("AI_PROVIDER_RETRIES", 1, 0, 2)),
+            research_timeout=number("AI_RESEARCH_TIMEOUT", 150, 30, 240),
+            research_output_tokens=int(number("AI_RESEARCH_OUTPUT_TOKENS", 2400, 1000, 4096)),
+            research_queries=int(number("AI_RESEARCH_QUERIES", 3, 1, 3)),
         )

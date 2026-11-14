@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .embeddings import GeminiEmbeddingService
+from .embeddings import LexicalOnlyEmbeddingService
 
 DEFAULT_SQLITE_PATH = "/home/container/data/lexus_ai.sqlite3"
 
@@ -45,7 +45,7 @@ class RAGItem:
 class RAGResult:
     items: list[RAGItem]
     backend: str = "sqlite"
-    embedding_model: str = "gemini-embedding-2"
+    embedding_model: str = "lexical-only"
     embedding_dimensions: int = 768
 
 
@@ -64,7 +64,7 @@ class RAGStore:
         self.db_path = Path(configured or DEFAULT_SQLITE_PATH).expanduser()
         self.max_items = max(100, int(max_items))
         self.default_ttl_seconds = max(3600, int(default_ttl_seconds))
-        self.embedder = GeminiEmbeddingService()
+        self.embedder = LexicalOnlyEmbeddingService()
         self._initialized = False
         self._item_count = 0
         self._embed_semaphore = asyncio.Semaphore(2)

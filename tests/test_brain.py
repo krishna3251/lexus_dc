@@ -520,9 +520,9 @@ class FeatureIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     if path.stem != '__init__':
                         await bot.load_extension('cogs.'+path.stem)
                 self.assertEqual(len(bot.extensions), 29)
-                for name in ['ask', 'kick', 'ban', 'timeout', 'resetprefix', 'aimemory', 'aiconfirm']:
+                for name in ['ask', 'research', 'kick', 'ban', 'timeout', 'resetprefix', 'aimemory', 'aiconfirm']:
                     self.assertIsNotNone(bot.get_command(name), name)
-                for name in ['security', 'ask', 'aimemory', 'aiconfirm']:
+                for name in ['security', 'ask', 'research', 'aimemory', 'aiconfirm']:
                     self.assertIsNotNone(bot.tree.get_command(name), name)
                 for name in list(bot.extensions):
                     await bot.unload_extension(name)

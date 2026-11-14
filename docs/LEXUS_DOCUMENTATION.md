@@ -15,7 +15,7 @@ The AI sections below retain the earlier V3 architecture history. For current ro
   <a href="https://github.com/krishna3251/lexus_dc"><img src="https://img.shields.io/badge/Repository-krishna3251%2Flexus__dc-111827?style=for-the-badge&logo=github" alt="Repository" /></a>
   <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-2.x-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
-  <img src="https://img.shields.io/badge/AI-Groq%20%2B%20Gemini%20%2B%20Jev-7C3AED?style=for-the-badge" alt="AI" />
+  <img src="https://img.shields.io/badge/AI-Groq%20%2B%20Jev-7C3AED?style=for-the-badge" alt="AI" />
   <img src="https://img.shields.io/badge/Security-V3-E11D48?style=for-the-badge" alt="Security V3" />
 </p>
 
@@ -39,7 +39,7 @@ The AI sections below retain the earlier V3 architecture history. For current ro
 | Area | Current implementation |
 |---|---|
 | **Bot runtime** | `main.py` + dynamic cog discovery |
-| **AI** | Unified V3 engine with Groq/Gemini generation, Jev typed decisions, tools, memory, RAG, research |
+| **AI** | Unified V3 engine with Groq generation, Jev typed decisions, tools, memory, RAG, research |
 | **Security** | V3 event pipeline with detectors, scoring, state machine, policy, actions |
 | **Persistence** | MongoDB for guild/features + SQLite for AI memory/RAG |
 | **Web service** | FastAPI health/stats endpoints |
@@ -110,9 +110,7 @@ flowchart TD
     CT --> JG[Jev Tool-Need Gate]
     JG --> PM[ProviderManager]
     PM --> GR[Groq]
-    PM --> GE[Gemini Fallback]
     GR --> T[Model Response / Tool Calls]
-    GE --> T
     T --> V[ToolCallValidator]
     V --> PG[AIPermissionGuard]
     PG --> E[ToolExecutor]
@@ -295,7 +293,7 @@ The default prefix is `lx `, and direct bot mentions are also accepted.
 
 The V3 AI engine defines:
 
-- `AIProvider`: `groq`, `gemini`
+- `AIProvider`: `local`, `groq`
 - `AIIntent`: `chat`, `server_query`, `security_query`, `action_request`, `help`, `search`, `unknown`
 - **Jev decision layer:** separate typed evaluation service for narrow decisions; it is not part of the generative provider enum.
 
@@ -395,16 +393,16 @@ The unified provider manager uses OpenAI-compatible adapters with strict generat
 | Layer | Current default |
 |---|---|
 | Primary generation | Groq · `openai/gpt-oss-120b` |
-| Generation fallback | Gemini · `gemini-3.8-flash` |
+| Casual chat model | Groq · `openai/gpt-oss-20b` |
 | Decision layer | Jev · `typesafe-ai/jev` through Vercel AI Gateway |
 
-Groq remains first for generation. A previous cooldown does not silently promote Gemini. Jev is a separate decision path and never becomes a generation fallback.
+Groq is the only hosted generation provider. Jev is a separate explicit decision path and never becomes a generation fallback.
 
 Transient generation failures can place a provider into cooldown. The current default cooldown is 300 seconds.
 
 ### Unified vs legacy AI
 
-The unified `services/ai_engine/` path currently uses Gemini and Groq.
+The unified `services/ai_engine/` path uses Groq, with optional text-only local inference.
 
 The repository also contains older AI paths, notably `chat_lex.py` and `coder_lex.py`, which still use other integrations such as OpenRouter and NVIDIA. Those should not be confused with the V3 provider manager.
 
@@ -481,25 +479,20 @@ The RAG store is bounded by a maximum item count.
 
 ## 6.3 Embeddings
 
-Gemini embeddings are used when configured:
-
-```env
-GEMINI_EMBEDDING_MODEL=gemini-embedding-2
-GEMINI_EMBEDDING_DIMENSIONS=768
-```
+External embeddings are disabled. Curated knowledge uses bounded lexical retrieval; stored knowledge is retained.
 
 ## 6.4 Research pipeline
 
-The research coordinator follows this general order:
+The detailed research path acknowledges the wait, performs up to three evidence
+queries, and then asks Groq for a source-grounded report. Optional Tavily advanced
+search supplies structured excerpts; Groq browser search works without another
+search key. Existing Google CSE remains an optional last evidence fallback.
 
-1. deterministic query planning
-2. local RAG recall
-3. Groq browser search as the primary live path
-4. Gemini Google grounding as the live-search fallback
-5. Google Custom Search, when available
-6. cached RAG-only answer when live research is unavailable
-
-Sources are deduplicated and quality ordered. For current/news requests the research instructions prefer multiple reputable sources and primary sources when available.
+Reports use a separate 2,400-token output allowance and 150-second deadline by
+default. Source links are validated and deduplicated, incomplete search coverage
+is disclosed, and missing live sources produce an error instead of a cached or
+unsourced answer. Use `/research` or `lx research`; explicit quick/brief requests
+use one evidence query. See [current research behavior and limits](GROQ_RESEARCH.md).
 
 ---
 
@@ -1048,7 +1041,7 @@ python -m compileall .
 
 ## 24.2 Provider priority and model configuration
 
-The unified provider manager reads optional model overrides for Groq and Gemini, while keeping Groq as the strict primary and Gemini as the fallback.
+The unified provider manager reads Groq model overrides. Gemini generation, grounding and external embedding calls have been removed.
 
 Jev does not belong in this generation provider chain. It is isolated in `services/ai_engine/jev.py` and uses the separate AI Gateway evaluation endpoint.
 
