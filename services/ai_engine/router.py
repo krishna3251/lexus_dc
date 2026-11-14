@@ -38,7 +38,7 @@ class RequestRouter:
     )
 
     SEARCH_PATTERNS = (
-        r"\b(?:search|look up|find online|latest|current news|on the web|today|currently|current|recent|news|price|cost|pricing|rate|availability|available|stock|release date|launch date)\b",
+        r"\b(?:search|research|investigate|look up|find online|latest|current news|on the web|internet|today|currently|current|recent|news|price|cost|pricing|rate|availability|available|stock|release date|launch date)\b",
     )
 
     @classmethod
@@ -52,6 +52,9 @@ class RequestRouter:
                 allow_mutations=False,
                 reason="empty request",
             )
+
+        if re.search(r"^(?:(?:deep|thorough|detailed)\s+)?(?:search|research|investigate)\b|\breport on\b", text):
+            return RouteDecision(AIIntent.SEARCH, 0.96, False, False, "explicit read-only web research request")
 
         if cls._matches(cls.ACTION_PATTERNS, text):
             return RouteDecision(

@@ -95,15 +95,18 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             channel_id=channel.id if channel else None,
             prompt=prompt,
         )
-        result = await self.engine.ask(
-            request,
-            ToolContext(
-                bot=self.bot,
-                guild=guild,
-                channel=channel,
-                user=user,
-            ),
-        )
+        notices = []
+        async def progress(text):
+            if channel is not None and hasattr(channel, "send"):
+                notices.append(await channel.send(text, allowed_mentions=discord.AllowedMentions.none()))
+        try:
+            result = await self.engine.ask(request, ToolContext(self.bot, guild, channel, user), progress=progress)
+        finally:
+            for notice in notices:
+                try:
+                    await notice.delete()
+                except discord.HTTPException:
+                    pass
 
         if result.success:
             return result.text
@@ -311,6 +314,16 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             )
         await self._send_chunked(ctx, response)
 
+    @commands.hybrid_command(name="research", description="Research live sources and produce a detailed report")
+    async def research_command(self, ctx: commands.Context, *, query: str) -> None:
+        if ctx.interaction:
+            await ctx.defer()
+            response = await self._run(ctx.author, ctx.guild, ctx.channel, "research " + query)
+        else:
+            async with ctx.typing():
+                response = await self._run(ctx.author, ctx.guild, ctx.channel, "research " + query)
+        await self._send_chunked(ctx, response)
+
     @app_commands.command(
         name="ask",
         description="Ask Lexus AI Engine a question or request an allowed bot action.",
@@ -474,8 +487,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         search_parts = []
         if any(str(item).startswith("groq:") for item in providers):
             search_parts.append("Groq Browser Search")
-        if research.get("gemini_google"):
-            search_parts.append("Gemini Google (fallback)")
+        if research.get("tavily"):
+            search_parts.append("Tavily evidence search")
         if research.get("google_cse"):
             search_parts.append("Google CSE")
         embed.add_field(
@@ -487,7 +500,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         embed.add_field(
             name="RAG",
             value=(
-                f"✅ SQLite • {rag['items']} items • {rag['embedding_dimensions']}d embeddings"
+                f"✅ SQLite • {rag['items']} items • lexical retrieval"
                 if rag["available"]
                 else "❌ RAG unavailable"
             ),
@@ -535,8 +548,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def _send_chunked(self, ctx: commands.Context, response: str) -> None:
         if not response or not response.strip():
             return
-        await self._send_message_chunks(ctx.channel, response,
-            (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
+        for sent in await send_reply(ctx.send, response):
+            self._reply_owners.set(sent.id, (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
 
 
 async def setup(bot: commands.Bot) -> None:

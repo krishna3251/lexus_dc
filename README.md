@@ -40,6 +40,10 @@
 
 **Lxeus Brain V2:** the existing engine now supports deterministic offline skills, isolated opt-in memory, optional loopback inference, bounded requests, adaptive style, and confirmation-gated AI mutations. See the [implementation, configuration and verification report](docs/LXEUS_BRAIN_V2.md), [environment reference](.env.example), and [measured benchmarks](docs/brain_benchmarks.json).
 
+**Detailed research:** `/research` and `lx research` gather live evidence before a
+Groq-generated report, with a progress notice, linked sources and optional Tavily
+search. See [research behavior and limits](docs/GROQ_RESEARCH.md).
+
 **Discord conversation update:** shared chat style, single-owner message handling,
 economy chat routing, shared attempt controls for legacy AI features, token usage
 metrics and compatibility checks are described in the [efficiency update](docs/DISCORD_EFFICIENCY.md).
@@ -94,7 +98,7 @@ A layered defensive engine for server protection.
 A provider-agnostic agent layer for reasoning and controlled Discord tools.
 
 - Groq primary provider
-- Gemini fallback provider
+- Groq-only hosted generation and detailed web research
 - Jev typed decision layer via Vercel AI Gateway
 - Deterministic routing; Jev retained for explicit typed evaluations
 - Local skills and optional text-only local inference
@@ -175,7 +179,7 @@ Context Builder
 Execution Plan
      │
      ▼
-Groq / Gemini
+Groq
      │
      ▼
 Tool Validation
@@ -236,7 +240,7 @@ Jev (typesafe-ai/jev)
         └── explicit typed evaluation API
 ```
 
-Jev is intentionally separate from the Groq/Gemini generation chain. It never receives permission to execute Discord mutations. Brain V2 retains it for explicit typed evaluations; ordinary request routing is local and does not invoke Jev.
+Jev is intentionally separate from the Groq generation path. It never receives permission to execute Discord mutations. Brain V2 retains it for explicit typed evaluations; ordinary request routing is local and does not invoke Jev.
 
 Every AI mutation now requires a scoped, one-use confirmation before application-side checks and a Discord API call. Native moderation commands keep their existing permission path.
 
@@ -346,7 +350,6 @@ lexus_dc/
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/discord.py-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="discord.py" />
   <img src="https://img.shields.io/badge/Groq-000000?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" />
-  <img src="https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
   <img src="https://img.shields.io/badge/TypeSafe_Jev-7C3AED?style=for-the-badge" alt="TypeSafe Jev" />
   <img src="https://img.shields.io/badge/OpenRouter-111827?style=for-the-badge" alt="OpenRouter" />
   <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />

@@ -193,7 +193,7 @@ class EfficiencyTests(unittest.IsolatedAsyncioTestCase):
         result = await self.engine.ask(AIRequest(1, None, 3, "latest gaming news"), context)
         self.assertTrue(result.success)
         self.assertIn("shortest", self.engine.research.research.call_args.kwargs["style_instruction"])
-        self.assertEqual(self.engine.research.research.call_args.kwargs["max_output_tokens"], 220)
+        self.assertEqual(self.engine.research.research.call_args.kwargs["max_output_tokens"], 2400)
 
     async def test_provider_reads_reported_usage_without_requiring_it(self):
         provider = CompatibleProvider(AIProvider.GROQ, "placeholder", "https://example.com/v1", "test")

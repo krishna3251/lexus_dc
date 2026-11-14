@@ -40,7 +40,11 @@ def prepare_reply(text: str) -> tuple[list[str], discord.File | None]:
     if not text or not text.strip():
         return [], None
     if discord_length(text) > 1900 and ("```" in text or discord_length(text) > 7600):
-        return ["Full reply attached to keep the formatting intact."], discord.File(
+        summary = "Full reply attached to keep the formatting intact."
+        if "```" not in text:
+            preview = split_reply(text, 1100)[0]
+            summary = preview + "\n\nFull report attached."
+        return [summary], discord.File(
             io.BytesIO(text.encode("utf-8")), filename="lxeus-reply.md",
         )
     return split_reply(text), None

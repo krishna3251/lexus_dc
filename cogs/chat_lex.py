@@ -750,6 +750,9 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
         """Generate AI response with full behavioral intelligence."""
         engine = getattr(self.bot, "ai_engine", None)
         if engine is not None and discord_message is not None:
+            engine_cog = getattr(self.bot, "get_cog", lambda name: None)("AI Engine")
+            if engine_cog is not None:
+                return await engine_cog._run(discord_message.author, discord_message.guild, discord_message.channel, message)
             result = await engine.ask(
                 AIRequest(user_id, getattr(discord_message.guild, "id", None),
                           discord_message.channel.id, message),

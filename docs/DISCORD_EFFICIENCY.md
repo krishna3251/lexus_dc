@@ -1,5 +1,7 @@
 # Lxeus Discord conversation and API efficiency update
 
+Current search/provider behavior is described in [Groq research](GROQ_RESEARCH.md); it supersedes historical Gemini and search-brevity details below.
+
 14 November 2026. Builds on the Brain V2 branch in PR #2. Rukiya is unchanged.
 
 ## Reply behavior

@@ -179,14 +179,17 @@ class AIEngine:
         self,
         request: AIRequest,
         context: ToolContext,
+        *, progress=None,
     ) -> AIResult:
         """Bounded Brain entry point, independent of essential Discord commands."""
         started = self.telemetry.start()
         scope = (request.user_id, request.guild_id, request.channel_id)
         try:
             async with self.capacity.acquire(scope):
-                async with asyncio.timeout(self.config.request_timeout):
-                    return await self._ask_admitted(request, context)
+                is_research = self.router.route(request.prompt).intent is AIIntent.SEARCH
+                timeout = self.config.research_timeout if is_research else self.config.request_timeout
+                async with asyncio.timeout(timeout):
+                    return await self._ask_admitted(request, context, progress=progress)
         except BrainBusy:
             result = AIResult(False, "I'm handling another request. Try again shortly.", error="busy")
         except TimeoutError:
@@ -199,7 +202,7 @@ class AIEngine:
         self.telemetry.finish(started, success=False, intent="unknown", provider=None, model=None, tools_used=[])
         return result
 
-    async def _ask_admitted(self, request: AIRequest, context: ToolContext) -> AIResult:
+    async def _ask_admitted(self, request: AIRequest, context: ToolContext, *, progress=None) -> AIResult:
         started = self.telemetry.start()
 
         if not request.prompt.strip():
@@ -293,6 +296,7 @@ class AIEngine:
                 started=started,
                 preferences=preferences,
                 allow_external=allow_external,
+                progress=progress,
             )
         if result.success:
             self.conversations.append((request.user_id, request.guild_id, request.channel_id), request.prompt, result.text)
@@ -312,6 +316,7 @@ class AIEngine:
         started: float,
         preferences: dict,
         allow_external: bool,
+        progress=None,
     ) -> AIResult:
         # Routing stays deterministic; Jev remains available for explicit evaluations.
         system = request.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -329,9 +334,14 @@ class AIEngine:
             if not allow_external:
                 self.telemetry.finish(started, success=False, intent=route.intent.value, provider=None, model=None, tools_used=[])
                 return AIResult(False, "Live research is disabled by your privacy settings. Use `knowledge: <query>` for cached excerpts.", error="external_disabled")
+            if progress is not None:
+                try:
+                    await progress("I'm checking live sources and cross-checking the details. This may take a little time; I'll send a sourced report when it's ready.")
+                except Exception:
+                    logger.debug("Research progress message unavailable")
             research_result = await self.research.research(
                 request.prompt, style_instruction=style.instruction,
-                max_output_tokens=min(request.max_output_tokens, style.output_tokens),
+                max_output_tokens=self.config.research_output_tokens,
             )
             if research_result.success and research_result.answer.strip():
                 final_text = _format_research_answer(research_result)
@@ -617,8 +627,6 @@ class AIEngine:
 def provider_from_string(name: str):
     from .models import AIProvider
     value = (name or "").casefold()
-    if value == "gemini":
-        return AIProvider.GEMINI
     if value == "groq":
         return AIProvider.GROQ
     return None

@@ -1,4 +1,4 @@
-"""OpenAI-compatible adapters for Gemini and Groq with failover."""
+"""Groq adapters with bounded retries and optional local inference."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+import math
 from collections import Counter
 from typing import Any
 
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 class ProviderError(RuntimeError):
     """Raised when a provider cannot complete a request."""
 
+    def __init__(self, message: str, *, status_code=None, retry_after=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
 
 class CompatibleProvider:
     def __init__(
@@ -38,7 +44,7 @@ class CompatibleProvider:
         self._api_key = api_key
         self._base_url = base_url
         self.client = None
-        self.timeout = 25.0
+        self.timeout = 45.0
 
     def _client(self):
         if self.client is None:
@@ -86,9 +92,16 @@ class CompatibleProvider:
         try:
             response = await self._client().chat.completions.create(**kwargs)
         except Exception as exc:
+            headers = getattr(getattr(exc, "response", None), "headers", {})
+            try:
+                delay = float(headers.get("retry-after", ""))
+                retry_after = delay if math.isfinite(delay) and delay >= 0 else None
+            except (TypeError, ValueError):
+                retry_after = None
             raise ProviderError(
                 f"{self.provider.value} request failed: "
-                f"{type(exc).__name__} status={getattr(exc, 'status_code', 'unknown')}"
+                f"{type(exc).__name__} status={getattr(exc, 'status_code', 'unknown')}",
+                status_code=getattr(exc, "status_code", None), retry_after=retry_after,
             ) from exc
 
         if not response.choices:
@@ -198,11 +211,6 @@ class LocalModelProvider:
 class ProviderManager:
     """Provider chain with transient-failure cooldowns and search routing."""
 
-    GEMINI_MODEL = "gemini-3.8-flash"
-    GEMINI_BASE_URL = (
-        "https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
-
     GROQ_MODEL = "openai/gpt-oss-120b"
     GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -239,7 +247,7 @@ class ProviderManager:
         except (TypeError, ValueError):
             self.provider_cooldown_seconds = 300.0
 
-        # Groq is the primary provider. Gemini is the fallback.
+        # Groq is the only hosted generation provider.
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key and self.config.external_enabled:
@@ -256,18 +264,6 @@ class ProviderManager:
                 self.chat_provider = CompatibleProvider(
                     AIProvider.GROQ, groq_key, self.GROQ_BASE_URL, chat_model,
                 )
-
-        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
-        if gemini_key and self.config.external_enabled:
-            self.providers.append(
-                CompatibleProvider(
-                    AIProvider.GEMINI,
-                    gemini_key,
-                    self.GEMINI_BASE_URL,
-                    gemini_model or self.GEMINI_MODEL,
-                )
-            )
 
     @property
     def available(self) -> bool:
@@ -376,7 +372,7 @@ class ProviderManager:
             raise ProviderError("External inference disabled; no suitable local response available")
         if not self.providers:
             raise ProviderError(
-                "No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY."
+                "No AI provider configured. Set GROQ_API_KEY."
             )
 
         if web_search:
@@ -390,28 +386,9 @@ class ProviderManager:
                     "Groq's built-in browser search."
                 )
 
-            # Keep Groq as the primary live-search provider. A previous
-            # cooldown never silently promotes Gemini; Groq must fail this
-            # request before the caller moves to Gemini research fallback.
             ordered = groq_providers
         else:
-            # Strict provider priority:
-            #   1. Groq is always attempted first when configured.
-            #   2. Gemini is attempted only when Groq fails.
-            #
-            # Cooldown telemetry is retained for health reporting, but it
-            # never changes the primary/fallback order. This prevents a
-            # previous transient Groq error from silently turning Gemini
-            # into the primary provider for subsequent requests.
-            groq = [
-                item for item in self.providers
-                if item.provider is AIProvider.GROQ
-            ]
-            gemini = [
-                item for item in self.providers
-                if item.provider is AIProvider.GEMINI
-            ]
-            ordered = groq + gemini
+            ordered = [item for item in self.providers if item.provider is AIProvider.GROQ]
             if prefer_economy and not tools and self.chat_provider is not None:
                 ordered = [self.chat_provider, *ordered]
 
@@ -441,7 +418,10 @@ class ProviderManager:
                     errors.append(str(exc))
                     logger.warning("Provider failure | provider=%s type=%s", provider.provider.value, type(exc).__name__)
                     if self._is_transient_failure(exc) and attempt < self.config.provider_retries:
-                        await asyncio.sleep(0.25 * 2 ** attempt)
+                        delay = getattr(exc, "retry_after", None)
+                        if delay is not None and delay > 60:
+                            break
+                        await asyncio.sleep(delay if delay is not None else 0.25 * 2 ** attempt)
                         continue
                     break
             if errors and self._is_transient_failure(ProviderError(errors[-1])):
