@@ -12,6 +12,7 @@ from typing import Any
 
 import discord
 from services.cache import TTLCache
+from services.report_formatting import format_research_report
 
 from .brain import BrainBusy, ConversationState, LocalSkills, RequestCapacity, ResponseStyle, bounded_turns, needs_stronger_model
 from .config import BrainConfig
@@ -81,6 +82,7 @@ class AIEngine:
         self.conversations = ConversationState(self.config)
         self.local_skills = LocalSkills()
         self.pending_actions = TTLCache[str, tuple[tuple, ToolCall]](500, 60)
+        self.instance_id = secrets.token_hex(4)
 
     @property
     def available(self) -> bool:
@@ -100,6 +102,7 @@ class AIEngine:
     def health(self) -> dict[str, Any]:
         memory_health = self.memory.health()
         return {
+            "instance_id": self.instance_id,
             "available": self.available,
             "model_available": self.providers.available,
             "active_requests": len(self.capacity.scopes),
@@ -268,7 +271,7 @@ class AIEngine:
         if not self.providers.available:
             result = AIResult(
                 success=False,
-                text="Conversation models are offline. Calculations, local knowledge, memory controls, and bot commands still work.",
+                text="No conversation model is configured in this running bot instance. Ask the owner to check its model settings. Local knowledge and bot commands still work.",
                 intent=route.intent,
                 confidence=route.confidence,
                 error="no_provider",
@@ -633,16 +636,7 @@ def provider_from_string(name: str):
 
 
 def _format_research_answer(result: ResearchResult) -> str:
-    answer = result.answer.strip()
-    if not answer:
-        return result.evidence.strip()
-    if not result.sources:
-        return answer
-    lines = [answer, "", "Sources:"]
-    for source in result.sources[:8]:
-        title = source.title.strip() or source.domain or "Source"
-        lines.append(f"[{source.source_id}] {title} — {source.url}")
-    return "\n".join(lines)
+    return format_research_report(result.answer or result.evidence, result.sources)
 
 
 def _serialize_tool_result(result: dict[str, Any], max_chars: int) -> str:

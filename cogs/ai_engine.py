@@ -109,13 +109,15 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                     pass
 
         if result.success:
+            logger.info("AI request completed | instance=%s provider=%s", self.engine.instance_id, result.provider)
             return result.text
 
         logger.warning(
-            "AI request failed | provider=%s model=%s error=%s",
+            "AI request failed | provider=%s model=%s error=%s instance=%s",
             result.provider,
             result.model,
             result.error,
+            self.engine.instance_id,
         )
         if result.error and "Web search requires GROQ_API_KEY" in result.error:
             return ""
@@ -472,6 +474,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             inline=False,
         )
         embed.add_field(name="Tools", value=str(tools), inline=True)
+        embed.add_field(name="Runtime instance", value=health["instance_id"], inline=True)
 
         memory_value = (
             "✅ SQLite"
