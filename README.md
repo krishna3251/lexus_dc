@@ -40,6 +40,10 @@
 
 **Lxeus Brain V2:** the existing engine now supports deterministic offline skills, isolated opt-in memory, optional loopback inference, bounded requests, adaptive style, and confirmation-gated AI mutations. See the [implementation, configuration and verification report](docs/LXEUS_BRAIN_V2.md), [environment reference](.env.example), and [measured benchmarks](docs/brain_benchmarks.json).
 
+**Discord conversation update:** shared chat style, single-owner message handling,
+economy chat routing, shared attempt controls for legacy AI features, token usage
+metrics and compatibility checks are described in the [efficiency update](docs/DISCORD_EFFICIENCY.md).
+
 ## 🧠 What is Lexus?
 
 **Lexus** is a modular Discord bot built around two ideas:

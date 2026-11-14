@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+from collections import Counter
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -145,6 +146,9 @@ class CompatibleProvider:
             text=(message.content or "").strip(),
             tool_calls=parsed_calls,
             finish_reason=getattr(response.choices[0], "finish_reason", None),
+            input_tokens=getattr(getattr(response, "usage", None), "prompt_tokens", None),
+            output_tokens=getattr(getattr(response, "usage", None), "completion_tokens", None),
+            cached_input_tokens=getattr(getattr(getattr(response, "usage", None), "prompt_tokens_details", None), "cached_tokens", None),
         )
 
 
@@ -215,6 +219,8 @@ class ProviderManager:
         self.duration_ms = 0.0
         self._budget_started = time.monotonic()
         self._budget_calls = 0
+        self._usage: dict[tuple[str, str], Counter] = {}
+        self.chat_provider: CompatibleProvider | None = None
         if self.config.local_enabled and self.config.local_model:
             url = urlsplit(self.config.local_url)
             # Only explicit loopback backends are treated as private local inference.
@@ -245,6 +251,11 @@ class ProviderManager:
                     groq_model or self.GROQ_MODEL,
                 )
             )
+            chat_model = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b").strip()
+            if chat_model and chat_model != self.providers[0].model:
+                self.chat_provider = CompatibleProvider(
+                    AIProvider.GROQ, groq_key, self.GROQ_BASE_URL, chat_model,
+                )
 
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         gemini_model = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL).strip()
@@ -285,7 +296,44 @@ class ProviderManager:
                 "failures": self.failures, "last_completion_ms": round(self.duration_ms, 2),
                 "hourly_calls_used": self._budget_calls,
                 "hourly_call_limit": self.config.external_call_limit,
-                "first_token_ms": None}
+                "first_token_ms": None,
+                "chat_model": self.chat_provider.model if self.chat_provider else None,
+                "token_usage": [{"provider": provider, "model": model, **dict(counts)}
+                                for (provider, model), counts in self._usage.items()]}
+
+    def record_usage(self, provider: str, model: str, usage: Any) -> None:
+        """Aggregate provider-reported usage only; retain no prompts or user IDs."""
+        key = (provider, model)
+        if key not in self._usage:
+            if len(self._usage) >= 32:
+                return
+            self._usage[key] = Counter()
+        counts = self._usage[key]
+        counts["responses"] += 1
+        def value(name):
+            return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+        reported = False
+        for target, source in (("input_tokens", "prompt_tokens"), ("output_tokens", "completion_tokens")):
+            amount = value(source)
+            if isinstance(amount, int) and not isinstance(amount, bool) and amount >= 0:
+                counts[target] += amount
+                reported = True
+        details = value("prompt_tokens_details")
+        cached = details.get("cached_tokens") if isinstance(details, dict) else getattr(details, "cached_tokens", None)
+        if isinstance(cached, int) and not isinstance(cached, bool) and cached >= 0:
+            counts["cached_input_tokens"] += cached
+        counts["responses_with_usage" if reported else "responses_without_usage"] += 1
+
+    def reserve_external(self) -> None:
+        """Reserve one external attempt, including legacy feature requests."""
+        if not self.config.external_enabled:
+            raise ProviderError("External inference disabled")
+        self._charge()
+
+    def inherit_accounting(self, previous: ProviderManager) -> None:
+        """Credential reload must not reset the process call budget or usage."""
+        for name in ("calls", "local_calls", "failures", "_budget_started", "_budget_calls", "_usage"):
+            setattr(self, name, getattr(previous, name))
 
     def _charge(self):
         now = time.monotonic()
@@ -305,6 +353,7 @@ class ProviderManager:
         web_search: bool = False,
         allow_external: bool = True,
         prefer_local: bool = True,
+        prefer_economy: bool = False,
     ) -> ProviderReply:
         allow_external = allow_external and self.config.external_enabled
         # Local models are deliberately text-only until their tool support is tested.
@@ -363,13 +412,15 @@ class ProviderManager:
                 if item.provider is AIProvider.GEMINI
             ]
             ordered = groq + gemini
+            if prefer_economy and not tools and self.chat_provider is not None:
+                ordered = [self.chat_provider, *ordered]
 
         errors: list[str] = []
 
         for provider in ordered:
             for attempt in range(self.config.provider_retries + 1):
                 try:
-                    self._charge()
+                    self.reserve_external()
                     started = time.monotonic()
                     reply = await provider.complete(
                         messages=messages,
@@ -379,6 +430,11 @@ class ProviderManager:
                     )
                     self.duration_ms = (time.monotonic() - started) * 1000
                     self._cooldown_until.pop(provider.provider, None)
+                    self.record_usage(reply.provider.value, reply.model, {
+                        "prompt_tokens": reply.input_tokens,
+                        "completion_tokens": reply.output_tokens,
+                        "prompt_tokens_details": {"cached_tokens": reply.cached_input_tokens},
+                    })
                     return reply
                 except ProviderError as exc:
                     self.failures += 1
@@ -423,7 +479,7 @@ class ProviderManager:
         )
 
     async def close(self) -> None:
-        for provider in ([self.local] if self.local else []) + self.providers:
+        for provider in ([self.local] if self.local else []) + self.providers + ([self.chat_provider] if self.chat_provider else []):
             try:
                 await provider.close()
             except Exception as exc:

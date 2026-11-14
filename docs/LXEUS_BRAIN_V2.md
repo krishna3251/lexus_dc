@@ -1,6 +1,8 @@
 # Lxeus Brain V2: implementation and verification
 
 Date: 9 November 2026. Repository: `krishna3251/lexus_dc`. Baseline commit: `826d768504d7c643f7357e8d03b4c4ac776fead4`.
+The [14 November conversation/efficiency update](DISCORD_EFFICIENCY.md) supersedes
+the legacy-cog budget/style and token-telemetry limitations recorded in this original report.
 This is an incremental upgrade of the existing bot. Rukiya and `lexus2` were not modified.
 Maintainer configuration and resource notes below are supplied for this requested upgrade; the project remains private in operation.
 

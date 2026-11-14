@@ -149,12 +149,14 @@ class ResponseStyle:
         text = prompt.casefold()
         if re.search(r"\b(grief|suicide|depressed|died|emergency|serious|pareshan)\b", text):
             style = "serious"
-        elif preference in cls.STYLES:
-            style = preference
-        elif re.search(r"\b(code|python|javascript|debug|traceback|sql|asyncio)\b", text):
-            style = "technical"
         elif re.search(r"\b(brief|short|concise)\b", text):
             style = "concise"
+        elif re.search(r"\b(code|python|javascript|typescript|debug|traceback|sql|asyncio)\b", text):
+            style = "technical"
+        elif re.search(r"\b(in detail|step.by.step|detailed|explain|compare|steps)\b", text):
+            style = "helpful"
+        elif preference in cls.STYLES:
+            style = preference
         elif re.search(r"\b(explain|compare|steps|why|how)\b", text):
             style = "helpful"
         else:

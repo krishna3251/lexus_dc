@@ -119,8 +119,12 @@ class AIEngine:
 
     async def reload_providers(self) -> None:
         """Reload provider credentials from the current process environment."""
+        if self.capacity.scopes:
+            raise ProviderError("Wait for active AI requests to finish before reloading.")
         old_manager = self.providers
         self.providers = ProviderManager(self.config)
+        if isinstance(old_manager, ProviderManager):
+            self.providers.inherit_accounting(old_manager)
         await self.research.reload(self.providers)
         await self.jev.reload()
         await old_manager.close()
@@ -325,7 +329,10 @@ class AIEngine:
             if not allow_external:
                 self.telemetry.finish(started, success=False, intent=route.intent.value, provider=None, model=None, tools_used=[])
                 return AIResult(False, "Live research is disabled by your privacy settings. Use `knowledge: <query>` for cached excerpts.", error="external_disabled")
-            research_result = await self.research.research(request.prompt)
+            research_result = await self.research.research(
+                request.prompt, style_instruction=style.instruction,
+                max_output_tokens=min(request.max_output_tokens, style.output_tokens),
+            )
             if research_result.success and research_result.answer.strip():
                 final_text = _format_research_answer(research_result)
                 result = AIResult(
@@ -360,7 +367,7 @@ class AIEngine:
             elif not research_result.success:
                 result = AIResult(
                     success=False,
-                    text="Arre yaar, live research sources abhi available nahi hain. Thoda baad try karo.",
+                    text="Live search isn't available right now. Try again shortly.",
                     intent=route.intent,
                     confidence=route.confidence,
                     error=research_result.error or "research_unavailable",
@@ -425,7 +432,10 @@ class AIEngine:
                 return AIResult(False, "The request exceeded the context limit. Narrow the task before retrying.", error="context_limit")
             try:
                 policy = {"allow_external": allow_external,
-                          "prefer_local": not needs_stronger_model(request.prompt)} if isinstance(self.providers, ProviderManager) else {}
+                          "prefer_local": not needs_stronger_model(request.prompt),
+                          "prefer_economy": route.intent is AIIntent.CHAT
+                              and style.name not in {"technical", "helpful", "serious"}
+                              and not needs_stronger_model(request.prompt)} if isinstance(self.providers, ProviderManager) else {}
                 if not isinstance(self.providers, ProviderManager) and not allow_external:
                     raise ProviderError("External inference disabled")
                 model_at = time.perf_counter()
@@ -443,15 +453,15 @@ class AIEngine:
                 if "Web search requires GROQ_API_KEY" in provider_error:
                     user_text = ""
                 elif "AuthenticationError" in provider_error or "401" in provider_error:
-                    user_text = "Arre, AI key ka auth scene hai. API key check karna padega."
+                    user_text = "AI authentication failed. A bot administrator needs to check the provider settings."
                 elif "RateLimitError" in provider_error or "429" in provider_error:
-                    user_text = "Thoda load zyada hai miyan. AI provider rate limit pe hai, ek minute baad try karo."
+                    user_text = "The AI provider is busy. Try again in a moment."
                 elif "NotFoundError" in provider_error or "404" in provider_error:
-                    user_text = "AI model endpoint ka scene gadbad hai. Model configuration check karni padegi."
+                    user_text = "The configured AI model is unavailable. A bot administrator needs to check it."
                 elif "TimeoutError" in provider_error or "timeout" in provider_error.casefold():
-                    user_text = "Arre yaar, AI request time-out ho gayi. Ek baar phir try karo."
+                    user_text = "That AI request took too long. Try again with a shorter message."
                 else:
-                    user_text = "Arre yaar, AI side pe abhi thoda scene hai. Ek baar phir try karo."
+                    user_text = "I couldn't get an AI reply right now. Try again shortly."
                 result = AIResult(
                     success=False,
                     text=user_text,

@@ -12,6 +12,11 @@ from typing import Dict, Optional, Set, List, Tuple
 from dataclasses import dataclass, field
 from collections import deque
 from enum import Enum
+from services.ai_engine.models import AIRequest
+from services.ai_engine.tools import ToolContext
+from services.ai_engine.personality import HYDERABADI_STYLE
+from services.ai_engine.legacy import reserve_legacy_call, record_legacy_usage
+from services.discord_output import send_reply
 
 logger = logging.getLogger(__name__)
 
@@ -568,7 +573,7 @@ class LexusBot(commands.Cog):
         if user_id not in self.sessions:
             self.sessions[user_id] = UserSession(
                 messages=deque(maxlen=8),
-                last_activity=current_time
+                last_activity=0
             )
 
         # Do not refresh last_activity merely by reading the session.
@@ -583,7 +588,7 @@ class LexusBot(commands.Cog):
         """
         
         # BASE PERSONALITY (always present)
-        base = """You are Lexus, a real person having a text conversation. You're sharp, grounded, and present—not an assistant, not a therapist, not a tutorial.
+        base = HYDERABADI_STYLE + """\nYou're sharp, grounded, and present in a Discord conversation.
 
 Your core traits:
 - You speak like a human texting, not like you're reading from a script
@@ -728,7 +733,7 @@ The user is repeating similar concerns. Either:
 {repetition_note}
 
 ---
-Remember: You're a real person texting, not a bot performing helpfulness. Respond how you actually would, not how you think you should."""
+Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief."""
 
         return full_prompt
 
@@ -740,11 +745,22 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             return "https://integrate.api.nvidia.com/v1/chat/completions"
 
     async def chat_with_ai(self, user_id: int, message: str, 
-                          session: UserSession, context: BehavioralContext) -> str:
+                          session: UserSession, context: BehavioralContext,
+                          *, discord_message=None) -> str:
         """Generate AI response with full behavioral intelligence."""
+        engine = getattr(self.bot, "ai_engine", None)
+        if engine is not None and discord_message is not None:
+            result = await engine.ask(
+                AIRequest(user_id, getattr(discord_message.guild, "id", None),
+                          discord_message.channel.id, message),
+                ToolContext(self.bot, discord_message.guild, discord_message.channel, discord_message.author),
+            )
+            return result.text
         
         if not self.api_key:
             return "Can't connect right now. But I'm here if you want to just talk it through."
+        if not await reserve_legacy_call(self.bot, user_id, getattr(getattr(discord_message, "guild", None), "id", None)):
+            return "AI chat is unavailable under the current privacy or usage settings."
 
         # Add user message to session
         session.messages.append({"role": "user", "content": message})
@@ -774,6 +790,7 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
+                    record_legacy_usage(self.bot, self.api_provider, self.model_name, data.get("usage"))
                     ai_response = data["choices"][0]["message"]["content"]
                     
                     # Add AI response to session
@@ -802,13 +819,15 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
         if message.author.bot or not message.guild:
             return
         
-        # The V3 AI Engine owns explicit `lx ...`, `lex ...`, and bot-mention
-        # requests. Leave those messages to the unified engine to avoid
-        # duplicate replies from the legacy behavioral cog.
-        if getattr(self.bot, "ai_engine", None) is not None:
-            stripped = message.content.strip()
-            mentioned = bool(self.bot.user and self.bot.user in message.mentions)
-            if mentioned or stripped.startswith(("lx ", "lex ")):
+        # One adapter owns each input, including aliases, DMs and scoped replies.
+        command_context = await self.bot.get_context(message)
+        if command_context.valid:
+            return
+        if re.match(r"^lex (?:code|review|analyze|memory)(?:\s|$)", message.content, re.I):
+            return
+        engine_cog = self.bot.get_cog("AI Engine")
+        if engine_cog is not None:
+            if await engine_cog._extract_natural_prompt(message) is not None:
                 return
 
         # Quick channel check for legacy AI-channel behavior.
@@ -848,7 +867,7 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
         """Handle conversation with full behavioral intelligence - OPTIMIZED."""
         
         # Check permissions before trying to respond
-        required_perms = ['send_messages', 'embed_links']
+        required_perms = ['send_messages']
         if not all(getattr(message.channel.permissions_for(message.guild.me), perm) for perm in required_perms):
             logger.warning(f"Missing permissions in {message.channel.name}")
             try:
@@ -858,25 +877,16 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             return
 
         async with message.channel.typing():
-            # Faster typing delay
-            if context.response_length_target == "minimal":
-                await asyncio.sleep(random.uniform(0.3, 0.8))  # Faster for short responses
-            else:
-                await asyncio.sleep(random.uniform(0.8, 1.5))  # Still fast for longer
-            
             response = await self.chat_with_ai(
-                message.author.id, message.content, session, context
+                message.author.id, message.content, session, context, discord_message=message,
             )
 
-        # Handle long responses
-        if len(response) > 1900:
-            parts = [response[i:i+1900] for i in range(0, len(response), 1900)]
-            for i, part in enumerate(parts):
-                await message.channel.send(part)
-                if i < len(parts) - 1:
-                    await asyncio.sleep(0.5)  # Reduced delay between parts
+        engine_cog = self.bot.get_cog("AI Engine")
+        if engine_cog is not None:
+            await engine_cog._send_message_chunks(message.channel, response,
+                (message.author.id, message.guild.id, message.channel.id))
         else:
-            await message.channel.send(response)
+            await send_reply(message.channel.send, response)
 
     async def handle_crisis(self, message, context: BehavioralContext):
         """
@@ -1278,17 +1288,12 @@ Remember: You're a real person texting, not a bot performing helpfulness. Respon
             return
         
         async with ctx.typing():
-            await asyncio.sleep(random.uniform(0.3, 0.8))
-            response = await self.chat_with_ai(ctx.author.id, message, session, context)
-        
-        if len(response) > 1900:
-            parts = [response[i:i+1900] for i in range(0, len(response), 1900)]
-            for i, part in enumerate(parts):
-                await ctx.send(part)
-                if i < len(parts) - 1:
-                    await asyncio.sleep(0.5)
+            response = await self.chat_with_ai(ctx.author.id, message, session, context, discord_message=ctx.message)
+        engine_cog = self.bot.get_cog("AI Engine")
+        if engine_cog is not None:
+            await engine_cog._send_chunked(ctx, response)
         else:
-            await ctx.send(response)
+            await send_reply(ctx.send, response)
 
     @commands.command()
     async def resources(self, ctx):

@@ -17,6 +17,8 @@ from discord.ext import commands
 from services.ai_engine.engine import AIEngine
 from services.ai_engine.models import AIRequest
 from services.ai_engine.tools import ToolContext
+from services.ai_engine.providers import ProviderError
+from services.discord_output import send_reply
 from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -119,7 +121,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     @commands.command(name="aireload", help="Reload AI provider settings from the current process environment.")
     @commands.is_owner()
     async def ai_reload(self, ctx: commands.Context) -> None:
-        await self.engine.reload_providers()
+        try:
+            await self.engine.reload_providers()
+        except ProviderError as exc:
+            await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
+            return
         providers = self.engine.provider_names or ["none"]
         jev_state = "enabled" if self.engine.health()["jev"]["available"] else "unavailable"
         await ctx.send(
@@ -184,7 +190,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                 message.channel.id,
             )
             await message.channel.send(
-                "Arre yaar, abhi AI side pe thoda scene hai 😭. Ek baar phir try karo."
+                "I couldn't finish that reply. Try again in a moment."
             )
 
     @classmethod
@@ -287,12 +293,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         """Send an AI response without exceeding Discord message limits."""
         if not response or not response.strip():
             return
-        chunks = [
-            response[i : i + 1900]
-            for i in range(0, len(response), 1900)
-        ]
-        for chunk in chunks:
-            sent = await channel.send(chunk, allowed_mentions=discord.AllowedMentions.none())
+        for sent in await send_reply(channel.send, response):
             if scope:
                 self._reply_owners.set(sent.id, scope)
 
@@ -331,11 +332,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
         if not response or not response.strip():
             return
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
-        sent = await interaction.followup.send(chunks[0], allowed_mentions=discord.AllowedMentions.none(), wait=True)
-        self._reply_owners.set(sent.id, (interaction.user.id, interaction.guild_id, interaction.channel_id))
-        for chunk in chunks[1:]:
-            sent = await interaction.followup.send(chunk, allowed_mentions=discord.AllowedMentions.none(), wait=True)
+        for sent in await send_reply(interaction.followup.send, response, wait=True):
             self._reply_owners.set(sent.id, (interaction.user.id, interaction.guild_id, interaction.channel_id))
 
     async def _private(self, ctx: commands.Context, text: str) -> None:
@@ -525,15 +522,21 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         metrics = health['provider_metrics']
         embed.add_field(name="Brain limits", value=f"Active: {health['active_requests']}\nExternal calls used: {metrics.get('hourly_calls_used', 0)}/{metrics.get('hourly_call_limit', 0)}\nCache: {health['cache']['hits']} hits, {health['cache']['misses']} misses", inline=False)
+        usage = metrics.get("token_usage", [])
+        usage_text = "\n".join(
+            f"{item['provider']} / {item['model']}: "
+            f"{item.get('input_tokens', 0)} in, {item.get('output_tokens', 0)} out "
+            f"({item.get('responses_without_usage', 0)} unreported)"
+            for item in usage
+        )
+        embed.add_field(name="Reported token usage", value=usage_text[:1000] or "No reported usage yet.", inline=False)
         await ctx.send(embed=embed)
 
     async def _send_chunked(self, ctx: commands.Context, response: str) -> None:
         if not response or not response.strip():
             return
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
-        for chunk in chunks:
-            sent = await ctx.send(chunk, allowed_mentions=discord.AllowedMentions.none())
-            self._reply_owners.set(sent.id, (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
+        await self._send_message_chunks(ctx.channel, response,
+            (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
 
 
 async def setup(bot: commands.Bot) -> None:

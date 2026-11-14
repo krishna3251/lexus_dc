@@ -29,6 +29,7 @@ import aiohttp
 from .providers import ProviderError, ProviderManager
 from .rag import RAGStore
 from .config import enabled
+from .personality import HYDERABADI_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ class GeminiGoogleResearch:
         *,
         rag_context: str = "",
         deep: bool = False,
+        style_instruction: str = "",
     ) -> ResearchResult:
         if not self.available:
             return ResearchResult(False, error="gemini_search_not_configured")
@@ -155,6 +157,8 @@ User request: {prompt}
 
 You are the evidence-gathering stage of a production answer system.
 {depth_instruction}
+{HYDERABADI_STYLE}
+Response style: {style_instruction}
 - Search the live web for current facts.
 - Write the final answer like a natural, direct chat response, not a research report.
 - Never say or imply that "Lexus" is speaking about itself. Never use phrases such as "Lexus says", "Lexus found", or "according to Lexus".
@@ -455,7 +459,8 @@ class WebResearchService:
         from .embeddings import GeminiEmbeddingService
         self.rag.embedder = GeminiEmbeddingService()
 
-    async def research(self, prompt: str) -> ResearchResult:
+    async def research(self, prompt: str, *, style_instruction: str = "",
+                       max_output_tokens: int = 900) -> ResearchResult:
         if not enabled("AI_EXTERNAL_ENABLED", True):
             return ResearchResult(success=False, error="external_disabled", mode="unavailable")
         await self.initialize()
@@ -471,12 +476,12 @@ class WebResearchService:
         if self.providers is not None:
             try:
                 reply = await self.providers.complete(
-                    messages=[{
+                    messages=[{"role": "system", "content": HYDERABADI_STYLE + "\n" + style_instruction}, {
                         "role": "user",
                         "content": prompt,
                     }],
                     tools=[],
-                    max_output_tokens=900,
+                    max_output_tokens=max_output_tokens,
                     web_search=True,
                 )
                 if reply.text.strip():
@@ -500,6 +505,7 @@ class WebResearchService:
                 prompt,
                 rag_context=rag_context,
                 deep=plan.deep,
+                style_instruction=style_instruction,
             )
             if grounded.success:
                 grounded.sources = self._quality_sorted(grounded.sources)
@@ -552,9 +558,9 @@ class WebResearchService:
         )
 
     def _reserve_external(self) -> bool:
-        if self.providers is not None and hasattr(self.providers, "_charge"):
+        if self.providers is not None and hasattr(self.providers, "reserve_external"):
             try:
-                self.providers._charge()
+                self.providers.reserve_external()
             except ProviderError:
                 return False
         return True
