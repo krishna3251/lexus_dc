@@ -21,6 +21,8 @@ _db = None
 async def connect():
     """Connect to MongoDB. Call once at bot startup."""
     global _client, _db
+    if _db is not None:
+        return _db
     mongo_uri = os.getenv("MONGO_URI", "").strip()
     db_name = os.getenv("MONGO_DB_NAME", "lexus_bot").strip() or "lexus_bot"
     if not mongo_uri:
@@ -40,7 +42,9 @@ async def connect():
         logger.info(f"✅ Connected to MongoDB database: {db_name}")
         return _db
     except Exception as e:
-        logger.error(f"❌ MongoDB connection failed: {e}")
+        logger.error("❌ MongoDB connection failed (%s). Check the configured URI, network access and credentials.", type(e).__name__)
+        if _client is not None:
+            _client.close()
         _client = None
         _db = None
         return None
@@ -49,7 +53,7 @@ async def connect():
 async def disconnect():
     """Gracefully close MongoDB connection."""
     global _client, _db
-    if _client:
+    if _client is not None:
         _client.close()
         _client = None
         _db = None

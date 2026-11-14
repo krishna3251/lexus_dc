@@ -13,6 +13,7 @@ import logging
 from typing import Optional, Literal, Any
 
 from core.events import SecurityEventType
+from core.interaction_response import defer_once, respond
 from security.models import (
     SecurityEvent,
     SecurityProfile,
@@ -74,7 +75,10 @@ class SecurityCog(commands.Cog, name="Security"):
     async def security_status(self, interaction: discord.Interaction):
         """Show current security engine status and protection modules."""
         if not interaction.guild:
-            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            await respond(interaction, "This command can only be used in a server.", ephemeral=True)
+            return
+
+        if not await defer_once(interaction):
             return
 
         guild = interaction.guild
@@ -99,7 +103,7 @@ class SecurityCog(commands.Cog, name="Security"):
             f"Anti-Nuke: {'`Enabled`' if cfg.antinuke_enabled else '`Disabled`'}\n"
             f"Join Gate: {'`Enabled`' if cfg.join_gate_enabled else '`Disabled`'}\n"
             f"Quarantine: {'`Ready`' if cfg.quarantine_role_id else '`Not configured`'}\n"
-            f"Lockdown: {'`Active`' if lockdown_manager.is_locked_down(guild.id) else '`Ready`'}"
+            f"Lockdown: {'`Active`' if lockdown_manager.is_locked_down(guild.id) else '`Ready`'}\n"
             f"Audit Correlation: {'`Ready`' if guild.me and guild.me.guild_permissions.view_audit_log else '`Blocked`'}"
         )
         embed.add_field(name="Protection Modules", value=modules_text, inline=False)
@@ -114,7 +118,7 @@ class SecurityCog(commands.Cog, name="Security"):
         embed.add_field(name="Total Lifetime Incidents", value=str(len(recent_incidents)), inline=True)
 
         embed.set_footer(text="Lexus Defense Engine V3")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     @security_group.command(name="setup", description="Quick setup for security roles and channels")
     @app_commands.describe(
@@ -132,7 +136,8 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        await interaction.response.defer(ephemeral=True)
+        if not await defer_once(interaction):
+            return
         updates: dict[str, Any] = {}
         log_msgs: list[str] = []
 
@@ -169,7 +174,7 @@ class SecurityCog(commands.Cog, name="Security"):
             description="\n".join(f"• {msg}" for msg in log_msgs),
             color=discord.Color.green()
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     @security_group.command(name="config", description="Configure security engine mode and strictness")
     @app_commands.describe(
@@ -185,6 +190,9 @@ class SecurityCog(commands.Cog, name="Security"):
         """Configure security settings."""
         guild = interaction.guild
         if not guild:
+            return
+
+        if not await defer_once(interaction):
             return
 
         updates: dict[str, Any] = {}
@@ -205,7 +213,7 @@ class SecurityCog(commands.Cog, name="Security"):
         embed.add_field(name="Current Mode", value=f"`{cfg.security_mode.upper()}`", inline=True)
         embed.add_field(name="Profile", value=f"`{cfg.profile.value}`", inline=True)
         embed.add_field(name="Action Budget", value=f"{cfg.action_budget_limit} per {cfg.action_budget_window}s", inline=True)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     @security_group.command(name="logs", description="View recent security incidents")
     async def security_logs(self, interaction: discord.Interaction):
@@ -214,9 +222,12 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
+        if not await defer_once(interaction):
+            return
+
         incidents = await security_db.get_recent_incidents(guild.id, limit=5)
         if not incidents:
-            await interaction.response.send_message("No recent security incidents found for this server.", ephemeral=True)
+            await respond(interaction, "No recent security incidents found for this server.", ephemeral=True)
             return
 
         embed = discord.Embed(title="Recent Security Incidents", color=discord.Color.dark_blue())
@@ -227,7 +238,7 @@ class SecurityCog(commands.Cog, name="Security"):
                 value=f"Actor: {actor_text} | State: `{inc.get('state')}` | Score: `{inc.get('score', 0):.1f}`",
                 inline=False
             )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     @security_group.command(name="trust", description="Manage trusted actors and roles")
     @app_commands.describe(
@@ -245,7 +256,10 @@ class SecurityCog(commands.Cog, name="Security"):
         """Add or remove trusted users or roles."""
         guild = interaction.guild
         if not guild or (not user and not role):
-            await interaction.response.send_message("Specify a user or role to trust/untrust.", ephemeral=True)
+            await respond(interaction, "Specify a user or role to trust/untrust.", ephemeral=True)
+            return
+
+        if not await defer_once(interaction):
             return
 
         cfg = await security_engine.get_guild_config(guild.id)
@@ -276,7 +290,7 @@ class SecurityCog(commands.Cog, name="Security"):
             "trusted_roles": trusted_roles
         })
         security_engine.invalidate_config_cache(guild.id)
-        await interaction.response.send_message(msg or "Trust settings updated.", ephemeral=True)
+        await respond(interaction, msg or "Trust settings updated.", ephemeral=True)
 
     @security_group.command(name="quarantine", description="Manually quarantine or release a member")
     @app_commands.describe(
@@ -296,7 +310,8 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        await interaction.response.defer(ephemeral=True)
+        if not await defer_once(interaction):
+            return
         cfg = await security_engine.get_guild_config(guild.id)
 
         if action == "quarantine":
@@ -305,9 +320,9 @@ class SecurityCog(commands.Cog, name="Security"):
             res = await quarantine_manager.release_member(guild, member, cfg)
 
         if res.success:
-            await interaction.followup.send(f"✅ Success: {res.reason}", ephemeral=True)
+            await respond(interaction, f"✅ Success: {res.reason}", ephemeral=True)
         else:
-            await interaction.followup.send(f"❌ Failed: {res.error}", ephemeral=True)
+            await respond(interaction, f"❌ Failed: {res.error}", ephemeral=True)
 
     @security_group.command(name="lockdown", description="Activate or release emergency channel lockdown")
     @app_commands.describe(
@@ -325,7 +340,8 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        await interaction.response.defer(ephemeral=True)
+        if not await defer_once(interaction):
+            return
         cfg = await security_engine.get_guild_config(guild.id)
 
         if action == "enable":
@@ -334,9 +350,9 @@ class SecurityCog(commands.Cog, name="Security"):
             res = await lockdown_manager.unlock_guild(guild, cfg)
 
         if res.success:
-            await interaction.followup.send(f"✅ {res.reason}", ephemeral=True)
+            await respond(interaction, f"✅ {res.reason}", ephemeral=True)
         else:
-            await interaction.followup.send(f"❌ Failed: {res.error}", ephemeral=True)
+            await respond(interaction, f"❌ Failed: {res.error}", ephemeral=True)
 
     @security_group.command(name="baseline", description="Capture or inspect trusted server baseline")
     @app_commands.describe(
@@ -352,18 +368,19 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        await interaction.response.defer(ephemeral=True)
+        if not await defer_once(interaction):
+            return
         if action == "capture":
             state = security_engine.get_state_machine(guild.id).current_state
             success, msg, _ = await baseline_manager.capture_and_save_baseline(guild, state, force=True)
             status_icon = "✅" if success else "⚠️"
-            await interaction.followup.send(f"{status_icon} {msg}", ephemeral=True)
+            await respond(interaction, f"{status_icon} {msg}", ephemeral=True)
         else:
             diff, summary = await baseline_manager.diff_against_baseline(guild)
             if diff is None:
-                await interaction.followup.send(f"⚠️ {summary}", ephemeral=True)
+                await respond(interaction, f"⚠️ {summary}", ephemeral=True)
             else:
-                await interaction.followup.send(f"📊 Structural Diff: {summary}", ephemeral=True)
+                await respond(interaction, f"📊 Structural Diff: {summary}", ephemeral=True)
 
     @security_group.command(name="recovery", description="Analyze structural damage compared to baseline")
     async def security_recovery_cmd(self, interaction: discord.Interaction):
@@ -372,10 +389,8 @@ class SecurityCog(commands.Cog, name="Security"):
         if not guild:
             return
 
-        # Some deployments/extensions may already acknowledge an interaction before
-        # this command reaches the callback. Never send a second initial response.
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
+        if not await defer_once(interaction):
+            return
 
         report = await recovery_engine.analyze_damage(guild)
 
@@ -390,7 +405,7 @@ class SecurityCog(commands.Cog, name="Security"):
                 f"Deleted Channels: {report['deleted_channels_count']}\n"
                 f"Modified Roles: {report['modified_roles_count']}"
             )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     # ── Gateway Event Listeners ────────────────────────────────────
 
