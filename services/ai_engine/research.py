@@ -67,11 +67,14 @@ class ResearchPlanner:
         quick = bool(re.search(r"\b(quick|brief|short answer|one.line|in short)\b", lowered))
         fresh = bool(re.search(r"\b(latest|today|current|currently|recent|news|now|price|pricing|stock|availability|release|launch)\b", lowered))
         today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
-        queries = [text[:700]]
+        # Keep search queries under 400 characters; retain the full report brief.
+        focused = re.sub(r"^(?:(?:deep|thorough|detailed)\s+)?(?:research|search|investigate)\s+", "", text, flags=re.I)
+        focused = focused[:310].strip() or text[:310]
+        queries = [focused]
         if not quick:
             queries.extend([
-                f"{text[:570]} official primary sources {'latest ' + today if fresh else ''}".strip(),
-                f"{text[:570]} independent evidence comparison limitations {today if fresh else ''}".strip(),
+                f"{focused} official primary sources {'latest ' + today if fresh else ''}".strip(),
+                f"{focused} independent evidence comparison limitations {today if fresh else ''}".strip(),
             ])
         return SearchPlan(text, list(dict.fromkeys(queries))[:3],
                           "fresh" if fresh else "normal", 5 if quick else 10, not quick)
@@ -129,7 +132,7 @@ class TavilyResearch:
                 if self.reserve_call is None or not self.reserve_call():
                     break
                 payload = {"query": query, "search_depth": "advanced" if plan.deep else "basic",
-                           "max_results": 5, "include_raw_content": "markdown" if plan.deep else False,
+                           "max_results": 10, "include_raw_content": "markdown" if plan.deep else False,
                            "include_answer": False, "include_usage": True, "auto_parameters": False}
                 if plan.deep:
                     payload["chunks_per_source"] = 3
@@ -156,7 +159,7 @@ class TavilyResearch:
                             continue
                         url = public_source_url(item.get("url", ""))
                         if url:
-                            snippet = str(item.get("raw_content") or item.get("content") or "")[:2000]
+                            snippet = str(item.get("content") or item.get("raw_content") or "")[:2000]
                             sources.append(ResearchSource("", str(item.get("title") or url)[:250], url,
                                 snippet, urlsplit(url).hostname or "", "tavily",
                                 str(item["published_date"])[:80] if item.get("published_date") else None))

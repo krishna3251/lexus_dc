@@ -22,6 +22,10 @@ a direct answer, detailed findings, practical comparisons or steps, citations,
 dates, uncertainty and coverage gaps. This is model guidance, not a guarantee of
 accuracy or exhaustive coverage.
 
+Search queries stay under 400 characters; the full question is retained for report
+synthesis. Tavily requests ten candidates and prefers query-matched excerpts over
+the beginning of a raw webpage, following its current developer guidance.
+
 Research has its own 2,400-token output allowance and a 150-second whole-request
 deadline. The saved casual-chat brevity preference does not truncate the report
 to 220 tokens. Explicit quick/brief/one-line requests use one search pass and a
