@@ -223,11 +223,13 @@ class EfficiencyTests(unittest.IsolatedAsyncioTestCase):
         legacy.ai_channels = {3}
         legacy.handle_intelligent_conversation = AsyncMock()
         try:
-            for index, text in enumerate(("Lxeus hello", "hey Lexiya hello", "LEX hello")):
+            prompts = ("Lxeus hello", "hey Lexiya hello", "LEX hello",
+                       "lex tell me about latest nvidia news what happened give me last 6 days report")
+            for index, text in enumerate(prompts):
                 message = SimpleNamespace(id=100+index, author=author, guild=guild, channel=channel,
                                           content=text, mentions=[], reference=None)
                 await asyncio.gather(legacy.on_message(message), cog.on_message(message))
-            self.assertEqual(cog._run.await_count, 3)
+            self.assertEqual(cog._run.await_count, len(prompts))
             legacy.handle_intelligent_conversation.assert_not_awaited()
         finally:
             await cog.engine.close()

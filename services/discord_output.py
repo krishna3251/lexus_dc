@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import io
+import re
 import discord
+
+
+_MASKED_LINK = re.compile(r"\[[^\]\n]+\]\((?:<[^>\n]+>|[^\s\n)]+(?:\s+\"[^\"]*\")?)\)")
 
 
 def discord_length(text: str) -> int:
@@ -28,6 +32,14 @@ def split_reply(text: str, limit: int = 1900) -> list[str]:
             if boundary >= end // 2:
                 end = boundary
                 break
+        # Do not split a source link or leave a section heading on its own.
+        for link in _MASKED_LINK.finditer(remaining):
+            if link.start() < end < link.end() and link.start() > 0:
+                end = link.start()
+                break
+        heading = re.search(r"(?:^|\n)(?:#{1,6}\s+[^\n]+|\*\*[^*\n]+\*\*:?)[ \t\n]*$", remaining[:end])
+        if heading and heading.start() > 0:
+            end = heading.start()
         parts.append(remaining[:end].rstrip())
         remaining = remaining[end:].lstrip()
     if remaining:
@@ -39,9 +51,10 @@ def prepare_reply(text: str) -> tuple[list[str], discord.File | None]:
     """Avoid splitting code fences or flooding a channel with a long answer."""
     if not text or not text.strip():
         return [], None
-    if discord_length(text) > 1900 and ("```" in text or discord_length(text) > 7600):
+    long_link = any(discord_length(link.group()) > 1900 for link in _MASKED_LINK.finditer(text))
+    if discord_length(text) > 1900 and ("```" in text or discord_length(text) > 7600 or long_link):
         summary = "Full reply attached to keep the formatting intact."
-        if "```" not in text:
+        if "```" not in text and not long_link:
             preview = split_reply(text, 1100)[0]
             summary = preview + "\n\nFull report attached."
         return [summary], discord.File(

@@ -83,6 +83,8 @@ Groq native tools may make multiple provider-side search/visit calls within one
 model request; those internal calls are not separate application reservations.
 
 Long reports show a visible preview and attach the complete Markdown report.
+The [Discord report formatter](REPORT_FORMATTING.md) provides spaced findings,
+normalized citations and a compact clickable source section while preserving code.
 Shorter prose is split at readable boundaries. Attachment-permission fallback
 preserves text delivery. Mentions remain suppressed.
 
