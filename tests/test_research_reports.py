@@ -68,7 +68,9 @@ class ResearchPolicyTests(unittest.TestCase):
         self.assertTrue(plan.deep)
         self.assertEqual(len(plan.queries), 3)
         self.assertEqual(len(set(plan.queries)), 3)
-        self.assertTrue(all(len(q) <= 700 for q in ResearchPlanner.plan("x" * 8000).queries))
+        self.assertTrue(all(len(q) < 400 for q in ResearchPlanner.plan("x" * 8000).queries))
+        self.assertEqual(plan.queries[0], "Discord developer updates")
+        self.assertEqual(plan.original_query, "research Discord developer updates")
 
     def test_explicit_brief_search_stays_brief(self):
         plan = ResearchPlanner.plan("quick search today's Hyderabad news")
@@ -245,7 +247,7 @@ class ResearchFlowTests(unittest.IsolatedAsyncioTestCase):
             received.append(payload)
             self.assertEqual(request.headers.get("Authorization"), "Bearer placeholder-test-key")
             return web.json_response({"results": [
-                {"title": "Python", "url": "https://docs.python.org/3/", "raw_content": "Python docs."},
+                {"title": "Python", "url": "https://docs.python.org/3/", "content": "Relevant Python feature.", "raw_content": "Unrelated navigation."},
                 {"title": "Discord", "url": "https://docs.discord.com/developers/", "content": "Discord docs."},
             ]})
         app = web.Application()
@@ -261,8 +263,10 @@ class ResearchFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success)
             self.assertEqual(len(received), 3)
             self.assertTrue(all(r["search_depth"] == "advanced" for r in received))
+            self.assertTrue(all(r["max_results"] == 10 and len(r["query"]) < 400 for r in received))
             self.assertTrue(all(r["topic"] == "news" and r["time_range"] == "day" for r in received))
             self.assertEqual(len(result.sources), 2)
+            self.assertEqual(result.sources[0].snippet, "Relevant Python feature.")
             self.assertEqual(len(self.provider.calls), 1)
             self.assertFalse(self.provider.calls[0]["web_search"])
             self.assertEqual(self.provider.reservations, 4)
