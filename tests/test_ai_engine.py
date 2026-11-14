@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from services.ai_engine.engine import AIEngine
@@ -92,6 +94,17 @@ class FakeToolContext:
 
 
 class TestAIEngine(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {
+            "AI_SQLITE_PATH": str(Path(temporary.name) / "engine.sqlite3"),
+            "GROQ_API_KEY": "", "GEMINI_API_KEY": "", "GOOGLE_API_KEY": "",
+            "AI_GATEWAY_API_KEY": "", "AI_LOCAL_ENABLED": "false",
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
     async def test_provider_manager_is_strictly_groq_first(self):
         with patch.dict(
             os.environ,

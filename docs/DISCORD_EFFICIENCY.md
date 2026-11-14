@@ -94,6 +94,8 @@ economy routing and fallback, shared budgets, privacy opt-out, usage extraction,
 budget-preserving reload, code delivery without generation, free exact-command
 help, style propagation to research, Unicode bounds and attachment-permission
 fallback. Compilation and `git diff --check` passed.
+The older AI-engine tests now use isolated temporary databases rather than the
+production host's default path, so the suite runs without privileged filesystem access.
 
 No live Discord login, moderation action, real model response, provider bill,
 MongoDB service or Lavalink session was tested. No measured production savings or
