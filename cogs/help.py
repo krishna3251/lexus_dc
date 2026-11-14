@@ -6,6 +6,9 @@ import random
 import os
 import logging
 from datetime import datetime
+from services.ai_engine.personality import HYDERABADI_STYLE
+from services.ai_engine.brain import ResponseStyle
+from services.ai_engine.legacy import reserve_legacy_call, record_legacy_usage
 
 try:
     from openai import OpenAI
@@ -36,22 +39,14 @@ EMOJIS = {
 
 # Sarcastic responses because regular help is too mainstream
 SARCASTIC_RESPONSES = [
-    "Oh look, another person who can't figure out commands...",
-    "Wow, using help? Revolutionary thinking right there!",
-    "Let me guess, you tried clicking random buttons first?",
-    "Amazing! Someone actually reading documentation in 2025!",
-    "Help menu activated. Prepare for enlightenment... or disappointment.",
-    "Here's your participation trophy for using help.",
-    "Congrats! You've discovered the ancient art of RTFM!"
+    "Pick a category to see its commands.",
+    "Everything you can use, in one place.",
+    "Need a command? Start with a category below.",
 ]
 
-# AI sarcasm because regular AI is too polite
 AI_SARCASM = [
-    "The AI thinks your question is... interesting.",
-    "Processing your 'brilliant' query through neural networks...",
-    "AI response incoming. Brace for impact.",
-    "The machines are judging your question right now...",
-    "Loading AI wisdom (this might take a while for you)..."
+    "Ask about a command or a bot feature.",
+    "Tell me what you're trying to do.",
 ]
 
 class SarcasticHelpCog(commands.Cog, name="Help"):
@@ -73,7 +68,7 @@ class SarcasticHelpCog(commands.Cog, name="Help"):
         try:
             self.ai_client = OpenAI(
                 base_url="https://integrate.api.nvidia.com/v1",
-                api_key=self.api_key
+                api_key=self.api_key, timeout=20.0, max_retries=0
             )
         except Exception as e:
             logger.error(f"AI failed to initialize: {e}")
@@ -92,7 +87,7 @@ class SarcasticHelpCog(commands.Cog, name="Help"):
             for cmd in cog.get_commands():
                 commands.append({
                     "name": cmd.name,
-                    "help": cmd.help or "Description MIA (typical)",
+                    "help": cmd.help or "No description available.",
                     "usage": f"lx {cmd.name}",
                     "aliases": getattr(cmd, 'aliases', [])
                 })
@@ -113,31 +108,44 @@ class SarcasticHelpCog(commands.Cog, name="Help"):
         self.command_cache = cache
         return cache
     
-    async def _get_ai_response(self, query):
-        """Get AI response with extra sarcasm"""
+    async def _get_ai_response(self, query, *, user_id=None, guild_id=None):
+        """Resolve exact command names locally; budget any generated explanation."""
+        name = query.strip().strip("`").lstrip("/")
+        if name.startswith("lx "):
+            name = name[3:]
+        command = self.bot.get_command(name)
+        if command is not None and not command.hidden:
+            return f"`lx {command.qualified_name} {command.signature}`\n{command.help or 'No description available.'}"[:1000]
         if not self.ai_client or not OPENAI_AVAILABLE:
-            return "AI is sleeping. Try thinking for yourself for once."
-        
+            return "AI help is unavailable right now. Use `/help` to browse commands."
+        if not await reserve_legacy_call(self.bot, user_id, guild_id):
+            return "AI help is unavailable under the current privacy or usage settings. Use `/help` to browse commands."
+        engine = getattr(self.bot, "ai_engine", None)
+        preferences = await engine.memory.preferences(user_id, guild_id)
+        style = ResponseStyle.choose(query, preferences.get("style"))
         try:
-            system_prompt = """You are a sarcastic Discord bot assistant. 
-            Keep responses SHORT (max 200 chars), helpful but snarky. 
-            Don't be mean, just playfully sarcastic."""
-            
+            catalog = "\n".join(
+                f"lx {cmd.qualified_name}: {(cmd.help or '')[:90]}"
+                for cmd in self.bot.walk_commands() if not cmd.hidden
+            )[:2500]
+            system_prompt = HYDERABADI_STYLE + "\n" + style.instruction + (
+                "\nExplain bot features briefly using only these verified commands. "
+                "Do not claim to execute actions or invent a command.\n" + catalog
+            )
             completion = await asyncio.to_thread(
                 lambda: self.ai_client.chat.completions.create(
                     model="nvidia/llama-3.1-nemotron-ultra-253b-v1",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": query}
-                    ],
-                    max_tokens=100,
-                    temperature=0.8
+                    messages=[{"role": "system", "content": system_prompt},
+                              {"role": "user", "content": query[:4000]}],
+                    max_tokens=220, temperature=0.4,
                 )
             )
-            
-            return completion.choices[0].message.content[:200]
-        except:
-            return "AI had an existential crisis. Try again later."
+            record_legacy_usage(self.bot, "nvidia", "nvidia/llama-3.1-nemotron-ultra-253b-v1", completion.usage)
+            return (completion.choices[0].message.content or "No answer was returned.")[:1000]
+        except Exception as exc:
+            logger.warning("AI help failed | type=%s", type(exc).__name__)
+            return "AI help is unavailable right now. Use `/help` to browse commands."
+
 
 class CategorySelect(discord.ui.Select):
     """Dropdown for people who can't remember command names"""
@@ -245,30 +253,12 @@ class HelpView(discord.ui.View):
         """AI button for the truly desperate"""
         embed = discord.Embed(
             title="🤖 AI CONSULTATION",
-            description=f"{random.choice(AI_SARCASM)}\n\nUse `/lex your question here` or `lx  your question`",
+            description=f"{random.choice(AI_SARCASM)}\n\nUse `/ask` for chat or `/ai` for command help.",
             color=COLORS["cyber"]
         )
         
-        if not OPENAI_AVAILABLE:
-            embed.add_field(
-                name="❌ AI Unavailable",
-                value="Install OpenAI module first: `pip install openai`",
-                inline=False
-            )
-        elif not self.help_cog.api_key:
-            embed.add_field(
-                name="🔑 No API Key",
-                value="Set NVIDIA_API_KEY environment variable",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="✅  Status",
-                value="Ready to judge your questions",
-                inline=False
-            )
-        
-        embed.set_footer(text="AI responses may contain traces of sarcasm")
+        embed.add_field(name="Commands", value="Use `/ask` for chat or `/ai` for command help.", inline=False)
+        embed.set_footer(text="Your AI privacy and usage settings apply.")
         await interaction.response.edit_message(embed=embed, view=self)
     
     def _create_main_embed(self):
@@ -306,7 +296,7 @@ class HelpView(discord.ui.View):
         
         embed.add_field(
             name="💡 Pro Tips",
-            value="• Use dropdown to browse\n• Ask AI for complex help\n• RTFM occasionally",
+            value="• Pick a category to browse\n• Use /ai for command questions\n• Use /ask to chat",
             inline=False
         )
         
@@ -322,7 +312,7 @@ class HelpView(discord.ui.View):
         try:
             embed = discord.Embed(
                 title="⏰ TIMEOUT",
-                description="Help interface died from neglect.\nUse help command to resurrect it.",
+                description="This help menu expired.\nUse /help to open it again.",
                 color=COLORS["warning"]
             )
             if hasattr(self, 'message') and self.message:
@@ -334,7 +324,7 @@ class HelpView(discord.ui.View):
 class SarcasticHelpCommands(SarcasticHelpCog):
     """The help system you never knew you didn't want"""
     
-    @app_commands.command(name="help", description="🎭 Interactive help system with attitude")
+    @app_commands.command(name="help", description="Browse commands and bot features")
     async def help_slash(self, interaction: discord.Interaction):
         view = HelpView(self)
         embed = view._create_main_embed()
@@ -342,7 +332,7 @@ class SarcasticHelpCommands(SarcasticHelpCog):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
         view.message = await interaction.original_response()
     
-    @commands.command(name="help", help="🎭 Interactive help system with maximum sass")
+    @commands.command(name="help", help="Browse commands and bot features")
     async def help_prefix(self, ctx):
         view = HelpView(self)
         embed = view._create_main_embed()
@@ -351,18 +341,18 @@ class SarcasticHelpCommands(SarcasticHelpCog):
         view.message = message
     
     # AI Commands with sarcasm
-    @app_commands.command(name="ai", description="🤖 Ask about commands (if you dare)")
+    @app_commands.command(name="ai", description="Ask about bot commands and features")
     async def ai_slash(self, interaction: discord.Interaction, query: str):
         if not OPENAI_AVAILABLE:
-            await interaction.response.send_message("AI is MIA. Install OpenAI module.", ephemeral=True)
+            await interaction.response.send_message("AI help is unavailable. Use `/help` to browse commands.", ephemeral=True)
             return
         
         await interaction.response.defer()
         
-        response = await self._get_ai_response(query)
+        response = await self._get_ai_response(query, user_id=interaction.user.id, guild_id=interaction.guild_id)
         
         embed = discord.Embed(
-            title="🤖  VERDICT",
+            title="Command help",
             description=f"**Query:** {query[:100]}{'...' if len(query) > 100 else ''}\n\n**Response:** {response}",
             color=COLORS["cyber"]
         )
@@ -370,23 +360,23 @@ class SarcasticHelpCommands(SarcasticHelpCog):
         
         await interaction.followup.send(embed=embed)
     
-    @commands.command(name="ai", help="🤖 Ask AI about bot features")
+    @commands.command(name="ai", help="Ask about bot commands and features")
     async def ai_prefix(self, ctx, *, query=None):
         if not query:
             embed = discord.Embed(
                 title="🤖  CONSULTATION",
-                description="Usage: `lexus  your question here`\n\nExample: `lx ai how do moderation commands work?`",
+                description="Usage: `lx ai <your question>`\n\nExample: `lx ai how do moderation commands work?`",
                 color=COLORS["info"]
             )
             await ctx.send(embed=embed)
             return
         
         if not OPENAI_AVAILABLE:
-            await ctx.send("AI is taking a nap. Install OpenAI module first.")
+            await ctx.send("AI help is unavailable. Use `/help` to browse commands.")
             return
         
         async with ctx.typing():
-            response = await self._get_ai_response(query)
+            response = await self._get_ai_response(query, user_id=ctx.author.id, guild_id=getattr(ctx.guild, "id", None))
         
         embed = discord.Embed(
             title="🤖 RESULT",

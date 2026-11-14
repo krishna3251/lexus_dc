@@ -10,6 +10,8 @@ from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import re
+from services.ai_engine.config import number
+from services.ai_engine.legacy import reserve_legacy_call, record_legacy_usage
 
 # ================== LOGGING ==================
 
@@ -28,6 +30,7 @@ class Config:
     MAX_MEMORY_CHARS: int = 6000
     EMBED_CHUNK: int = 1000
     API_TIMEOUT: int = 90
+    MAX_OUTPUT_TOKENS: int = 2048
     DISCORD_CHAR_LIMIT: int = 2000  # Discord message character limit
     
     @classmethod
@@ -36,7 +39,7 @@ class Config:
         api_key = os.getenv("OPENROUTER_API_KEY", "")
         if not api_key:
             logger.warning("OPENROUTER_API_KEY not set – CodeCog will load in disabled mode")
-        return cls(OPENROUTER_API_KEY=api_key)
+        return cls(OPENROUTER_API_KEY=api_key, MAX_OUTPUT_TOKENS=int(number("AI_CODE_OUTPUT_TOKENS", 2048, 256, 4096)))
 
 # ================== EXCEPTIONS ==================
 
@@ -198,8 +201,9 @@ class CodeSplitter:
 class LLMService:
     """Service for interacting with OpenRouter API"""
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, bot=None):
         self.config = config
+        self.bot = bot
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def initialize(self) -> None:
@@ -230,14 +234,17 @@ class LLMService:
         return {
             "model": self.config.MODEL,
             "temperature": self.config.TEMPERATURE,
+            "max_tokens": self.config.MAX_OUTPUT_TOKENS,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         }
     
-    async def call(self, system_prompt: str, user_prompt: str) -> str:
+    async def call(self, system_prompt: str, user_prompt: str, *, user_id: int | None = None, guild_id: int | None = None) -> str:
         """Make API call to OpenRouter"""
+        if not await reserve_legacy_call(self.bot, user_id, guild_id):
+            raise APIException("AI coding is unavailable under the current privacy or usage settings.")
         if not self.session:
             await self.initialize()
         
@@ -263,11 +270,11 @@ class LLMService:
                     raise APIException("OpenRouter service unavailable. Please try again.")
                 
                 if resp.status != 200:
-                    error_text = await resp.text()
-                    logger.error(f"OpenRouter error {resp.status}: {error_text}")
+                    logger.warning("OpenRouter request failed | status=%s", resp.status)
                     raise APIException(f"API request failed with status {resp.status}")
                 
                 data = await resp.json()
+                record_legacy_usage(self.bot, "openrouter", self.config.MODEL, data.get("usage"))
                 
                 if "choices" not in data or not data["choices"]:
                     logger.error("Invalid API response structure")
@@ -359,7 +366,7 @@ class PromptBuilder:
 # ================== OUTPUT HANDLER ==================
 
 class OutputHandler:
-    """Handle code output formatting and sending with auto-continuation"""
+    """Format and deliver generated code without requesting further generations."""
     
     def __init__(self, config: Config, llm_service: 'LLMService'):
         self.config = config
@@ -399,32 +406,14 @@ class OutputHandler:
         
         return embeds
     
-    async def _continue_code(self, incomplete_code: str, context: str) -> str:
-        """Request continuation of incomplete code from AI"""
-        system_prompt = PromptBuilder.build_system_prompt(PromptType.CODE_CONTINUATION)
-        
-        user_prompt = (
-            f"Here is the incomplete code that was cut off:\n\n"
-            f"```\n{context}\n```\n\n"
-            f"Continue writing the code from where it stopped. "
-            f"Do not repeat the code above, just continue it."
-        )
-        
-        continuation = await self.llm_service.call(system_prompt, user_prompt)
-        
-        # Extract code from response if wrapped in markdown
-        continued_code, _ = self.code_splitter.extract_code_from_response(continuation)
-        
-        return continued_code
-    
     async def send_code(
         self,
         destination,
         code: str,
         filename: str = "generated_code.py",
-        auto_continue: bool = True
+        auto_continue: bool = False
     ) -> None:
-        """Send code as embeds or file with auto-continuation support"""
+        """Deliver already generated code; splitting output never calls a model."""
         try:
             full_code = code
             part_number = 1
@@ -471,40 +460,10 @@ class OutputHandler:
                 
                 logger.info(f"Sent part {part_number} ({len(current_chunk)} chars)")
                 
-                # Check if we should auto-continue
-                if auto_continue and remaining:
-                    await destination.send("⏳ Continuing code generation...")
-                    
-                    # Get continuation context
-                    needs_cont, context = self.code_splitter.needs_continuation(current_chunk)
-                    
-                    if needs_cont or len(remaining) > 100:
-                        # Request continuation from AI
-                        try:
-                            continuation = await self._continue_code(full_code, current_chunk[-500:])
-                            # Merge with remaining code
-                            full_code = remaining + "\n" + continuation
-                        except Exception as e:
-                            logger.error(f"Failed to generate continuation: {e}")
-                            # Just send remaining code
-                            full_code = remaining
-                    else:
-                        full_code = remaining
-                    
-                    part_number += 1
-                else:
-                    # No auto-continue, send remaining as file
-                    if remaining:
-                        file = discord.File(
-                            io.BytesIO(remaining.encode('utf-8')),
-                            filename=f"continuation_{filename}"
-                        )
-                        await destination.send(
-                            content="📄 Remaining code sent as file:",
-                            file=file
-                        )
-                    break
-            
+                # The remainder already exists. Never regenerate it while displaying it.
+                full_code = remaining
+                part_number += 1
+
             logger.info(f"Successfully completed code output in {part_number} part(s)")
             
         except discord.HTTPException as e:
@@ -533,7 +492,7 @@ class CodeCog(commands.Cog):
             return
 
         self.memory = MemoryStore(self.config.MAX_MEMORY_CHARS)
-        self.llm_service = LLMService(self.config)
+        self.llm_service = LLMService(self.config, bot)
         self.prompt_builder = PromptBuilder()
         self.output_handler = OutputHandler(self.config, self.llm_service)
         logger.info("CodeCog initialized successfully")
@@ -623,7 +582,7 @@ class CodeCog(commands.Cog):
                 PromptType.CODE_GENERATION
             )
             
-            code = await self.llm_service.call(system_prompt, user_prompt)
+            code = await self.llm_service.call(system_prompt, user_prompt, user_id=message.author.id, guild_id=getattr(message.guild, "id", None))
             
             await self.memory.set(message.author.id, code)
             await status_msg.delete()
@@ -669,7 +628,7 @@ class CodeCog(commands.Cog):
                 PromptType.CODE_REVIEW
             )
             
-            result = await self.llm_service.call(system_prompt, user_prompt)
+            result = await self.llm_service.call(system_prompt, user_prompt, user_id=message.author.id, guild_id=getattr(message.guild, "id", None))
             
             await self.memory.set(message.author.id, result)
             await status_msg.delete()
@@ -702,7 +661,7 @@ class CodeCog(commands.Cog):
                 PromptType.CODE_ANALYSIS
             )
             
-            analysis = await self.llm_service.call(system_prompt, code_text)
+            analysis = await self.llm_service.call(system_prompt, code_text, user_id=message.author.id, guild_id=getattr(message.guild, "id", None))
             
             await status_msg.delete()
             

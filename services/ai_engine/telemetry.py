@@ -27,6 +27,12 @@ class AITelemetry:
         self.provider_calls = Counter()
         self.tool_calls = Counter()
         self._history: deque[RequestMetric] = deque(maxlen=max_history)
+        self._stages: dict[str, deque[float]] = {}
+
+    def observe(self, stage: str, duration_ms: float) -> None:
+        if stage not in {"routing", "memory", "retrieval", "model"}:
+            return
+        self._stages.setdefault(stage, deque(maxlen=200)).append(duration_ms)
 
     def start(self) -> float:
         return time.perf_counter()
@@ -68,4 +74,8 @@ class AITelemetry:
             "tool_calls": dict(self.tool_calls),
             "history_size": len(self._history),
             "last_request_ms": round(last.duration_ms, 2) if last else None,
+            "error_rate": self.requests_failed / max(1, self.requests_total),
+            "stages": {name: {"samples": len(values),
+                              "p95_ms": round(sorted(values)[max(0, int(len(values) * .95) - 1)], 3)}
+                       for name, values in self._stages.items()},
         }

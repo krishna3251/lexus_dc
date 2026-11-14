@@ -52,6 +52,8 @@ logging.basicConfig(
         logging.FileHandler("logs/bot_log.txt", encoding="utf-8")
     ]
 )
+from core.logging import install_secret_redaction
+install_secret_redaction()
 
 BOT_OWNER_ID      = 486555340670894080
 BOT_VERSION       = "2.0.0"
@@ -112,7 +114,7 @@ class Bot(commands.Bot):
             os.makedirs("cogs")
 
         cog_files = [f for f in os.listdir("cogs") if f.endswith(".py") and f != "__init__.py"]
-        priority  = [f for f in cog_files if f.startswith(("security", "help", "admin", "core"))]
+        priority  = [f for f in cog_files if f.startswith(("security", "ai_engine", "help", "admin", "core"))]
         rest      = [f for f in cog_files if f not in priority]
 
         loaded: list[str] = []
@@ -159,6 +161,10 @@ class Bot(commands.Bot):
 
     async def close(self):
         logging.info("🛑 Closing bot session...")
+        self.status_rotation.cancel()
+        brain = getattr(self, "ai_engine", None)
+        if brain is not None:
+            await brain.close()
         try:
             from security.engine import security_engine
             await security_engine.stop()

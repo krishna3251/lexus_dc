@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 
 class AIProvider(str, Enum):
+    LOCAL = "local"
     GROQ = "groq"
     GEMINI = "gemini"
 
@@ -57,6 +58,9 @@ class ProviderReply:
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: Optional[str] = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
 
 
 @dataclass(slots=True)

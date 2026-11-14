@@ -21,6 +21,9 @@ class AIPermissionGuard:
 
     @staticmethod
     def check(spec: ToolSpec, context: ToolContext, allow_mutations: bool) -> PermissionDecision:
+        if (isinstance(context.user, discord.Member) and context.guild is not None
+                and context.user.guild.id != context.guild.id):
+            return PermissionDecision(False, "Requester does not belong to this guild context.")
         if not spec.mutating:
             required = spec.required_permission
             if required:

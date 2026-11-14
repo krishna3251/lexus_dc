@@ -1,4 +1,6 @@
 import discord
+from services.ai_engine.legacy import reserve_legacy_call, record_legacy_usage
+from services.ai_engine.personality import HYDERABADI_STYLE
 from discord.ext import commands, tasks
 from discord import app_commands
 import random
@@ -154,9 +156,9 @@ class AIPinger(commands.Cog):
 
         return gif_url
     
-    async def generate_ai_message(self, guild_name: str, member_name: str) -> str:
+    async def generate_ai_message(self, guild_name: str, member_name: str, *, user_id=None, guild_id=None) -> str:
         """Generate AI-powered sarcastic message using NVIDIA API"""
-        if not self.nvidia_api_key:
+        if not self.nvidia_api_key or not await reserve_legacy_call(self.bot, user_id, guild_id):
             # Fallback messages if no API key
             fallback_messages = [
                 f"@{member_name} Kya baat hai, ghost mode on hai kya? 👻",
@@ -178,7 +180,7 @@ class AIPinger(commands.Cog):
             payload = {
                 "model": "meta/llama-3.1-8b-instruct",
                 "messages": [
-                    {"role": "system", "content": "You are a witty Discord bot that creates funny, sarcastic Hinglish messages to ping users and start conversations."},
+                    {"role": "system", "content": HYDERABADI_STYLE + "\nWrite one short, friendly invitation to chat. Do not pressure or shame inactive members."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.8,
@@ -191,6 +193,7 @@ class AIPinger(commands.Cog):
                                       headers=headers, json=payload, timeout=10) as response:
                     if response.status == 200:
                         data = await response.json()
+                        record_legacy_usage(self.bot, "nvidia", payload["model"], data.get("usage"))
                         ai_message = data['choices'][0]['message']['content'].strip()
                         return f"@{member_name} {ai_message}"
                     else:
@@ -248,7 +251,7 @@ class AIPinger(commands.Cog):
             
             # Generate message
             if config["ai_enabled"]:
-                message = await self.generate_ai_message(guild.name, member.display_name)
+                message = await self.generate_ai_message(guild.name, member.display_name, user_id=member.id, guild_id=guild.id)
             else:
                 message = f"@{member.display_name} Random ping! Kya chal raha hai? 🎯"
             

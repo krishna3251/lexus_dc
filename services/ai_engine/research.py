@@ -2,16 +2,14 @@
 
 Pipeline:
 1. deterministic query planning
-2. local RAG recall from cached research/memory artifacts
+2. local lexical recall from curated public knowledge
 3. Groq browser search as the primary live research path
 4. live Google Search grounding through Gemini as the research fallback
 5. Google Custom Search fallback
 6. source deduplication and quality scoring
 7. compact evidence packaging for the answer model
-8. asynchronous caching into the local SQLite vector store
-
-The pipeline keeps chain-of-thought private. It records only bounded, operational
-research metadata such as search queries, providers, source counts, and scores.
+Personalized answers, prompts, and query strings are not cached globally or
+written to logs. Approved knowledge ingestion remains an application operation.
 """
 
 from __future__ import annotations
@@ -30,6 +28,8 @@ import aiohttp
 
 from .providers import ProviderError, ProviderManager
 from .rag import RAGStore
+from .config import enabled
+from .personality import HYDERABADI_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,7 @@ class GeminiGoogleResearch:
         *,
         rag_context: str = "",
         deep: bool = False,
+        style_instruction: str = "",
     ) -> ResearchResult:
         if not self.available:
             return ResearchResult(False, error="gemini_search_not_configured")
@@ -156,6 +157,8 @@ User request: {prompt}
 
 You are the evidence-gathering stage of a production answer system.
 {depth_instruction}
+{HYDERABADI_STYLE}
+Response style: {style_instruction}
 - Search the live web for current facts.
 - Write the final answer like a natural, direct chat response, not a research report.
 - Never say or imply that "Lexus" is speaking about itself. Never use phrases such as "Lexus says", "Lexus found", or "according to Lexus".
@@ -200,7 +203,7 @@ Cached RAG context:
                             f"{str(body)[:500]}"
                         )
         except Exception as exc:
-            logger.warning("Gemini Google Search failed: %s", exc)
+            logger.warning("Gemini Google Search failed | type=%s", type(exc).__name__)
             return ResearchResult(False, error=f"gemini_search_failed:{type(exc).__name__}")
 
         answer = str(body.get("output_text") or "").strip()
@@ -278,6 +281,7 @@ class GoogleCSEResearch:
     def __init__(self) -> None:
         self.cse_id = os.getenv("GOOGLE_CSE_ID", "").strip()
         self.api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        self.reserve_call = None
 
     @property
     def available(self) -> bool:
@@ -294,6 +298,8 @@ class GoogleCSEResearch:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 for query in plan.queries:
+                    if self.reserve_call is not None and not self.reserve_call():
+                        break
                     params = {
                         "q": query,
                         "cx": self.cse_id,
@@ -304,9 +310,8 @@ class GoogleCSEResearch:
                         data = await response.json(content_type=None)
                         if response.status != 200:
                             logger.warning(
-                                "Google CSE search failed | status=%s | query=%s",
+                                "Google CSE search failed | status=%s",
                                 response.status,
-                                query,
                             )
                             continue
                     queries.append(query)
@@ -331,7 +336,7 @@ class GoogleCSEResearch:
                             )
                         )
         except Exception as exc:
-            logger.warning("Google CSE research failed: %s", exc)
+            logger.warning("Google CSE research failed | type=%s", type(exc).__name__)
             return ResearchResult(False, error=f"google_cse_failed:{type(exc).__name__}")
 
         deduped: list[ResearchSource] = []
@@ -374,11 +379,13 @@ class WebResearchService:
         self.rag = rag or RAGStore()
         self.gemini = GeminiGoogleResearch()
         self.google = GoogleCSEResearch()
+        self.google.reserve_call = self._reserve_external
         self._initialized = False
 
     def health(self) -> dict[str, object]:
+        external = enabled("AI_EXTERNAL_ENABLED", True)
         return {
-            "available": self.gemini.available or self.google.available or bool(self.providers and self.providers.available),
+            "available": external and (self.gemini.available or self.google.available or any(str(name).startswith("groq:") for name in (self.providers.names if self.providers else []))),
             "gemini_google": self.gemini.available,
             "google_cse": self.google.available,
             "rag": self.rag.health(),
@@ -386,7 +393,7 @@ class WebResearchService:
 
     async def initialize(self) -> None:
         if not self._initialized:
-            self.rag.initialize()
+            await asyncio.to_thread(self.rag.initialize)
             self._initialized = True
 
     @staticmethod
@@ -448,14 +455,19 @@ class WebResearchService:
             logger.debug("Ignoring embedding session close failure during reload")
         self.gemini = GeminiGoogleResearch()
         self.google = GoogleCSEResearch()
+        self.google.reserve_call = self._reserve_external
         from .embeddings import GeminiEmbeddingService
         self.rag.embedder = GeminiEmbeddingService()
 
-    async def research(self, prompt: str) -> ResearchResult:
+    async def research(self, prompt: str, *, style_instruction: str = "",
+                       max_output_tokens: int = 900) -> ResearchResult:
+        if not enabled("AI_EXTERNAL_ENABLED", True):
+            return ResearchResult(success=False, error="external_disabled", mode="unavailable")
         await self.initialize()
         plan = ResearchPlanner.plan(prompt)
 
-        rag_result = await self.rag.search(prompt, limit=4)
+        # Queries may contain private context. Never send them to an embedding API.
+        rag_result = await self.rag.search(prompt, limit=4, embed=False)
         rag_context = self._format_rag_context(rag_result.items)
 
         # Primary live research path: Groq browser search.
@@ -464,12 +476,12 @@ class WebResearchService:
         if self.providers is not None:
             try:
                 reply = await self.providers.complete(
-                    messages=[{
+                    messages=[{"role": "system", "content": HYDERABADI_STYLE + "\n" + style_instruction}, {
                         "role": "user",
                         "content": prompt,
                     }],
                     tools=[],
-                    max_output_tokens=900,
+                    max_output_tokens=max_output_tokens,
                     web_search=True,
                 )
                 if reply.text.strip():
@@ -487,16 +499,20 @@ class WebResearchService:
 
         # Fallback live research path: Google grounding through Gemini.
         if self.gemini.available:
+            if not self._reserve_external():
+                return ResearchResult(success=False, error="external_budget", mode="unavailable")
             grounded = await self.gemini.search(
                 prompt,
                 rag_context=rag_context,
                 deep=plan.deep,
+                style_instruction=style_instruction,
             )
             if grounded.success:
                 grounded.sources = self._quality_sorted(grounded.sources)
                 for index, source in enumerate(grounded.sources, start=1):
                     source.source_id = f"S{index}"
-                await self._cache_grounded_answer(prompt, grounded)
+                # Generated answers and queries can include private user context.
+                # They must never enter the globally shared knowledge store.
                 grounded.rag_hits = len(rag_result.items)
                 return grounded
 
@@ -508,7 +524,6 @@ class WebResearchService:
                 for index, source in enumerate(cse.sources, start=1):
                     source.source_id = f"S{index}"
                 cse.evidence = self._evidence_from_sources(cse.sources)
-                await self._cache_sources(cse.sources)
                 cse.rag_hits = len(rag_result.items)
                 return cse
 
@@ -542,32 +557,21 @@ class WebResearchService:
             error="no_search_provider",
         )
 
+    def _reserve_external(self) -> bool:
+        if self.providers is not None and hasattr(self.providers, "reserve_external"):
+            try:
+                self.providers.reserve_external()
+            except ProviderError:
+                return False
+        return True
+
     async def _cache_grounded_answer(
         self,
         prompt: str,
         result: ResearchResult,
     ) -> None:
-        source_text = "\n".join(
-            f"{source.title}\n{source.url}\n{source.snippet}"
-            for source in result.sources[:6]
-        )
-        text = result.answer.strip()
-        if source_text:
-            text += "\n\nSources:\n" + source_text
-        await self.rag.add(
-            title=f"Research: {prompt[:180]}",
-            text=text[:8000],
-            url=None,
-            domain="gemini-grounding",
-            source_type="research",
-            metadata={
-                "queries": result.queries,
-                "provider": result.provider,
-                "sources": [source.url for source in result.sources[:10]],
-            },
-            ttl_seconds=24 * 60 * 60,
-            embed=True,
-        )
+        # Compatibility no-op: legacy callers must not cache personalized output.
+        return None
 
     @staticmethod
     def _evidence_from_sources(sources: list[ResearchSource]) -> str:

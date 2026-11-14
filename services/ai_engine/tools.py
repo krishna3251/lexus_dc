@@ -25,6 +25,7 @@ class ToolContext:
     guild: Optional[discord.Guild]
     channel: Optional[discord.abc.GuildChannel]
     user: discord.Member | discord.User
+    confirmed_mutations: bool = False
 
 
 @dataclass(slots=True)
@@ -78,6 +79,25 @@ class ToolRegistry:
         if not isinstance(arguments, dict):
             return {"success": False, "error": "Tool arguments must be an object"}
 
+        # Authorization and schema checks also live at the execution boundary.
+        from .permissions import AIPermissionGuard
+        permission = AIPermissionGuard.check(spec, context, allow_mutations=True)
+        if not permission.allowed:
+            return {"success": False, "error": permission.reason}
+        properties = spec.parameters.get("properties", {})
+        if spec.parameters.get("additionalProperties") is False and arguments.keys() - properties.keys():
+            return {"success": False, "error": "Unknown tool arguments"}
+        for key, value in arguments.items():
+            schema = properties.get(key, {})
+            kind = schema.get("type")
+            if ((kind == "integer" and type(value) is not int)
+                    or (kind == "string" and not isinstance(value, str))):
+                return {"success": False, "error": "Invalid argument type"}
+            if kind == "integer" and not schema.get("minimum", -2**63) <= value <= schema.get("maximum", 2**63 - 1):
+                return {"success": False, "error": "Argument outside permitted range"}
+            if kind == "string" and len(value) > schema.get("maxLength", 2000):
+                return {"success": False, "error": "Argument exceeds size limit"}
+
         missing = [
             item
             for item in spec.parameters.get("required", [])
@@ -90,6 +110,8 @@ class ToolRegistry:
             }
 
         if spec.mutating:
+            if not context.confirmed_mutations:
+                return {"success": False, "error": "AI mutations require explicit confirmation."}
             authorized, reason = await self._authorize_mutation(spec, context, arguments)
             if not authorized:
                 return {"success": False, "error": reason}
@@ -147,6 +169,14 @@ class ToolRegistry:
                 return False, "Bot member context is unavailable."
             if member.top_role >= bot_member.top_role and member.id != guild.owner_id:
                 return False, "Target is at or above the bot's highest role."
+            try:
+                from security.engine import security_engine
+                cfg = await security_engine.get_guild_config(guild.id)
+                protected_roles = set(cfg.protected_roles)
+                if member.id in cfg.trusted_users or any(role.id in protected_roles for role in member.roles):
+                    return False, "Target is protected by server security policy."
+            except Exception:
+                return False, "Security policy unavailable; action denied."
 
         channel_id = _optional_int(arguments.get("channel_id"))
         if channel_id:
@@ -166,6 +196,7 @@ class ToolRegistry:
                     return False, "Protected security channel cannot be modified by AI tools."
             except Exception:
                 logger.warning("Security policy lookup failed during AI mutation authorization.")
+                return False, "Security policy unavailable; action denied."
 
         return True, "authorized"
 
@@ -183,7 +214,7 @@ def _optional_int(value: Any) -> Optional[int]:
 
 def _resolve_member(guild: discord.Guild, query: str) -> Optional[discord.Member]:
     query = query.strip()
-    mention = re.fullmatch(r"<@!?(d+)>", query)
+    mention = re.fullmatch(r"<@!?(\d+)>", query)
     if mention:
         query = mention.group(1)
 
@@ -327,6 +358,7 @@ def register_discord_tools(registry: ToolRegistry) -> None:
                 "additionalProperties": False,
             },
             handler=_get_recent_security_incidents,
+            required_permission="manage_guild",
         )
     )
 
@@ -468,6 +500,8 @@ async def _list_channels(
     limit = max(1, min(int(arguments.get("limit", 50)), 50))
     items = []
     for channel in sorted(guild.channels, key=lambda item: getattr(item, "position", 0))[:limit]:
+        if not isinstance(context.user, discord.Member) or not channel.permissions_for(context.user).view_channel:
+            continue
         items.append(
             {
                 "id": channel.id,

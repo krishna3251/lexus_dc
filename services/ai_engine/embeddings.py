@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 import aiohttp
+from .config import enabled
 
 
 class GeminiEmbeddingService:
@@ -40,7 +41,7 @@ class GeminiEmbeddingService:
 
     @property
     def available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and enabled("AI_EXTERNAL_ENABLED", True) and enabled("AI_EMBEDDINGS_ENABLED")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         async with self._session_lock:

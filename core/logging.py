@@ -7,8 +7,36 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import re
 from typing import Optional, Any
 from core.config import config
+
+
+class SecretRedactionFilter(logging.Filter):
+    """Redact configured credentials and bearer tokens, including exception text."""
+    SECRET_NAMES = ("DISCORD_TOKEN", "GROQ_API_KEY", "GEMINI_API_KEY", "MONGO_URI",
+                    "API_SECRET_KEY", "AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY",
+                    "NVIDIA_API_KEY", "GOOGLE_API_KEY", "LAVALINK_PASSWORD")
+
+    def redact(self, text: str) -> str:
+        for name in self.SECRET_NAMES:
+            value = os.getenv(name, "")
+            if len(value) >= 6:
+                text = text.replace(value, "[REDACTED]")
+        return re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [REDACTED]", text)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self.redact(record.getMessage())
+        record.args = ()
+        if record.exc_info:
+            record.exc_text = self.redact(logging.Formatter().formatException(record.exc_info))
+        return True
+
+
+def install_secret_redaction() -> None:
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(item, SecretRedactionFilter) for item in handler.filters):
+            handler.addFilter(SecretRedactionFilter())
 
 
 def setup_logging(
@@ -54,6 +82,11 @@ def setup_logging(
         sec_handler.setFormatter(sec_formatter)
         sec_handler.setLevel(numeric_level)
         sec_logger.addHandler(sec_handler)
+
+    install_secret_redaction()
+    for handler in sec_logger.handlers:
+        if not any(isinstance(item, SecretRedactionFilter) for item in handler.filters):
+            handler.addFilter(SecretRedactionFilter())
 
     return sec_logger
 

@@ -1,0 +1,1293 @@
+{
+  "kind": "static AST imports; optional imports included, dynamic extension loading is described in LXEUS_BRAIN_V2.md",
+  "modules": {
+    "api.py": {
+      "internal": [
+        "stats_store"
+      ],
+      "other_imports": [
+        "fastapi",
+        "fastapi.middleware.cors",
+        "os"
+      ]
+    },
+    "cogs/ai_engine.py": {
+      "internal": [
+        "services.ai_engine.engine",
+        "services.ai_engine.models",
+        "services.ai_engine.tools",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "difflib",
+        "discord",
+        "discord.ext",
+        "logging",
+        "re"
+      ]
+    },
+    "cogs/anti_nuke.py": {
+      "internal": [
+        "core.config",
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "asyncio",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "logging",
+        "typing"
+      ]
+    },
+    "cogs/automod.py": {
+      "internal": [
+        "core.config",
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging",
+        "re",
+        "time"
+      ]
+    },
+    "cogs/autorole.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/broadcast.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "logging",
+        "re",
+        "typing"
+      ]
+    },
+    "cogs/channel_perms.py": {
+      "internal": [],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/chat_lex.py": {
+      "internal": [],
+      "other_imports": [
+        "aiohttp",
+        "asyncio",
+        "collections",
+        "dataclasses",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "enum",
+        "logging",
+        "os",
+        "random",
+        "re",
+        "time",
+        "typing"
+      ]
+    },
+    "cogs/coder_lex.py": {
+      "internal": [],
+      "other_imports": [
+        "aiohttp",
+        "asyncio",
+        "dataclasses",
+        "discord",
+        "discord.ext",
+        "enum",
+        "io",
+        "logging",
+        "os",
+        "re",
+        "typing"
+      ]
+    },
+    "cogs/gif_cog.py": {
+      "internal": [],
+      "other_imports": [
+        "aiohttp",
+        "asyncio",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "logging",
+        "os",
+        "random",
+        "typing"
+      ]
+    },
+    "cogs/help.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "logging",
+        "openai",
+        "os",
+        "random"
+      ]
+    },
+    "cogs/invite_cog.py": {
+      "internal": [],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "os"
+      ]
+    },
+    "cogs/leveling.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging",
+        "random",
+        "time"
+      ]
+    },
+    "cogs/logging_cog.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/mass_role_add_cog.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/minfo.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "logging",
+        "random",
+        "typing"
+      ]
+    },
+    "cogs/moderation.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "json",
+        "logging",
+        "os",
+        "typing"
+      ]
+    },
+    "cogs/perspective.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "aiohttp",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "logging",
+        "os",
+        "random"
+      ]
+    },
+    "cogs/polls.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging",
+        "re",
+        "time"
+      ]
+    },
+    "cogs/prefix_cog.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/purge_member_cog.py": {
+      "internal": [],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "cogs/quarantine.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "logging",
+        "random",
+        "time",
+        "typing"
+      ]
+    },
+    "cogs/reminders.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging",
+        "re",
+        "time"
+      ]
+    },
+    "cogs/search.py": {
+      "internal": [],
+      "other_imports": [
+        "aiohttp",
+        "discord",
+        "discord.ext",
+        "discord.ui",
+        "logging",
+        "os",
+        "typing"
+      ]
+    },
+    "cogs/security.py": {
+      "internal": [
+        "core.events",
+        "security.audit",
+        "security.baseline",
+        "security.engine",
+        "security.lockdown",
+        "security.models",
+        "security.quarantine",
+        "security.recovery",
+        "services.database"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "discord.ext",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "cogs/server_stats.py": {
+      "internal": [
+        "stats_store"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext"
+      ]
+    },
+    "cogs/serverinfo.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "logging",
+        "random"
+      ]
+    },
+    "cogs/slash_commands_cog.py": {
+      "internal": [],
+      "other_imports": [
+        "asyncio",
+        "datetime",
+        "discord",
+        "discord.ext",
+        "logging",
+        "time"
+      ]
+    },
+    "cogs/tickets.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "io",
+        "logging"
+      ]
+    },
+    "cogs/welcome.py": {
+      "internal": [
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "discord",
+        "discord.ext",
+        "logging"
+      ]
+    },
+    "core/__init__.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "core/config.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "dotenv",
+        "os",
+        "typing"
+      ]
+    },
+    "core/errors.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "typing"
+      ]
+    },
+    "core/events.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "enum"
+      ]
+    },
+    "core/lifecycle.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "logging",
+        "typing"
+      ]
+    },
+    "core/logging.py": {
+      "internal": [
+        "core.config"
+      ],
+      "other_imports": [
+        "__future__",
+        "logging",
+        "os",
+        "re",
+        "sys",
+        "typing"
+      ]
+    },
+    "core/permissions.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "typing"
+      ]
+    },
+    "main.py": {
+      "internal": [
+        "api",
+        "core.logging",
+        "mongo_helper",
+        "security.engine",
+        "stats_store"
+      ],
+      "other_imports": [
+        "asyncio",
+        "discord",
+        "discord.ext",
+        "dotenv",
+        "fastapi",
+        "logging",
+        "os",
+        "sys",
+        "threading",
+        "time",
+        "uvicorn",
+        "wavelink"
+      ]
+    },
+    "mongo_helper.py": {
+      "internal": [],
+      "other_imports": [
+        "dotenv",
+        "logging",
+        "motor.motor_asyncio",
+        "os"
+      ]
+    },
+    "security/__init__.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "security/actions.py": {
+      "internal": [
+        "core.logging",
+        "core.permissions",
+        "security.event_tracker",
+        "security.lockdown",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "datetime",
+        "discord",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "security/anti_nuke.py": {
+      "internal": [
+        "core.events",
+        "security.event_tracker",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "time",
+        "typing"
+      ]
+    },
+    "security/audit.py": {
+      "internal": [
+        "core.logging"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "discord",
+        "time",
+        "typing"
+      ]
+    },
+    "security/baseline.py": {
+      "internal": [
+        "security.models",
+        "services.database",
+        "services.snapshots"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "logging",
+        "typing"
+      ]
+    },
+    "security/bot_guard.py": {
+      "internal": [
+        "core.permissions",
+        "security.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "typing"
+      ]
+    },
+    "security/dedup.py": {
+      "internal": [
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "time",
+        "typing"
+      ]
+    },
+    "security/engine.py": {
+      "internal": [
+        "core.errors",
+        "core.events",
+        "core.logging",
+        "security.actions",
+        "security.anti_nuke",
+        "security.bot_guard",
+        "security.dedup",
+        "security.event_tracker",
+        "security.incidents",
+        "security.join_gate",
+        "security.models",
+        "security.permission_guard",
+        "security.policies",
+        "security.raid",
+        "security.scoring",
+        "security.spam",
+        "security.webhook_guard",
+        "services.cache",
+        "services.database"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "discord",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "security/event_tracker.py": {
+      "internal": [
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "collections",
+        "time",
+        "typing"
+      ]
+    },
+    "security/incidents.py": {
+      "internal": [
+        "security.models",
+        "services.cache",
+        "services.database"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "time",
+        "typing",
+        "uuid"
+      ]
+    },
+    "security/join_gate.py": {
+      "internal": [
+        "security.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "time",
+        "typing"
+      ]
+    },
+    "security/lockdown.py": {
+      "internal": [
+        "core.logging",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "security/models.py": {
+      "internal": [
+        "core.events"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "enum",
+        "time",
+        "typing",
+        "uuid"
+      ]
+    },
+    "security/permission_guard.py": {
+      "internal": [
+        "core.permissions",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "typing"
+      ]
+    },
+    "security/policies.py": {
+      "internal": [
+        "security.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "typing"
+      ]
+    },
+    "security/quarantine.py": {
+      "internal": [
+        "core.logging",
+        "core.permissions",
+        "security.models",
+        "services.database"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "security/raid.py": {
+      "internal": [
+        "core.events",
+        "security.event_tracker",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "time",
+        "typing"
+      ]
+    },
+    "security/recovery.py": {
+      "internal": [
+        "security.baseline",
+        "security.models",
+        "services.snapshots"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "logging",
+        "typing"
+      ]
+    },
+    "security/scoring.py": {
+      "internal": [
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "math",
+        "time",
+        "typing"
+      ]
+    },
+    "security/simulator.py": {
+      "internal": [
+        "core.events",
+        "security.engine",
+        "security.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "time",
+        "typing"
+      ]
+    },
+    "security/spam.py": {
+      "internal": [
+        "security.event_tracker",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "hashlib",
+        "re",
+        "time",
+        "typing"
+      ]
+    },
+    "security/webhook_guard.py": {
+      "internal": [
+        "security.event_tracker",
+        "security.models",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "time",
+        "typing"
+      ]
+    },
+    "services/__init__.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "services/ai_engine/__init__.py": {
+      "internal": [
+        "services.ai_engine.engine",
+        "services.ai_engine.jev",
+        "services.ai_engine.models",
+        "services.ai_engine.providers"
+      ],
+      "other_imports": []
+    },
+    "services/ai_engine/brain.py": {
+      "internal": [
+        "services.ai_engine.config",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "ast",
+        "asyncio",
+        "collections",
+        "contextlib",
+        "dataclasses",
+        "math",
+        "operator",
+        "re",
+        "time"
+      ]
+    },
+    "services/ai_engine/config.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "math",
+        "os"
+      ]
+    },
+    "services/ai_engine/context.py": {
+      "internal": [
+        "services.ai_engine.models",
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "discord",
+        "typing"
+      ]
+    },
+    "services/ai_engine/embeddings.py": {
+      "internal": [
+        "services.ai_engine.config"
+      ],
+      "other_imports": [
+        "__future__",
+        "aiohttp",
+        "asyncio",
+        "os",
+        "typing"
+      ]
+    },
+    "services/ai_engine/engine.py": {
+      "internal": [
+        "services.ai_engine.brain",
+        "services.ai_engine.config",
+        "services.ai_engine.context",
+        "services.ai_engine.executor",
+        "services.ai_engine.jev",
+        "services.ai_engine.memory",
+        "services.ai_engine.models",
+        "services.ai_engine.permissions",
+        "services.ai_engine.personality",
+        "services.ai_engine.planner",
+        "services.ai_engine.providers",
+        "services.ai_engine.research",
+        "services.ai_engine.router",
+        "services.ai_engine.safety",
+        "services.ai_engine.telemetry",
+        "services.ai_engine.tools",
+        "services.ai_engine.validator",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "dataclasses",
+        "discord",
+        "json",
+        "logging",
+        "secrets",
+        "time",
+        "typing"
+      ]
+    },
+    "services/ai_engine/executor.py": {
+      "internal": [
+        "services.ai_engine.models",
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "hashlib",
+        "json",
+        "logging"
+      ]
+    },
+    "services/ai_engine/jev.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "aiohttp",
+        "asyncio",
+        "dataclasses",
+        "hashlib",
+        "json",
+        "logging",
+        "os",
+        "time",
+        "typing"
+      ]
+    },
+    "services/ai_engine/memory.py": {
+      "internal": [
+        "services.ai_engine.brain",
+        "services.ai_engine.config"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "logging",
+        "os",
+        "pathlib",
+        "re",
+        "sqlite3",
+        "time",
+        "typing"
+      ]
+    },
+    "services/ai_engine/models.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "enum",
+        "typing"
+      ]
+    },
+    "services/ai_engine/permissions.py": {
+      "internal": [
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "discord",
+        "typing"
+      ]
+    },
+    "services/ai_engine/personality.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "services/ai_engine/planner.py": {
+      "internal": [
+        "services.ai_engine.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses"
+      ]
+    },
+    "services/ai_engine/providers.py": {
+      "internal": [
+        "services.ai_engine.config",
+        "services.ai_engine.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "aiohttp",
+        "asyncio",
+        "json",
+        "logging",
+        "openai",
+        "os",
+        "time",
+        "typing",
+        "urllib.parse"
+      ]
+    },
+    "services/ai_engine/rag.py": {
+      "internal": [
+        "services.ai_engine.embeddings"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "dataclasses",
+        "hashlib",
+        "json",
+        "math",
+        "os",
+        "pathlib",
+        "sqlite3",
+        "struct",
+        "time",
+        "typing"
+      ]
+    },
+    "services/ai_engine/research.py": {
+      "internal": [
+        "services.ai_engine.config",
+        "services.ai_engine.embeddings",
+        "services.ai_engine.providers",
+        "services.ai_engine.rag"
+      ],
+      "other_imports": [
+        "__future__",
+        "aiohttp",
+        "asyncio",
+        "dataclasses",
+        "datetime",
+        "hashlib",
+        "json",
+        "logging",
+        "os",
+        "re",
+        "urllib.parse"
+      ]
+    },
+    "services/ai_engine/router.py": {
+      "internal": [
+        "services.ai_engine.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "re"
+      ]
+    },
+    "services/ai_engine/safety.py": {
+      "internal": [
+        "services.ai_engine.models"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "re"
+      ]
+    },
+    "services/ai_engine/telemetry.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "collections",
+        "dataclasses",
+        "time",
+        "typing"
+      ]
+    },
+    "services/ai_engine/tools.py": {
+      "internal": [
+        "core.logging",
+        "security.engine",
+        "services.ai_engine.permissions",
+        "services.database"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "datetime",
+        "discord",
+        "json",
+        "logging",
+        "re",
+        "typing"
+      ]
+    },
+    "services/ai_engine/validator.py": {
+      "internal": [
+        "services.ai_engine.models",
+        "services.ai_engine.planner",
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "json"
+      ]
+    },
+    "services/cache.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "collections",
+        "time",
+        "typing"
+      ]
+    },
+    "services/database.py": {
+      "internal": [
+        "core.logging",
+        "mongo_helper"
+      ],
+      "other_imports": [
+        "__future__",
+        "logging",
+        "time",
+        "typing"
+      ]
+    },
+    "services/snapshots.py": {
+      "internal": [],
+      "other_imports": [
+        "__future__",
+        "dataclasses",
+        "discord",
+        "time",
+        "typing"
+      ]
+    },
+    "stats_store.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "tests/__init__.py": {
+      "internal": [],
+      "other_imports": []
+    },
+    "tests/benchmark_brain.py": {
+      "internal": [
+        "services.ai_engine.config",
+        "services.ai_engine.engine",
+        "services.ai_engine.memory",
+        "services.ai_engine.models",
+        "services.ai_engine.rag",
+        "services.ai_engine.router",
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "asyncio",
+        "json",
+        "pathlib",
+        "platform",
+        "resource",
+        "statistics",
+        "tempfile",
+        "time",
+        "tracemalloc",
+        "types"
+      ]
+    },
+    "tests/test_ai_engine.py": {
+      "internal": [
+        "services.ai_engine.engine",
+        "services.ai_engine.models",
+        "services.ai_engine.providers",
+        "services.ai_engine.router",
+        "services.ai_engine.safety",
+        "services.ai_engine.tools"
+      ],
+      "other_imports": [
+        "__future__",
+        "os",
+        "unittest",
+        "unittest.mock"
+      ]
+    },
+    "tests/test_ai_memory.py": {
+      "internal": [
+        "services.ai_engine.memory"
+      ],
+      "other_imports": [
+        "__future__",
+        "pathlib",
+        "tempfile",
+        "unittest"
+      ]
+    },
+    "tests/test_ai_rag.py": {
+      "internal": [
+        "services.ai_engine.rag"
+      ],
+      "other_imports": [
+        "__future__",
+        "pathlib",
+        "tempfile",
+        "unittest"
+      ]
+    },
+    "tests/test_ai_research.py": {
+      "internal": [
+        "services.ai_engine.research"
+      ],
+      "other_imports": [
+        "__future__",
+        "unittest"
+      ]
+    },
+    "tests/test_antinuke.py": {
+      "internal": [
+        "core.events",
+        "security.anti_nuke",
+        "security.bot_guard",
+        "security.models",
+        "security.permission_guard",
+        "security.webhook_guard"
+      ],
+      "other_imports": [
+        "time",
+        "unittest"
+      ]
+    },
+    "tests/test_brain.py": {
+      "internal": [
+        "cogs.ai_engine",
+        "core.logging",
+        "services.ai_engine.brain",
+        "services.ai_engine.config",
+        "services.ai_engine.engine",
+        "services.ai_engine.memory",
+        "services.ai_engine.models",
+        "services.ai_engine.providers",
+        "services.ai_engine.rag",
+        "services.ai_engine.tools",
+        "services.cache"
+      ],
+      "other_imports": [
+        "__future__",
+        "aiohttp",
+        "asyncio",
+        "dataclasses",
+        "discord",
+        "discord.ext",
+        "io",
+        "json",
+        "logging",
+        "os",
+        "pathlib",
+        "re",
+        "tempfile",
+        "time",
+        "types",
+        "unittest",
+        "unittest.mock"
+      ]
+    },
+    "tests/test_engine.py": {
+      "internal": [
+        "core.events",
+        "security.engine",
+        "security.models",
+        "security.simulator",
+        "services.database"
+      ],
+      "other_imports": [
+        "asyncio",
+        "unittest"
+      ]
+    },
+    "tests/test_failures.py": {
+      "internal": [
+        "core.events",
+        "core.lifecycle",
+        "core.permissions",
+        "security.engine",
+        "security.models",
+        "services.database"
+      ],
+      "other_imports": [
+        "asyncio",
+        "unittest",
+        "unittest.mock"
+      ]
+    },
+    "tests/test_jev.py": {
+      "internal": [
+        "services.ai_engine.jev"
+      ],
+      "other_imports": [
+        "__future__",
+        "os",
+        "unittest",
+        "unittest.mock"
+      ]
+    },
+    "tests/test_performance.py": {
+      "internal": [
+        "core.events",
+        "security.engine",
+        "security.models"
+      ],
+      "other_imports": [
+        "time",
+        "unittest"
+      ]
+    },
+    "tests/test_raid.py": {
+      "internal": [
+        "core.events",
+        "security.join_gate",
+        "security.models",
+        "security.raid"
+      ],
+      "other_imports": [
+        "time",
+        "unittest"
+      ]
+    },
+    "tests/test_security_attribution.py": {
+      "internal": [
+        "core.events",
+        "security.audit",
+        "security.models",
+        "security.permission_guard",
+        "security.policies"
+      ],
+      "other_imports": [
+        "__future__",
+        "discord",
+        "unittest",
+        "unittest.mock"
+      ]
+    },
+    "tests/test_spam.py": {
+      "internal": [
+        "core.events",
+        "security.models",
+        "security.spam"
+      ],
+      "other_imports": [
+        "time",
+        "unittest"
+      ]
+    },
+    "tests/test_unit.py": {
+      "internal": [
+        "core.events",
+        "core.permissions",
+        "security.dedup",
+        "security.event_tracker",
+        "security.models",
+        "security.scoring"
+      ],
+      "other_imports": [
+        "time",
+        "unittest"
+      ]
+    }
+  }
+}

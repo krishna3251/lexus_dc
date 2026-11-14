@@ -1,1 +1,41 @@
-"""Tests for the local hybrid RAG store."""\n\nfrom __future__ import annotations\n\nimport tempfile\nimport unittest\nfrom pathlib import Path\n\nfrom services.ai_engine.rag import RAGStore\n\n\nclass TestRAGStore(unittest.IsolatedAsyncioTestCase):\n    async def test_lexical_retrieval_without_embedding_api(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            store = RAGStore(db_path=Path(tmp) / "rag.sqlite3", max_items=20)\n            store.embedder.api_key = ""\n            result_a = await store.add(\n                "Pal Metal farming",\n                "Palworld ore and pal metal ingot farming guide",\n                url="https://example.com/pal",\n                domain="example.com",\n                embed=False,\n            )\n            result_b = await store.add(\n                "Minecraft guide",\n                "Minecraft Java server setup and Fabric performance",\n                url="https://example.com/minecraft",\n                domain="example.com",\n                embed=False,\n            )\n            self.assertTrue(result_a)\n            self.assertTrue(result_b)\n\n            results = await store.search("palworld pal metal ingot")\n            self.assertEqual(len(results.items), 2)\n            self.assertEqual(results.items[0].title, "Pal Metal farming")\n            self.assertGreaterEqual(results.items[0].lexical_score, results.items[1].lexical_score)\n\n\nif __name__ == "__main__":\n    unittest.main()
+"""Tests for the local hybrid RAG store."""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from services.ai_engine.rag import RAGStore
+
+
+class TestRAGStore(unittest.IsolatedAsyncioTestCase):
+    async def test_lexical_retrieval_without_embedding_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RAGStore(db_path=Path(tmp) / "rag.sqlite3", max_items=20)
+            store.embedder.api_key = ""
+            result_a = await store.add(
+                "Pal Metal farming",
+                "Palworld ore and pal metal ingot farming guide",
+                url="https://example.com/pal",
+                domain="example.com",
+                embed=False,
+            )
+            result_b = await store.add(
+                "Minecraft guide",
+                "Minecraft Java server setup and Fabric performance",
+                url="https://example.com/minecraft",
+                domain="example.com",
+                embed=False,
+            )
+            self.assertTrue(result_a)
+            self.assertTrue(result_b)
+
+            results = await store.search("palworld pal metal ingot")
+            self.assertEqual(len(results.items), 2)
+            self.assertEqual(results.items[0].title, "Pal Metal farming")
+            self.assertGreaterEqual(results.items[0].lexical_score, results.items[1].lexical_score)
+
+
+if __name__ == "__main__":
+    unittest.main()

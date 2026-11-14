@@ -17,6 +17,8 @@ from discord.ext import commands
 from services.ai_engine.engine import AIEngine
 from services.ai_engine.models import AIRequest
 from services.ai_engine.tools import ToolContext
+from services.ai_engine.providers import ProviderError
+from services.discord_output import send_reply
 from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     # Fuzzy matching is deliberately limited to the first token so normal
     # conversation is not accidentally routed into the AI engine.
     WAKE_ALIASES = frozenset({
+        "lxeus",
         "lex",
         "lexus",
         "luexu",
@@ -57,11 +60,15 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             max_size=10000,
             default_ttl=90.0,
         )
+        self._reply_owners = TTLCache[int, tuple](2000, 900)
 
     async def cog_load(self) -> None:
         self.bot.ai_engine = self.engine
         await self.engine.memory.initialize()
-        await self.engine.research.initialize()
+        try:
+            await self.engine.research.initialize()
+        except Exception as exc:
+            logger.warning("Knowledge store unavailable | type=%s", type(exc).__name__)
         memory_health = self.engine.memory.health()
         logger.info(
             "🤖 Lexus AI Engine loaded | providers=%s | tools=%d | memory=%s",
@@ -114,7 +121,11 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     @commands.command(name="aireload", help="Reload AI provider settings from the current process environment.")
     @commands.is_owner()
     async def ai_reload(self, ctx: commands.Context) -> None:
-        await self.engine.reload_providers()
+        try:
+            await self.engine.reload_providers()
+        except ProviderError as exc:
+            await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
+            return
         providers = self.engine.provider_names or ["none"]
         jev_state = "enabled" if self.engine.health()["jev"]["available"] else "unavailable"
         await ctx.send(
@@ -159,8 +170,6 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
         channel = (
             message.channel
-            if isinstance(message.channel, discord.abc.GuildChannel)
-            else None
         )
 
         try:
@@ -171,7 +180,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                     channel,
                     prompt,
                 )
-            await self._send_message_chunks(message.channel, response)
+            await self._send_message_chunks(message.channel, response,
+                                            (message.author.id, getattr(message.guild, "id", None), message.channel.id))
         except Exception:
             logger.exception(
                 "AI natural chat failed | user=%s guild=%s channel=%s",
@@ -180,7 +190,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                 message.channel.id,
             )
             await message.channel.send(
-                "Arre yaar, abhi AI side pe thoda scene hai 😭. Ek baar phir try karo."
+                "I couldn't finish that reply. Try again in a moment."
             )
 
     @classmethod
@@ -230,6 +240,16 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         content = message.content.strip()
         if not content:
             return None
+        # Legacy coding workflows own these exact triggers.
+        if re.match(r"^lex (?:code|review|analyze|memory)(?:\s|$)", content, re.I):
+            return None
+
+        scope = (message.author.id, getattr(message.guild, "id", None), message.channel.id)
+        reference_id = getattr(getattr(message, "reference", None), "message_id", None)
+        if reference_id and self._reply_owners.get(reference_id) == scope:
+            return content
+        if message.guild is None:
+            return content
 
         if self.bot.user and self.bot.user in message.mentions:
             pattern = rf"<@!?{self.bot.user.id}>\s*"
@@ -268,16 +288,14 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         self,
         channel: discord.abc.Messageable,
         response: str,
+        scope: tuple | None = None,
     ) -> None:
         """Send an AI response without exceeding Discord message limits."""
         if not response or not response.strip():
             return
-        chunks = [
-            response[i : i + 1900]
-            for i in range(0, len(response), 1900)
-        ]
-        for chunk in chunks:
-            await channel.send(chunk)
+        for sent in await send_reply(channel.send, response):
+            if scope:
+                self._reply_owners.set(sent.id, scope)
 
     @commands.command(
         name="ask",
@@ -288,7 +306,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             response = await self._run(
                 ctx.author,
                 ctx.guild,
-                ctx.channel if isinstance(ctx.channel, discord.abc.GuildChannel) else None,
+                ctx.channel,
                 prompt,
             )
         await self._send_chunked(ctx, response)
@@ -304,11 +322,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         prompt: str,
     ) -> None:
         await interaction.response.defer(thinking=True)
-        channel = (
-            interaction.channel
-            if isinstance(interaction.channel, discord.abc.GuildChannel)
-            else None
-        )
+        channel = interaction.channel
         response = await self._run(
             interaction.user,
             interaction.guild,
@@ -318,10 +332,111 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
         if not response or not response.strip():
             return
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
-        await interaction.followup.send(chunks[0])
-        for chunk in chunks[1:]:
-            await interaction.followup.send(chunk)
+        for sent in await send_reply(interaction.followup.send, response, wait=True):
+            self._reply_owners.set(sent.id, (interaction.user.id, interaction.guild_id, interaction.channel_id))
+
+    async def _private(self, ctx: commands.Context, text: str) -> None:
+        """Memory contents never get posted in a public channel."""
+        for offset in range(0, len(text), 1900):
+            if ctx.interaction:
+                await ctx.send(text[offset:offset+1900], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            else:
+                try:
+                    await ctx.author.send(text[offset:offset+1900], allowed_mentions=discord.AllowedMentions.none())
+                except discord.Forbidden:
+                    await ctx.send("Enable DMs or use the slash version for a private response.")
+                    break
+
+    @commands.hybrid_group(name="aimemory", fallback="status", invoke_without_command=True)
+    async def ai_memory(self, ctx: commands.Context) -> None:
+        """Private memory settings for you in this server (or your DM scope)."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        prefs = await self.engine.memory.preferences(ctx.author.id, getattr(ctx.guild, "id", None))
+        await self._private(ctx, f"Persistent chat history: {bool(prefs['history_enabled'])}\nExternal AI allowed: {bool(prefs['external_allowed'])}\nStyle: {prefs['style'] or 'adaptive'}\nAddressed chat uses a temporary RAM session. Approved memories are saved only by `remember`. Use settings, remember, recall, forget, clear, or style.")
+
+    @ai_memory.command(name="settings")
+    async def memory_settings(self, ctx: commands.Context, history: bool, external: bool) -> None:
+        """Choose persistent chat history and external processing for this scope."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        guild = getattr(ctx.guild, "id", None)
+        await self.engine.capacity.cancel_user(ctx.author.id, guild)
+        prefs = await self.engine.memory.preferences(ctx.author.id, guild)
+        ok = await self.engine.memory.set_preferences(ctx.author.id, guild, history_enabled=history,
+                                                     external_allowed=external, style=prefs["style"])
+        await self._private(ctx, "Settings saved. Previously sent external requests cannot be recalled." if ok else "Settings could not be saved.")
+
+    @ai_memory.command(name="remember")
+    async def memory_remember(self, ctx: commands.Context, key: str, *, value: str) -> None:
+        """Explicitly approve or replace one personal memory."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        ok = await self.engine.memory.remember(ctx.author.id, getattr(ctx.guild, "id", None), key, value)
+        await self._private(ctx, "Memory saved for you in this scope." if ok else "Memory could not be saved.")
+
+    @ai_memory.command(name="recall")
+    async def memory_recall(self, ctx: commands.Context) -> None:
+        """Privately list your approved memories in this scope."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        items = await self.engine.memory.memories(ctx.author.id, getattr(ctx.guild, "id", None))
+        await self._private(ctx, "\n".join(f"{item['key']}: {item['value']}" for item in items) or "No approved memories saved.")
+
+    @ai_memory.command(name="forget")
+    async def memory_forget(self, ctx: commands.Context, key: str) -> None:
+        """Delete one approved memory and discard temporary context."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        guild = getattr(ctx.guild, "id", None)
+        await self.engine.capacity.cancel_user(ctx.author.id, guild)
+        self.engine.conversations.clear(ctx.author.id, guild)
+        await self.engine.memory.clear_history_user(ctx.author.id, guild)
+        ok = await self.engine.memory.forget(ctx.author.id, guild, key)
+        await self._private(ctx, "Memory deleted; conversation context cleared." if ok else "That memory was not found or deletion failed.")
+
+    @ai_memory.command(name="clear")
+    async def memory_clear(self, ctx: commands.Context) -> None:
+        """Delete your history, approved memories and feedback in this scope."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        ok = await self.engine.clear_user(ctx.author.id, getattr(ctx.guild, "id", None))
+        await self._private(ctx, "Your memories, history and feedback were cleared. Privacy choices were retained." if ok else "Deletion could not be completed.")
+
+    @ai_memory.command(name="style")
+    async def memory_style(self, ctx: commands.Context, style: str = "adaptive") -> None:
+        """Choose adaptive, casual, friendly, playful, sarcastic, serious, technical, helpful or concise."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        guild = getattr(ctx.guild, "id", None)
+        prefs = await self.engine.memory.preferences(ctx.author.id, guild)
+        ok = await self.engine.memory.set_preferences(ctx.author.id, guild, history_enabled=bool(prefs['history_enabled']),
+                                                     external_allowed=bool(prefs['external_allowed']), style="" if style == "adaptive" else style)
+        await self._private(ctx, "Style preference saved." if ok else "Unknown style or storage failure.")
+
+    @commands.hybrid_command(name="aicancel")
+    async def ai_cancel(self, ctx: commands.Context) -> None:
+        """Stop your active Brain requests in this server."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        await self.engine.capacity.cancel_user(ctx.author.id, getattr(ctx.guild, "id", None))
+        await self._private(ctx, "Stopped active requests. An action already accepted by Discord may have completed.")
+
+    @commands.hybrid_command(name="aiconfirm")
+    async def ai_confirm(self, ctx: commands.Context, token: str) -> None:
+        """Confirm the exact pending action preview in this channel."""
+        if ctx.interaction:
+            await ctx.defer()
+        result = await self.engine.confirm(token, ToolContext(self.bot, ctx.guild, ctx.channel, ctx.author))
+        await self._send_chunked(ctx, result.text)
+
+    @commands.hybrid_command(name="aifeedback")
+    async def ai_feedback(self, ctx: commands.Context, helpful: bool) -> None:
+        """Save an explicit usefulness signal without storing message content."""
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True)
+        ok = await self.engine.memory.feedback(ctx.author.id, getattr(ctx.guild, "id", None), helpful)
+        await self._private(ctx, "Feedback saved." if ok else "Feedback could not be saved.")
 
     @commands.command(name="aistatus", help="Show Lexus AI Engine provider status.")
     @commands.is_owner()
@@ -392,13 +507,8 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         jev = health["jev"]
         jev_value = (
-            f"✅ {jev['model']} • tool gate enabled"
-            if jev["available"] and jev["tool_gate_enabled"]
-            else (
-                f"✅ {jev['model']} • decision layer"
-                if jev["available"]
-                else "⚪ Jev decision layer unavailable"
-            )
+            f"✅ {jev['model']} • explicit evaluations only"
+            if jev["available"] else "⚪ Jev decision layer unavailable"
         )
         embed.add_field(
             name="Decision Layer",
@@ -407,17 +517,26 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         )
         embed.add_field(
             name="Models",
-            value="openai/gpt-oss-120b (Groq primary)\ngemini-3.8-flash (fallback)\ntypesafe-ai/jev (typed decisions)",
+            value="\n".join(providers)[:1000],
             inline=False,
         )
+        metrics = health['provider_metrics']
+        embed.add_field(name="Brain limits", value=f"Active: {health['active_requests']}\nExternal calls used: {metrics.get('hourly_calls_used', 0)}/{metrics.get('hourly_call_limit', 0)}\nCache: {health['cache']['hits']} hits, {health['cache']['misses']} misses", inline=False)
+        usage = metrics.get("token_usage", [])
+        usage_text = "\n".join(
+            f"{item['provider']} / {item['model']}: "
+            f"{item.get('input_tokens', 0)} in, {item.get('output_tokens', 0)} out "
+            f"({item.get('responses_without_usage', 0)} unreported)"
+            for item in usage
+        )
+        embed.add_field(name="Reported token usage", value=usage_text[:1000] or "No reported usage yet.", inline=False)
         await ctx.send(embed=embed)
 
     async def _send_chunked(self, ctx: commands.Context, response: str) -> None:
         if not response or not response.strip():
             return
-        chunks = [response[i : i + 1900] for i in range(0, len(response), 1900)]
-        for chunk in chunks:
-            await ctx.send(chunk)
+        await self._send_message_chunks(ctx.channel, response,
+            (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
 
 
 async def setup(bot: commands.Bot) -> None:

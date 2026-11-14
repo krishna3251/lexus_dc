@@ -11,8 +11,10 @@ import asyncio
 import os
 import sqlite3
 import time
+import re
 from pathlib import Path
 from typing import Any
+from .config import number
 
 import logging
 
@@ -39,6 +41,19 @@ class AIMemoryService:
         self._initialized = False
         self._closed = False
         self._operation_lock = asyncio.Lock()
+        self.history_ttl = number("AI_HISTORY_TTL", 86400, 60, 604800)
+        self.memory_ttl = number("AI_MEMORY_TTL", 90 * 86400, 60, 365 * 86400)
+
+    @staticmethod
+    async def _run_sync(function, *args):
+        # SQLite worker operations cannot be interrupted mid-transaction. Keep
+        # the operation lock until they finish, even when a request is cancelled.
+        task = asyncio.create_task(asyncio.to_thread(function, *args))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
     @property
     def backend(self) -> str:
@@ -121,6 +136,22 @@ class AIMemoryService:
 
                 CREATE INDEX IF NOT EXISTS ai_message_expiry
                     ON ai_message_dedupe(expires_at);
+
+                CREATE TABLE IF NOT EXISTS ai_preferences (
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    history_enabled INTEGER NOT NULL DEFAULT 0,
+                    external_allowed INTEGER NOT NULL DEFAULT 1,
+                    style TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY(user_id, guild_id)
+                );
+                CREATE TABLE IF NOT EXISTS ai_feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    helpful INTEGER NOT NULL CHECK(helpful IN (0, 1)),
+                    created_at REAL NOT NULL
+                );
                 """
             )
             self._cleanup_sync(conn, time.time())
@@ -144,7 +175,7 @@ class AIMemoryService:
             if self._initialized and not self._closed:
                 return
             try:
-                await asyncio.to_thread(self._initialize_sync)
+                await self._run_sync(self._initialize_sync)
             except Exception:
                 logger.exception("SQLite AI memory initialization failed | path=%s", self.db_path)
                 self._initialized = False
@@ -154,6 +185,8 @@ class AIMemoryService:
             logger.info("🗃️ Lexus AI memory ready | SQLite=%s", self.db_path)
 
     async def _ensure_ready(self) -> bool:
+        if self._closed:
+            return False
         if not self._initialized or self._closed:
             await self.initialize()
         return self.available
@@ -189,7 +222,7 @@ class AIMemoryService:
             return None
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(self._claim_message_sync, int(message_id))
+                return await self._run_sync(self._claim_message_sync, int(message_id))
         except Exception:
             logger.exception("SQLite message dedupe failed | message=%s", message_id)
             return None
@@ -222,7 +255,7 @@ class AIMemoryService:
                     content,
                     request_id[:64],
                     now,
-                    now + 7 * 24 * 60 * 60,
+                    now + self.history_ttl,
                 ),
             )
             keep = self.max_history * 4
@@ -243,6 +276,7 @@ class AIMemoryService:
                     keep,
                 ),
             )
+            conn.execute("DELETE FROM ai_conversations WHERE id NOT IN (SELECT id FROM ai_conversations ORDER BY id DESC LIMIT 20000)")
             conn.execute("COMMIT")
             return True
         except Exception:
@@ -270,7 +304,7 @@ class AIMemoryService:
             return False
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._add_turn_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -321,7 +355,7 @@ class AIMemoryService:
             return []
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._recent_turns_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -343,6 +377,7 @@ class AIMemoryService:
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DELETE FROM ai_memories WHERE updated_at <= ?", (now - self.memory_ttl,))
             conn.execute(
                 """
                 INSERT INTO ai_memories(user_id, guild_id, key, value, source, updated_at)
@@ -397,7 +432,7 @@ class AIMemoryService:
             return False
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._remember_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -412,15 +447,17 @@ class AIMemoryService:
     def _memories_sync(self, user_id: int, guild_id: int) -> list[dict[str, str]]:
         conn = self._connect()
         try:
+            conn.execute("DELETE FROM ai_memories WHERE updated_at <= ?", (time.time() - self.memory_ttl,))
             rows = conn.execute(
                 """
                 SELECT key, value, source
                 FROM ai_memories
                 WHERE user_id = ? AND guild_id = ?
+                  AND updated_at > ?
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
-                (int(user_id), guild_id, self.max_memories),
+                (int(user_id), guild_id, time.time() - self.memory_ttl, self.max_memories),
             ).fetchall()
             return [
                 {
@@ -439,7 +476,7 @@ class AIMemoryService:
             return []
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._memories_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -464,7 +501,7 @@ class AIMemoryService:
             return False
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._forget_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -498,7 +535,7 @@ class AIMemoryService:
             return False
         try:
             async with self._operation_lock:
-                return await asyncio.to_thread(
+                return await self._run_sync(
                     self._clear_history_sync,
                     int(user_id),
                     self._scope_id(guild_id),
@@ -510,3 +547,83 @@ class AIMemoryService:
 
     async def close(self) -> None:
         self._closed = True
+
+    async def relevant_memories(self, user_id: int, guild_id: int | None,
+                                query: str, max_chars: int = 3000) -> list[dict[str, str]]:
+        """Rank only this owner's bounded approved records; no embedding API."""
+        memories = await self.memories(user_id, guild_id)
+        tokens = set(re.findall(r"\w+", query.casefold()))
+        def score(item):
+            words = set(re.findall(r"\w+", f"{item['key']} {item['value']}".casefold()))
+            return len(words & tokens) + (0.5 if item['key'] in {"language", "style"} else 0)
+        result = []
+        for item in sorted(memories, key=score, reverse=True):
+            size = len(item['key']) + len(item['value'])
+            if size <= max_chars:
+                result.append(item)
+                max_chars -= size
+        return result
+
+    async def _operation(self, operation, fallback):
+        if not await self._ensure_ready():
+            return fallback
+        def run():
+            conn = self._connect()
+            try:
+                return operation(conn)
+            finally:
+                conn.close()
+        try:
+            async with self._operation_lock:
+                return await self._run_sync(run)
+        except Exception as exc:
+            logger.warning("Memory operation failed | type=%s", type(exc).__name__)
+            return fallback
+
+    async def preferences(self, user_id: int, guild_id: int | None) -> dict:
+        def read(conn):
+            row = conn.execute("SELECT history_enabled, external_allowed, style FROM ai_preferences WHERE user_id=? AND guild_id=?",
+                               (user_id, self._scope_id(guild_id))).fetchone()
+            return dict(row) if row else {"history_enabled": False, "external_allowed": True, "style": ""}
+        # Fail closed on a storage failure; unknown privacy policy cannot authorize egress.
+        return await self._operation(read, {"history_enabled": False, "external_allowed": False, "style": ""})
+
+    async def set_preferences(self, user_id: int, guild_id: int | None, *,
+                              history_enabled: bool, external_allowed: bool, style: str = "") -> bool:
+        from .brain import ResponseStyle
+        if style and style not in ResponseStyle.STYLES:
+            return False
+        def write(conn):
+            conn.execute("INSERT INTO ai_preferences VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, guild_id) DO UPDATE SET history_enabled=excluded.history_enabled, external_allowed=excluded.external_allowed, style=excluded.style",
+                         (user_id, self._scope_id(guild_id), bool(history_enabled), bool(external_allowed), style))
+            if not history_enabled:
+                conn.execute("DELETE FROM ai_conversations WHERE user_id=? AND guild_id=?",
+                             (user_id, self._scope_id(guild_id)))
+            return True
+        return await self._operation(write, False)
+
+    async def clear_user(self, user_id: int, guild_id: int | None) -> bool:
+        def delete(conn):
+            conn.execute("BEGIN IMMEDIATE")
+            for table in ("ai_conversations", "ai_memories", "ai_feedback"):
+                conn.execute(f"DELETE FROM {table} WHERE user_id=? AND guild_id=?", (user_id, self._scope_id(guild_id)))
+            # Retain privacy choices so deletion does not re-enable external inference.
+            conn.execute("COMMIT")
+            return True
+        return await self._operation(delete, False)
+
+    async def clear_history_user(self, user_id: int, guild_id: int | None) -> bool:
+        def delete(conn):
+            conn.execute("DELETE FROM ai_conversations WHERE user_id=? AND guild_id=?",
+                         (user_id, self._scope_id(guild_id)))
+            return True
+        return await self._operation(delete, False)
+
+    async def feedback(self, user_id: int, guild_id: int | None, helpful: bool) -> bool:
+        def write(conn):
+            conn.execute("INSERT INTO ai_feedback(user_id,guild_id,helpful,created_at) VALUES(?,?,?,?)",
+                         (user_id, self._scope_id(guild_id), bool(helpful), time.time()))
+            conn.execute("DELETE FROM ai_feedback WHERE created_at < ? OR id NOT IN (SELECT id FROM ai_feedback ORDER BY id DESC LIMIT 1000)",
+                         (time.time() - 30 * 86400,))
+            return True
+        return await self._operation(write, False)

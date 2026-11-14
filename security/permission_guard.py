@@ -81,6 +81,8 @@ class PermissionGuard:
                 confidence = 0.95
 
         if score >= 35.0:
+            if not attribution_known:
+                confidence = min(confidence, 0.45)
             return Evidence(
                 detector_name="PermissionGuard",
                 score=score,
