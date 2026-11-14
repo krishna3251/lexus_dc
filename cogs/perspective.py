@@ -17,6 +17,7 @@ class PerspectiveCog(commands.Cog, name="Perspective"):
         self.perspective_api_key = os.getenv("PERSPECTIVE_API_KEY")
         self.moderation_enabled: dict = {}  # in-memory cache
         self.toxicity_threshold = 0.6
+        self._karma_db_unavailable = False
 
         # Roles to ignore (add your role IDs here)
         self.ignored_role_ids = {
@@ -103,8 +104,13 @@ class PerspectiveCog(commands.Cog, name="Perspective"):
 
         col = mongo_helper.get_collection("perspective_karma")
         if col is None:
-            logger.warning("MongoDB not connected – skipping karma update")
+            if not self._karma_db_unavailable:
+                logger.warning("MongoDB not connected – karma updates paused until database access returns")
+                self._karma_db_unavailable = True
             return 0
+        if self._karma_db_unavailable:
+            logger.info("MongoDB available – karma updates resumed")
+            self._karma_db_unavailable = False
 
         doc = await col.find_one({"guild_id": guild_id, "user_id": user_id})
         karma = doc.get("karma_points", 0) if doc else 0

@@ -7,6 +7,8 @@ import threading
 import asyncio
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from core.interaction_response import interaction_unavailable, report_error
+from services.lavalink import LavalinkConnection
 
 # === Optional imports ===
 try:
@@ -37,10 +39,6 @@ except ImportError:
 # === Load env ===
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
-
-if not TOKEN:
-    logging.critical("❌ DISCORD_TOKEN not set in environment!")
-    sys.exit(1)
 
 # === Logging ===
 os.makedirs("logs", exist_ok=True)
@@ -99,6 +97,9 @@ class Bot(commands.Bot):
         self.commands_used       = 0
         self.status_cycle        = 0
         self.processing_commands = set()
+        self.lavalink = LavalinkConnection(wavelink) if WAVELINK_AVAILABLE else None
+        self.commands_synced = False
+        self.ready_lock = asyncio.Lock()
 
     async def setup_hook(self):
         logging.info("⚙️  Running setup_hook...")
@@ -164,19 +165,30 @@ class Bot(commands.Bot):
         self.status_rotation.cancel()
         brain = getattr(self, "ai_engine", None)
         if brain is not None:
-            await brain.close()
+            try:
+                await brain.close()
+            except Exception:
+                logging.exception("Error closing AI engine")
         try:
             from security.engine import security_engine
             await security_engine.stop()
         except Exception as e:
             logging.error(f"Error stopping security engine: {e}")
 
-        if MONGO_AVAILABLE and mongo_helper:
-            try:
-                await mongo_helper.disconnect()
-            except Exception as e:
-                logging.error(f"Error disconnecting Mongo: {e}")
-        await super().close()
+        try:
+            if self.lavalink is not None:
+                await self.lavalink.close()
+        except Exception:
+            logging.exception("Error closing Lavalink")
+        try:
+            # Unload cogs and close Discord's gateway before the event loop ends.
+            await super().close()
+        finally:
+            if MONGO_AVAILABLE and mongo_helper:
+                try:
+                    await mongo_helper.disconnect()
+                except Exception:
+                    logging.exception("Error disconnecting Mongo")
 
     async def process_commands(self, message: discord.Message):
         if message.id in self.processing_commands:
@@ -216,25 +228,26 @@ bot = Bot()
 
 
 async def connect_lavalink():
-    if not WAVELINK_AVAILABLE:
-        return
-    try:
-        node = wavelink.Node(uri=LAVALINK_URI, password=LAVALINK_PASSWORD)
-        await wavelink.Pool.connect(nodes=[node], client=bot, cache_capacity=100)
-        logging.info("✅ Lavalink connected")
-    except Exception as e:
-        logging.error(f"❌ Lavalink failed: {e}")
+    if bot.lavalink is not None:
+        await bot.lavalink.connect(bot, LAVALINK_URI, LAVALINK_PASSWORD)
+
+
+@bot.event
+async def on_wavelink_node_ready(payload):
+    logging.info("✅ Lavalink node ready: %s", payload.node.identifier)
 
 
 @bot.event
 async def on_ready():
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    await asyncio.sleep(2)
-    try:
-        synced = await bot.tree.sync()
-        logging.info(f"✅ Synced {len(synced)} slash commands")
-    except Exception as e:
-        logging.error(f"❌ Sync failed: {e}")
+    async with bot.ready_lock:
+        if not bot.commands_synced:
+            try:
+                synced = await bot.tree.sync()
+                bot.commands_synced = True
+                logging.info(f"✅ Synced {len(synced)} slash commands")
+            except Exception as e:
+                logging.error(f"❌ Sync failed: {e}")
     _update_server_stats()
     await connect_lavalink()
     logging.info(f"🚀 Ready! {len(bot.users)} users across {len(bot.guilds)} servers")
@@ -276,12 +289,16 @@ async def bio_command(ctx: commands.Context):
 @commands.is_owner()
 async def restart(ctx: commands.Context):
     await ctx.send("🔄 Restarting...")
+    await bot.close()
     os.execv(sys.executable, ["python"] + sys.argv)
 
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
+        return
+    if interaction_unavailable(error):
+        logging.warning("Command interaction already acknowledged or expired; skipping duplicate error reply")
         return
     embed = discord.Embed(title="⚠️ Error", color=discord.Color.red())
     if isinstance(error, commands.MissingRequiredArgument):
@@ -292,24 +309,27 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
         embed.description = f"Cooldown active. Retry in **{error.retry_after:.1f}s**"
     else:
         embed.description = "An unexpected error occurred."
-        logging.error(f"Command error: {error}", exc_info=True)
+        logging.error("Command error: %s", error, exc_info=(type(error), error, error.__traceback__))
     try:
-        await ctx.send(embed=embed, delete_after=10)
-    except discord.Forbidden:
-        pass
+        if ctx.interaction is not None:
+            await report_error(ctx.interaction, error, embed)
+        else:
+            await ctx.send(embed=embed, delete_after=10)
+    except discord.HTTPException as reply_error:
+        logging.warning("Unable to deliver command error (code %s)", reply_error.code)
 
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
-    logging.error(f"Slash error: {error}", exc_info=True)
+    if interaction_unavailable(error):
+        logging.warning("Slash interaction already acknowledged or expired; skipping duplicate error reply")
+        return
+    logging.error("Slash error: %s", error, exc_info=(type(error), error, error.__traceback__))
     embed = discord.Embed(title="⚠️ Error", description="Something went wrong.", color=discord.Color.red())
     try:
-        if not interaction.response.is_done():
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            await interaction.followup.send(embed=embed, ephemeral=True)
-    except Exception:
-        pass
+        await report_error(interaction, error, embed)
+    except discord.HTTPException as reply_error:
+        logging.warning("Unable to deliver slash error (code %s)", reply_error.code)
 
 
 # === API server — binds to $PORT for Render health checks ===
@@ -336,6 +356,14 @@ def run_api():
 
 
 async def start_bot():
+    if not TOKEN:
+        logging.critical("❌ DISCORD_TOKEN not set in environment!")
+        return
+    async with bot:
+        await _start_with_retries()
+
+
+async def _start_with_retries():
     for attempt in range(1, 6):
         try:
             logging.info(f"🚀 Starting bot (attempt {attempt}/5)")
@@ -355,6 +383,9 @@ async def start_bot():
 
 
 if __name__ == "__main__":
+    if not TOKEN:
+        logging.critical("❌ DISCORD_TOKEN not set in environment!")
+        sys.exit(1)
     # Start web server first (Render health checks need it)
     threading.Thread(target=run_api, daemon=True).start()
 
