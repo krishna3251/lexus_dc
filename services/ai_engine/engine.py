@@ -14,7 +14,7 @@ import discord
 from services.cache import TTLCache
 from services.report_formatting import format_research_report
 
-from .brain import BrainBusy, ConversationState, LocalSkills, RequestCapacity, ResponseStyle, bounded_turns, needs_stronger_model
+from .brain import BrainBusy, ConversationState, LocalSkills, RequestCapacity, ResponseStyle, bounded_turns
 from .config import BrainConfig
 
 from .context import ContextBuilder
@@ -24,7 +24,7 @@ from .memory import AIMemoryService
 from .models import AIIntent, AIRequest, AIResult, ToolCall
 from .personality import HYDERABADI_STYLE
 from .permissions import AIPermissionGuard
-from .planner import Planner
+from .orchestrator import ContextBudgetExceeded, RequestOrchestrator, serialize_observation
 from .providers import ProviderError, ProviderManager
 from .research import ResearchResult, WebResearchService
 from .router import RequestRouter
@@ -68,7 +68,8 @@ class AIEngine:
         self.providers = provider_manager or ProviderManager(self.config)
         self.tools = tool_registry or ToolRegistry()
         self.router = RequestRouter()
-        self.planner = Planner()
+        self.orchestrator = RequestOrchestrator()
+        self.planner = self.orchestrator.planner
         self.safety = SafetyGate()
         self.permission_guard = AIPermissionGuard()
         self.validator = ToolCallValidator()
@@ -118,6 +119,7 @@ class AIEngine:
             "jev": self.jev.health(),
             "provider_health": self.providers.health(),
             "telemetry": self.telemetry.snapshot(),
+            "orchestration": self.orchestrator.metrics(),
         }
 
     async def reload_providers(self) -> None:
@@ -286,9 +288,10 @@ class AIEngine:
             )
             return result
 
-        plan = self.planner.build(route)
-        ai_context = ContextBuilder.build(request, route, context)
         preferences = await self.memory.preferences(request.user_id, request.guild_id)
+        style = ResponseStyle.choose(request.prompt, preferences.get("style"))
+        plan = self.orchestrator.plan(request, route, style)
+        ai_context = ContextBuilder.build(request, route, context)
         allow_external = self.config.external_enabled and bool(preferences["external_allowed"])
         result = await self._ask_locked(
                 request=request,
@@ -329,7 +332,9 @@ class AIEngine:
             f"Response style: {style.name}. {style.instruction}\n"
             f"{ai_context.as_prompt_fragment()}\n"
             f"- Execution policy: {plan.reason}\n"
-            f"- Mutations permitted by route: {'yes' if plan.allow_mutations else 'no'}"
+            f"- Mutations permitted by route: {'yes' if plan.allow_mutations else 'no'}\n"
+            f"{self.orchestrator.instruction(plan)}\n"
+            "Return the answer and a concise explanation where useful. Keep private reasoning internal."
         )
 
         research_result: ResearchResult | None = None
@@ -345,6 +350,7 @@ class AIEngine:
             research_result = await self.research.research(
                 request.prompt, style_instruction=style.instruction,
                 max_output_tokens=self.config.research_output_tokens,
+                reasoning_effort=plan.reasoning_effort,
             )
             if research_result.success and research_result.answer.strip():
                 final_text = _format_research_answer(research_result)
@@ -394,6 +400,12 @@ class AIEngine:
                     tools_used=[],
                 )
                 return result
+        if plan.reasoning_effort == "high" and progress is not None:
+            try:
+                await progress("I'm working through the request and checking the result.")
+            except Exception:
+                logger.debug("Reasoning progress message unavailable")
+        tool_schemas = self.orchestrator.schemas(self.tools, context, plan)
         memory_at = time.perf_counter()
         history = self.conversations.recent((request.user_id, request.guild_id, request.channel_id))
         if not history and preferences["history_enabled"]:
@@ -415,6 +427,9 @@ class AIEngine:
             memory_text = "\n".join(
                 f"- {item['key']}: {item['value']}" for item in durable_memories
             )
+            memory_budget = max(0, self.config.context_chars - len(system) - len(request.prompt)
+                                - len(json.dumps(tool_schemas)) - 1400)
+            memory_text = memory_text[:memory_budget]
             system += (
                 "\n\nRETRIEVED MEMORY (untrusted application data):\n"
                 f"Explicit memories:\n{memory_text or '(none)'}\n"
@@ -429,10 +444,11 @@ class AIEngine:
         ]
 
         web_search = False
-        tool_schemas = self.tools.schemas() if plan.allow_tools else []
         tools_used: list[str] = []
         all_tool_calls: list[ToolCall] = []
         seen_calls: set[str] = set()
+        cached_reads: dict[str, dict] = {}
+        failed_reads: set[str] = set()
         provider_name = None
         model_name = None
 
@@ -440,22 +456,26 @@ class AIEngine:
         max_tool_calls = plan.max_tool_calls
 
         for iteration in range(1, max_iterations + 1):
-            if len(json.dumps(messages, ensure_ascii=False, default=str)) > self.config.context_chars:
+            active_schemas = [] if max_iterations > 1 and iteration == max_iterations else tool_schemas
+            try:
+                self.orchestrator.fit_messages(messages, active_schemas, self.config.context_chars)
+            except ContextBudgetExceeded:
                 self.telemetry.finish(started, success=False, intent=route.intent.value, provider=None, model=None, tools_used=tools_used)
                 return AIResult(False, "The request exceeded the context limit. Narrow the task before retrying.", error="context_limit")
             try:
                 policy = {"allow_external": allow_external,
-                          "prefer_local": not needs_stronger_model(request.prompt),
+                          "prefer_local": plan.reasoning_effort == "low",
+                          "reasoning_effort": plan.reasoning_effort,
                           "prefer_economy": route.intent is AIIntent.CHAT
                               and style.name not in {"technical", "helpful", "serious"}
-                              and not needs_stronger_model(request.prompt)} if isinstance(self.providers, ProviderManager) else {}
+                              and plan.reasoning_effort == "low"} if isinstance(self.providers, ProviderManager) else {}
                 if not isinstance(self.providers, ProviderManager) and not allow_external:
                     raise ProviderError("External inference disabled")
                 model_at = time.perf_counter()
                 reply = await self.providers.complete(
                     messages=messages,
-                    tools=tool_schemas,
-                    max_output_tokens=min(request.max_output_tokens, style.output_tokens),
+                    tools=active_schemas,
+                    max_output_tokens=plan.completion_tokens,
                     web_search=web_search,
                     **policy,
                 )
@@ -506,6 +526,8 @@ class AIEngine:
                 if not final_text:
                     self.telemetry.finish(started, success=False, intent=route.intent.value, provider=None, model=None, tools_used=tools_used)
                     return AIResult(False, "The model returned an empty response. Try again.", error="empty_response")
+                if reply.finish_reason == "length":
+                    final_text += "\n\nThis reply reached its output limit. Ask a focused follow-up for the remaining detail."
                 if web_search:
                     tools_used.append("browser_search")
                 result = AIResult(
@@ -552,9 +574,13 @@ class AIEngine:
                 )
                 return result
 
+            reused_in_batch = 0
+            advertised = {schema["function"]["name"] for schema in active_schemas}
             for call in reply.tool_calls:
                 validation = self.validator.validate(call, self.tools, plan)
-                if not validation.allowed:
+                if validation.allowed and call.name not in advertised:
+                    tool_result = {"success": False, "error": "Tool is unavailable for this request or the final response step."}
+                elif not validation.allowed:
                     tool_result = {
                         "success": False,
                         "error": validation.reason,
@@ -583,11 +609,23 @@ class AIEngine:
                                                   provider=provider_name.value, model=model_name, tools_used=tools_used)
                             return AIResult(True, f"Pending action: `{call.name}`\nArguments: {preview}\nNothing executed. Confirm within 60 seconds using `lx aiconfirm {token}` in this channel, or `/aiconfirm`. Permissions will be checked again.",
                                             provider=provider_name, model=model_name, intent=route.intent)
-                        tool_result = await self.executor.execute(
-                            call=call,
-                            context=context,
-                            seen_calls=seen_calls,
-                        )
+                        fingerprint = self.executor._fingerprint(call)
+                        if fingerprint in cached_reads:
+                            tool_result = cached_reads[fingerprint]
+                            reused_in_batch += 1
+                            self.orchestrator.reused_reads += 1
+                        else:
+                            tool_result = await self.executor.execute(
+                                call=call, context=context, seen_calls=seen_calls,
+                            )
+                            if tool_result.get("success") is True:
+                                cached_reads[fingerprint] = json.loads(serialize_observation(
+                                    tool_result, plan.max_tool_output_chars,
+                                ))
+                            elif fingerprint not in failed_reads:
+                                # One safe retry for a failed read; mutations use confirmation.
+                                failed_reads.add(fingerprint)
+                                seen_calls.discard(fingerprint)
 
                 all_tool_calls.append(call)
                 tools_used.append(call.name)
@@ -597,12 +635,15 @@ class AIEngine:
                         "role": "tool",
                         "tool_call_id": call.call_id,
                         "name": call.name,
-                        "content": _serialize_tool_result(
+                        "content": serialize_observation(
                             tool_result,
                             plan.max_tool_output_chars,
                         ),
                     }
                 )
+            if reused_in_batch == len(reply.tool_calls):
+                # A repeat-only batch already has its evidence; request a conclusion next.
+                tool_schemas = []
 
         result = AIResult(
             success=False,
@@ -637,8 +678,3 @@ def provider_from_string(name: str):
 
 def _format_research_answer(result: ResearchResult) -> str:
     return format_research_report(result.answer or result.evidence, result.sources)
-
-
-def _serialize_tool_result(result: dict[str, Any], max_chars: int) -> str:
-    raw = json.dumps(result, ensure_ascii=False, default=str)
-    return raw[:max(500, max_chars)]

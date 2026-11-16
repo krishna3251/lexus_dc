@@ -63,6 +63,7 @@ class CompatibleProvider:
         tools: list[dict[str, Any]],
         max_output_tokens: int,
         web_search: bool = False,
+        reasoning_effort: str | None = None,
     ) -> ProviderReply:
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -75,7 +76,9 @@ class CompatibleProvider:
                 64, min(max_output_tokens, 4096)
             )
             kwargs["parallel_tool_calls"] = False
-            kwargs["reasoning_effort"] = "low"
+            if self.model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}:
+                kwargs["reasoning_effort"] = reasoning_effort or "low"
+                kwargs["extra_body"] = {"include_reasoning": False}
 
             if web_search:
                 kwargs["tools"] = [{"type": "browser_search"}]
@@ -350,7 +353,10 @@ class ProviderManager:
         allow_external: bool = True,
         prefer_local: bool = True,
         prefer_economy: bool = False,
+        reasoning_effort: str | None = None,
     ) -> ProviderReply:
+        if reasoning_effort not in {None, "low", "medium", "high"}:
+            raise ProviderError("Unsupported reasoning effort")
         allow_external = allow_external and self.config.external_enabled
         # Local models are deliberately text-only until their tool support is tested.
         if (self.local and not tools and not web_search
@@ -399,11 +405,13 @@ class ProviderManager:
                 try:
                     self.reserve_external()
                     started = time.monotonic()
+                    reasoning = {"reasoning_effort": reasoning_effort} if reasoning_effort and isinstance(provider, CompatibleProvider) else {}
                     reply = await provider.complete(
                         messages=messages,
                         tools=tools,
                         max_output_tokens=max_output_tokens,
                         web_search=(web_search and provider.provider is AIProvider.GROQ),
+                        **reasoning,
                     )
                     self.duration_ms = (time.monotonic() - started) * 1000
                     self._cooldown_until.pop(provider.provider, None)
