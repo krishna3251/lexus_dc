@@ -19,6 +19,7 @@ from services.ai_engine.models import AIRequest
 from services.ai_engine.tools import ToolContext
 from services.ai_engine.providers import ProviderError
 from services.discord_output import send_reply
+from services.image_inputs import read_images, set_reaction
 from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         guild: discord.Guild | None,
         channel: discord.abc.GuildChannel | None,
         prompt: str,
+        *, source_message=None, attachments=(),
     ) -> str:
         request = AIRequest(
             user_id=user.id,
@@ -96,12 +98,22 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             prompt=prompt,
         )
         notices = []
+        await set_reaction(source_message, "⏳")
         async def progress(text):
             if channel is not None and hasattr(channel, "send"):
                 notices.append(await channel.send(text, allowed_mentions=discord.AllowedMentions.none()))
         try:
+            request.images = await read_images(list(attachments))
             result = await self.engine.ask(request, ToolContext(self.bot, guild, channel, user), progress=progress)
+            await set_reaction(source_message, "✅" if result.success else "❌")
+        except ValueError as exc:
+            await set_reaction(source_message, "❌")
+            return str(exc)
+        except BaseException:
+            await set_reaction(source_message, "❌")
+            raise
         finally:
+            await set_reaction(source_message, "⏳", remove=True)
             for notice in notices:
                 try:
                     await notice.delete()
@@ -184,6 +196,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                     message.guild,
                     channel,
                     prompt,
+                    source_message=message, attachments=getattr(message, "attachments", ()),
                 )
             await self._send_message_chunks(message.channel, response,
                                             (message.author.id, getattr(message.guild, "id", None), message.channel.id))
@@ -313,6 +326,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
                 ctx.guild,
                 ctx.channel,
                 prompt,
+                source_message=ctx.message, attachments=getattr(ctx.message, "attachments", ()),
             )
         await self._send_chunked(ctx, response)
 
@@ -335,6 +349,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         self,
         interaction: discord.Interaction,
         prompt: str,
+        attachment: discord.Attachment | None = None,
     ) -> None:
         await interaction.response.defer(thinking=True)
         channel = interaction.channel
@@ -343,6 +358,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             interaction.guild,
             channel,
             prompt,
+            attachments=[attachment] if attachment else (),
         )
 
         if not response or not response.strip():

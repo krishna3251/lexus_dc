@@ -40,6 +40,7 @@ class AIRequest:
     system_prompt: Optional[str] = None
     max_output_tokens: int = 700
     max_iterations: int = 4
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
