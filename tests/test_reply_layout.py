@@ -24,7 +24,7 @@ class ReplyLayoutTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_one_story_with_publisher_link(self):
         report = "A finding [1].\n\n### Sources\n\n[1] [A title](<https://example.com/a>)"
-        self.assertIn("A finding [example.com](<https://example.com/a>)", choose_layout(report)["embed"].description)
+        self.assertIn("A finding [1 · example.com](<https://example.com/a>)", choose_layout(report)["embed"].description)
 
     async def test_briefing_navigation_and_full_copy(self):
         answer = "## News\n" + "\n".join(f"{n}. **Story {n}**" for n in range(1, 11))

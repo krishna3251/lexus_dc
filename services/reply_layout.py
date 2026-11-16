@@ -2,52 +2,16 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlsplit
 
 import discord
 
-from .discord_output import discord_length
-from .ai_engine.research import public_source_url
+from .discord_output import _MASKED_LINK, discord_length, split_reply
+from .source_cards import ACCENT, _short, linked_sources, sources_button
 
 
-ACCENT = 0x35BFFF
-_SOURCE = re.compile(r"\[(\d+)\] \[[^\n]*\]\(<([^<>\s]+)>\)")
 _ITEM = re.compile(r"(?m)^(?=(?:\d+[.)]|[-•])\s+)")
 _FACT = re.compile(r"(?:[-•] )?(?:\*\*)?([^:*\n]{1,60}):(?:\*\*)?\s*(.{1,120})")
 _HEADING = re.compile(r"(?m)^#{1,3} (.+)$")
-
-
-def _linked_body(text):
-    body, separator, appendix = text.rpartition("\n### Sources\n")
-    if not separator:
-        return text, False
-    links = {}
-    for line in appendix.strip().splitlines():
-        if not line.strip():
-            continue
-        match = _SOURCE.fullmatch(line)
-        if not match or not public_source_url(match[2]):
-            return text, False
-        host = urlsplit(match[2]).hostname.removeprefix("www.")
-        links[match[1]] = f"[{host}](<{match[2]}>)"
-    used = set()
-
-    def replace(match):
-        key = match[1]
-        if key in links:
-            used.add(key)
-            return links[key]
-        return match[0]
-
-    # Inline literals and existing Markdown links are already formatted.
-    parts = re.split(r"(`[^`\n]*`|\[[^\]\n]+\]\([^\n]+?\))", body)
-    for i in range(0, len(parts), 2):
-        parts[i] = re.sub(r"\[(\d+)\]", replace, parts[i])
-    body = "".join(parts).strip()
-    unused = [link for key, link in links.items() if key not in used]
-    if unused:
-        body += "\n\nAdditional sources · " + " · ".join(unused)
-    return body, bool(links)
 
 
 def _comparison_embed(title, body):
@@ -74,12 +38,31 @@ def _comparison_embed(title, body):
     return embed
 
 
+def _embed_layout(embed, sources, body):
+    layout = {"embed": embed}
+    if sources:
+        toolbar = discord.ui.View(timeout=900)
+        toolbar.add_item(sources_button(sources, body))
+        layout["view"] = toolbar
+    return layout
+
+
 class ReplyCard(discord.ui.LayoutView):
-    def __init__(self, title, pages, owner_id, index=0):
+    def __init__(self, title, pages, owner_id, index=0, sources=(), body=""):
         super().__init__(timeout=900)
         items = [discord.ui.TextDisplay(f"## {title}"), discord.ui.Separator()]
         for block in pages[index]:
             items.append(discord.ui.TextDisplay(block))
+        if sources:
+            visible = [source for source in sources if f"](<{source.url}>)" in "\n".join(pages[index])]
+            items.append(discord.ui.Separator())
+            for source in (visible or sources)[:2]:
+                label = discord.utils.escape_markdown(_short(source.title, 90))
+                items.append(discord.ui.Section(
+                    discord.ui.TextDisplay(f"**{label}**\n-# {_short(source.domain, 80)}"),
+                    accessory=discord.ui.Button(label="Open article", url=source.url),
+                ))
+            items.append(discord.ui.ActionRow(sources_button(sources, body)))
         if len(pages) > 1:
             items.extend([discord.ui.Separator(),
                           discord.ui.TextDisplay(f"-# Page {index + 1} of {len(pages)} · Full answer attached"),
@@ -93,7 +76,7 @@ class ReplyCard(discord.ui.LayoutView):
                         await interaction.response.send_message("Only the person who asked can turn these pages.", ephemeral=True)
                         return
                     await interaction.response.edit_message(
-                        view=ReplyCard(title, pages, owner_id, destination),
+                        view=ReplyCard(title, pages, owner_id, destination, sources, body),
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
 
@@ -107,10 +90,10 @@ def choose_layout(text, owner_id=None):
     """Return send kwargs, or an empty dict to use the Markdown/file sender."""
     if not text.strip() or "```" in text or "~~~" in text or discord_length(text) > 24000:
         return {}
-    body, sourced = _linked_body(text.strip())
+    body, sources = linked_sources(text.strip())
     heading = _HEADING.match(body)
     title = heading[1].strip() if heading else ""
-    if title and len(title) <= 200:
+    if title and discord_length(title) <= 200:
         body = body[heading.end():].strip()
     else:
         title = ""
@@ -118,10 +101,10 @@ def choose_layout(text, owner_id=None):
         return {}
     comparison = _comparison_embed(title, body)
     if comparison:
-        return {"embed": comparison}
+        return _embed_layout(comparison, sources, body)
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     facts = [_FACT.fullmatch(line) for line in lines]
-    if 2 <= len(lines) <= 8 and all(facts) and not sourced:
+    if 2 <= len(lines) <= 8 and all(facts) and not sources:
         embed = discord.Embed(title=title or "At a glance", colour=ACCENT)
         for fact in facts:
             embed.add_field(name=fact[1].strip(), value=fact[2], inline=True)
@@ -131,9 +114,14 @@ def choose_layout(text, owner_id=None):
     listed = len(_ITEM.findall(body)) >= 2
     if not listed:
         blocks = [s.strip() for s in re.split(r"\n(?=#{1,3} )|\n\s*\n", body) if s.strip()]
-    if sourced and not listed and len(blocks) <= 2 and discord_length(body) < 1000:
-        return {"embed": discord.Embed(title=title or "Research answer", description=body, colour=ACCENT)}
-    if not (listed or title or sourced or discord_length(body) >= 420):
+    if sources and not listed and len(blocks) <= 2 and discord_length(body) < 1000:
+        embed = discord.Embed(title=title or (_short(sources[0].title, 200) if len(sources) == 1 else "Search results"),
+                              description=body, colour=ACCENT)
+        if len(sources) == 1:
+            embed.url = sources[0].url
+            embed.set_footer(text=_short(sources[0].domain, 120))
+        return _embed_layout(embed, sources, body)
+    if not (listed or title or sources):
         return {}
     # Keep each finding intact and reserve room for the card title and controls.
     # Keep standalone section headings with their opening paragraph.
@@ -143,12 +131,13 @@ def choose_layout(text, owner_id=None):
             joined[-1] += "\n" + block
         else:
             joined.append(block)
+    if any(discord_length(link[0]) > 2700 for link in _MASKED_LINK.finditer(body)):
+        return {}
     pages, page, used = [], [], 0
-    for block in joined:
+    chunks = [part for block in joined for part in split_reply(block, 2700)]
+    for block in chunks:
         size = discord_length(block)
-        if size > 3400:
-            return {}
-        if page and (used + size > 3400 or len(page) == 5):
+        if page and (used + size > 2700 or len(page) == 5):
             pages.append(page)
             page, used = [], 0
         page.append(block)
@@ -156,5 +145,5 @@ def choose_layout(text, owner_id=None):
     pages.append(page)
     if len(pages) > 1 and not owner_id:
         return {}
-    return {"view": ReplyCard(title or ("Briefing" if sourced else "Answer"), pages, owner_id),
+    return {"view": ReplyCard(title or ("Search results" if sources else "Answer"), pages, owner_id, sources=sources, body=body),
             **({"attach_full": True} if len(pages) > 1 else {})}
