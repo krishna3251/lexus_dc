@@ -418,6 +418,13 @@ class WebResearchService:
             "footer or paste source URLs; the application renders those."
             if plan.deep else "Give a brief factual answer with the key source citations."
         )
+        if re.search(r"\b(news|headlines)\b", plan.original_query, re.I):
+            report_style += (
+                " For a news roundup, use a short ## title followed immediately by one "
+                "numbered entry per distinct story. Bold a headline stating what happened, "
+                "then add one useful detail and the source ID supporting that specific story. "
+                "Keep the headline, detail and citation together in one numbered paragraph."
+            )
         system = HYDERABADI_STYLE + "\nRESEARCH REPORT MODE (overrides casual brevity):\n" + report_style + (
             "\nCite factual claims using only the supplied [S1], [S2], etc. source IDs. "
             "Never invent a citation, URL, exact price, date or a claim of exhaustive coverage. "

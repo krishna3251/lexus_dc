@@ -63,10 +63,26 @@ def prepare_reply(text: str) -> tuple[list[str], discord.File | None]:
     return split_reply(text), None
 
 
-async def send_reply(send, text: str, **kwargs) -> list:
+async def send_reply(send, text: str, *, owner_id=None, **kwargs) -> list:
     """Share delivery across prefix, natural and slash replies; never allow pings."""
-    parts, attachment = prepare_reply(text)
+    from .reply_layout import choose_layout
+
     kwargs["allowed_mentions"] = discord.AllowedMentions.none()
+    layout = choose_layout(text or "", owner_id)
+    if layout:
+        full = None
+        if layout.pop("attach_full", False):
+            full = discord.File(io.BytesIO(text.encode("utf-8")), filename="lxeus-reply.md")
+            layout["file"] = full
+        try:
+            return [await send(**layout, **kwargs)]
+        except discord.HTTPException as exc:
+            if exc.code not in (50013, 50035):
+                raise
+        finally:
+            if full:
+                full.close()
+    parts, attachment = prepare_reply(text)
     if attachment is not None:
         try:
             return [await send(parts[0], file=attachment, **kwargs)]
