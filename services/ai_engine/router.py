@@ -83,6 +83,11 @@ class RequestRouter:
                 reason="request asks how Lexus features or commands work",
             )
 
+        if re.search(r"\b(?:this|our|my|in the|on the)\s+(?:server|guild)\b|"
+                     r"\b(?:server|guild)\s+(?:report|stats|activity|members)\b|"
+                     r"\b(?:how many|list|show|check)\b.*\b(?:members|roles|channels)\b", text):
+            return RouteDecision(AIIntent.SERVER_QUERY, 0.92, True, False, "request concerns live Discord state")
+
         if cls._matches(cls.SEARCH_PATTERNS, text):
             return RouteDecision(
                 intent=AIIntent.SEARCH,

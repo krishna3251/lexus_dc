@@ -474,6 +474,16 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             inline=False,
         )
         embed.add_field(name="Tools", value=str(tools), inline=True)
+        orchestration = health["orchestration"]
+        modes = orchestration["reasoning_modes"]
+        embed.add_field(
+            name="Orchestration",
+            value=(f"Reasoning requests · low {modes.get('low', 0)}, "
+                   f"medium {modes.get('medium', 0)}, high {modes.get('high', 0)}\n"
+                   f"Reused inspections · {orchestration['reused_reads']}\n"
+                   f"Context compactions · {orchestration['context_compactions']}"),
+            inline=False,
+        )
         embed.add_field(name="Runtime instance", value=health["instance_id"], inline=True)
 
         memory_value = (

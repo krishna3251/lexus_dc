@@ -16,6 +16,8 @@ class ExecutionPlan:
     max_tool_calls: int
     max_tool_output_chars: int
     reason: str
+    reasoning_effort: str = "low"
+    completion_tokens: int = 700
 
 
 class Planner:

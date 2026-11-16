@@ -343,7 +343,7 @@ class WebResearchService:
                                                   "", urlsplit(url).hostname or "", "groq_browser"))
         return findings, sources
 
-    async def research(self, prompt, *, style_instruction="", max_output_tokens=2400):
+    async def research(self, prompt, *, style_instruction="", max_output_tokens=2400, reasoning_effort="medium"):
         if not enabled("AI_EXTERNAL_ENABLED", True):
             return ResearchResult(False, error="external_disabled")
         if self.providers is None:
@@ -443,7 +443,8 @@ class WebResearchService:
                 messages=[{"role": "system", "content": system},
                           {"role": "user", "content": json.dumps(data, ensure_ascii=False)}],
                 tools=[], max_output_tokens=min(max(1000, max_output_tokens), 4096) if plan.deep else 450,
-                web_search=False, prefer_local=False)
+                web_search=False, prefer_local=False,
+                **({"reasoning_effort": reasoning_effort} if isinstance(self.providers, ProviderManager) else {}))
             if reply.tool_calls or not reply.text.strip():
                 raise ProviderError("Research synthesis returned no usable report")
         except ProviderError:
