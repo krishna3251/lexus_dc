@@ -889,7 +889,7 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
             await engine_cog._send_message_chunks(message.channel, response,
                 (message.author.id, message.guild.id, message.channel.id))
         else:
-            await send_reply(message.channel.send, response)
+            await send_reply(message.channel.send, response, owner_id=message.author.id)
 
     async def handle_crisis(self, message, context: BehavioralContext):
         """
@@ -1296,7 +1296,7 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
         if engine_cog is not None:
             await engine_cog._send_chunked(ctx, response)
         else:
-            await send_reply(ctx.send, response)
+            await send_reply(ctx.send, response, owner_id=ctx.author.id)
 
     @commands.command()
     async def resources(self, ctx):

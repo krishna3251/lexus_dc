@@ -298,7 +298,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         """Send an AI response without exceeding Discord message limits."""
         if not response or not response.strip():
             return
-        for sent in await send_reply(channel.send, response):
+        for sent in await send_reply(channel.send, response, owner_id=scope[0] if scope else None):
             if scope:
                 self._reply_owners.set(sent.id, scope)
 
@@ -347,7 +347,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
 
         if not response or not response.strip():
             return
-        for sent in await send_reply(interaction.followup.send, response, wait=True):
+        for sent in await send_reply(interaction.followup.send, response, owner_id=interaction.user.id, wait=True):
             self._reply_owners.set(sent.id, (interaction.user.id, interaction.guild_id, interaction.channel_id))
 
     async def _private(self, ctx: commands.Context, text: str) -> None:
@@ -551,7 +551,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
     async def _send_chunked(self, ctx: commands.Context, response: str) -> None:
         if not response or not response.strip():
             return
-        for sent in await send_reply(ctx.send, response):
+        for sent in await send_reply(ctx.send, response, owner_id=ctx.author.id):
             self._reply_owners.set(sent.id, (ctx.author.id, getattr(ctx.guild, "id", None), ctx.channel.id))
 
 
