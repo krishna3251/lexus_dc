@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import secrets
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -234,6 +235,10 @@ class AIEngine:
         routed_at = time.perf_counter()
         route = self.router.route(request.prompt)
         self.telemetry.observe("routing", (time.perf_counter() - routed_at) * 1000)
+        if request.images:
+            if len(request.images) > 3 or any(not re.fullmatch(r"data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+", image) or len(image) > 9 * 1024 * 1024 for image in request.images):
+                return AIResult(False, "Upload up to three PNG, JPEG or WebP images, each at most 6 MB.", error="invalid_images")
+            route = replace(route, intent=AIIntent.CHAT, allow_tools=False, allow_mutations=False, reason="image explanation")
         safety = self.safety.assess(request.prompt, route.intent)
 
         if not safety.allowed:
@@ -254,7 +259,7 @@ class AIEngine:
             )
             return result
 
-        local = self.local_skills.respond(request.prompt, context)
+        local = None if request.images else self.local_skills.respond(request.prompt, context)
         if local is not None:
             self.telemetry.finish(started, success=True, intent=route.intent.value, provider=None, model="deterministic", tools_used=[])
             return AIResult(True, local, intent=route.intent, confidence=1.0)
@@ -273,7 +278,7 @@ class AIEngine:
         if not self.providers.available:
             result = AIResult(
                 success=False,
-                text="No conversation model is configured in this running bot instance. Ask the owner to check its model settings. Local knowledge and bot commands still work.",
+                text="The running bot has no configured conversation provider. The owner needs to set GROQ_API_KEY and reload with `lx aireload`.",
                 intent=route.intent,
                 confidence=route.confidence,
                 error="no_provider",
@@ -289,7 +294,7 @@ class AIEngine:
             return result
 
         preferences = await self.memory.preferences(request.user_id, request.guild_id)
-        style = ResponseStyle.choose(request.prompt, preferences.get("style"))
+        style = ResponseStyle.choose(("explain " if request.images else "") + request.prompt, preferences.get("style"))
         plan = self.orchestrator.plan(request, route, style)
         ai_context = ContextBuilder.build(request, route, context)
         allow_external = self.config.external_enabled and bool(preferences["external_allowed"])
@@ -326,7 +331,7 @@ class AIEngine:
     ) -> AIResult:
         # Routing stays deterministic; Jev remains available for explicit evaluations.
         system = request.system_prompt or DEFAULT_SYSTEM_PROMPT
-        style = ResponseStyle.choose(request.prompt, preferences.get("style"))
+        style = ResponseStyle.choose(("explain " if request.images else "") + request.prompt, preferences.get("style"))
         system = (
             f"{system}\n\n"
             f"Response style: {style.name}. {style.instruction}\n"
@@ -337,6 +342,13 @@ class AIEngine:
             "Return the answer and a concise explanation where useful. Keep private reasoning internal."
         )
 
+        if request.images:
+            system += (
+                "\nThe user attached images. Inspect them and explain their visible contents directly. "
+                "For diagrams explain the components, arrows and overall flow in plain language. "
+                "Match the user's language, including Hinglish. A request like 'samja ye' means "
+                "explain the attached image. Identify unreadable details honestly."
+            )
         research_result: ResearchResult | None = None
         if route.intent is AIIntent.SEARCH:
             if not allow_external:
@@ -440,7 +452,9 @@ class AIEngine:
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
             *history,
-            {"role": "user", "content": request.prompt.strip()},
+            {"role": "user", "content": ([{"type": "text", "text": request.prompt.strip()}]
+                + [{"type": "image_url", "image_url": {"url": image}} for image in request.images])
+                if request.images else request.prompt.strip()},
         ]
 
         web_search = False
@@ -466,6 +480,7 @@ class AIEngine:
                 policy = {"allow_external": allow_external,
                           "prefer_local": plan.reasoning_effort == "low",
                           "reasoning_effort": plan.reasoning_effort,
+                          **({"vision": True} if request.images else {}),
                           "prefer_economy": route.intent is AIIntent.CHAT
                               and style.name not in {"technical", "helpful", "serious"}
                               and plan.reasoning_effort == "low"} if isinstance(self.providers, ProviderManager) else {}

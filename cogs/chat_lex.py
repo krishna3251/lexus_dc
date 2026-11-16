@@ -752,7 +752,10 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
         if engine is not None and discord_message is not None:
             engine_cog = getattr(self.bot, "get_cog", lambda name: None)("AI Engine")
             if engine_cog is not None:
-                return await engine_cog._run(discord_message.author, discord_message.guild, discord_message.channel, message)
+                return await engine_cog._run(discord_message.author, discord_message.guild, discord_message.channel, message,
+                                             source_message=discord_message, attachments=getattr(discord_message, "attachments", ()))
+            if getattr(discord_message, "attachments", ()):
+                return "Image analysis needs the AI Engine adapter. Ask the owner to reload the bot and check lx aistatus."
             result = await engine.ask(
                 AIRequest(user_id, getattr(discord_message.guild, "id", None),
                           discord_message.channel.id, message),
@@ -760,6 +763,8 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
             )
             return result.text
         
+        if discord_message is not None and getattr(discord_message, "attachments", ()):
+            return "Image analysis needs the AI Engine and a configured Groq vision model. Ask the owner to check lx aistatus."
         if not self.api_key:
             return "Can't connect right now. But I'm here if you want to just talk it through."
         if not await reserve_legacy_call(self.bot, user_id, getattr(getattr(discord_message, "guild", None), "id", None)):

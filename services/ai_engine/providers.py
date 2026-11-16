@@ -76,7 +76,7 @@ class CompatibleProvider:
                 64, min(max_output_tokens, 4096)
             )
             kwargs["parallel_tool_calls"] = False
-            if self.model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}:
+            if self.model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"}:
                 kwargs["reasoning_effort"] = reasoning_effort or "low"
                 kwargs["extra_body"] = {"include_reasoning": False}
 
@@ -232,6 +232,7 @@ class ProviderManager:
         self._budget_calls = 0
         self._usage: dict[tuple[str, str], Counter] = {}
         self.chat_provider: CompatibleProvider | None = None
+        self.vision_provider: CompatibleProvider | None = None
         if self.config.local_enabled and self.config.local_model:
             url = urlsplit(self.config.local_url)
             # Only explicit loopback backends are treated as private local inference.
@@ -254,6 +255,9 @@ class ProviderManager:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key and self.config.external_enabled:
+            vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
+            if vision_model:
+                self.vision_provider = CompatibleProvider(AIProvider.GROQ, groq_key, self.GROQ_BASE_URL, vision_model)
             self.providers.append(
                 CompatibleProvider(
                     AIProvider.GROQ,
@@ -297,6 +301,7 @@ class ProviderManager:
                 "hourly_call_limit": self.config.external_call_limit,
                 "first_token_ms": None,
                 "chat_model": self.chat_provider.model if self.chat_provider else None,
+                "vision_model": self.vision_provider.model if self.vision_provider else None,
                 "token_usage": [{"provider": provider, "model": model, **dict(counts)}
                                 for (provider, model), counts in self._usage.items()]}
 
@@ -354,12 +359,13 @@ class ProviderManager:
         prefer_local: bool = True,
         prefer_economy: bool = False,
         reasoning_effort: str | None = None,
+        vision: bool = False,
     ) -> ProviderReply:
         if reasoning_effort not in {None, "low", "medium", "high"}:
             raise ProviderError("Unsupported reasoning effort")
         allow_external = allow_external and self.config.external_enabled
         # Local models are deliberately text-only until their tool support is tested.
-        if (self.local and not tools and not web_search
+        if (not vision and self.local and not tools and not web_search
                 and (prefer_local or not allow_external or not self.providers)
                 and (not allow_external or sum(len(str(m.get('content') or '')) for m in messages) < 16000)):
             try:
@@ -381,7 +387,11 @@ class ProviderManager:
                 "No AI provider configured. Set GROQ_API_KEY."
             )
 
-        if web_search:
+        if vision:
+            if self.vision_provider is None:
+                raise ProviderError("Vision model is unavailable. Configure GROQ_API_KEY and GROQ_VISION_MODEL.")
+            ordered = [self.vision_provider]
+        elif web_search:
             groq_providers = [
                 item for item in self.providers
                 if item.provider is AIProvider.GROQ
@@ -467,7 +477,7 @@ class ProviderManager:
         )
 
     async def close(self) -> None:
-        for provider in ([self.local] if self.local else []) + self.providers + ([self.chat_provider] if self.chat_provider else []):
+        for provider in ([self.local] if self.local else []) + self.providers + ([self.chat_provider] if self.chat_provider else []) + ([self.vision_provider] if self.vision_provider else []):
             try:
                 await provider.close()
             except Exception as exc:

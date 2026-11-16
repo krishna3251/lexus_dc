@@ -88,7 +88,10 @@ class RequestOrchestrator:
     def fit_messages(self, messages, schemas, limit):
         """Keep the current request and complete tool exchanges; compact observations."""
         def size():
-            return len(json.dumps({"messages": messages, "tools": schemas}, ensure_ascii=False, default=str))
+            text_messages = [dict(message, content=[part if part.get("type") == "text" else {"type": "image_url"}
+                              for part in message["content"]]) if isinstance(message.get("content"), list) else message
+                             for message in messages]
+            return len(json.dumps({"messages": text_messages, "tools": schemas}, ensure_ascii=False, default=str))
 
         current = max(i for i, message in enumerate(messages) if message["role"] == "user")
         while size() > limit and current > 1:
