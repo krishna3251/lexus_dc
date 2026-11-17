@@ -7,9 +7,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Optional
-from dotenv import load_dotenv
+from core.environment import load_environment
 
-load_dotenv()
+load_environment()
 
 
 def _get_bool(key: str, default: bool = False) -> bool:

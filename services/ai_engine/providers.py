@@ -14,6 +14,7 @@ from typing import Any
 from openai import AsyncOpenAI
 import aiohttp
 from urllib.parse import urlsplit
+from core.environment import environment_source, load_environment
 
 from .config import BrainConfig
 
@@ -220,6 +221,7 @@ class ProviderManager:
     PROVIDER_COOLDOWN_SECONDS = 300.0
 
     def __init__(self, config: BrainConfig | None = None) -> None:
+        load_environment()
         self.config = config or BrainConfig.from_env()
         self.providers: list[CompatibleProvider] = []
         self.local: LocalModelProvider | None = None
@@ -253,6 +255,8 @@ class ProviderManager:
 
         # Groq is the only hosted generation provider.
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        self._groq_key_present = bool(groq_key)
+        self._groq_key_source = environment_source("GROQ_API_KEY")
         groq_model = os.getenv("GROQ_MODEL", self.GROQ_MODEL).strip()
         if groq_key and self.config.external_enabled:
             vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
@@ -280,6 +284,12 @@ class ProviderManager:
     def names(self) -> list[str]:
         return [f"{item.provider.value}:{item.model}" for item in
                 ([self.local] if self.local else []) + self.providers]
+
+    def configuration(self) -> dict[str, Any]:
+        """Configuration diagnostics; key presence does not prove authentication."""
+        return {"external_enabled": self.config.external_enabled,
+                "groq_key_present": self._groq_key_present,
+                "groq_key_source": self._groq_key_source}
 
     def health(self) -> dict[str, Any]:
         now = time.monotonic()

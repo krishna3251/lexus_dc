@@ -161,7 +161,7 @@ class ToolRegistry:
                 return False, "The server owner is protected from AI moderation actions."
             if member.id == getattr(context.bot.user, "id", None):
                 return False, "The bot cannot moderate itself."
-            if not user.guild_permissions.administrator and member.top_role >= user.top_role:
+            if user.id != guild.owner_id and member.top_role >= user.top_role:
                 return False, "Target is at or above the requester's highest role."
 
             bot_member = guild.me

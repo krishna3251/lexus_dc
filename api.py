@@ -2,10 +2,11 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from stats_store import server_stats
 import os
+import hmac
+from core.environment import load_environment
 
+load_environment()
 app = FastAPI()
-
-API_KEY = os.getenv("API_SECRET_KEY", "")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,8 +24,11 @@ def root():
 
 @app.get("/stats")
 def get_stats(x_api_key: str | None = Header(None)):
-    # If API_SECRET_KEY is configured, enforce it
-    if API_KEY and x_api_key != API_KEY:
+    # Missing configuration must never silently expose private service statistics.
+    api_key = os.getenv("API_SECRET_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Statistics access is not configured")
+    if not x_api_key or not hmac.compare_digest(x_api_key.encode("utf-8"), api_key.encode("utf-8")):
         raise HTTPException(status_code=403, detail="Invalid or missing API key")
     return server_stats
 
