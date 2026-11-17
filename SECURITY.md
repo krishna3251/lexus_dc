@@ -53,7 +53,7 @@ To run Lexus safely in production, follow these operational best practices:
 - Use a dedicated database user with least-privilege permissions for the bot's database.
 
 ### 4. API Key Protection
-- When exposing the FastAPI web server, set `API_SECRET_KEY` in `.env` to prevent unauthorized access to the `/stats` endpoint.
+- The FastAPI `/stats` endpoint requires `API_SECRET_KEY`: it refuses access when the secret is absent or blank, and rejects missing or incorrect request keys. Root and health endpoints remain public.
 
 ### 5. Dependency Management
 - Regularly update Python dependencies to address known upstream vulnerabilities.

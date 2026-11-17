@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
+from core.environment import load_environment
 
 
 def enabled(name: str, default: bool = False) -> bool:
@@ -41,6 +42,7 @@ class BrainConfig:
 
     @classmethod
     def from_env(cls) -> BrainConfig:
+        load_environment()
         return cls(
             external_enabled=enabled("AI_EXTERNAL_ENABLED", True),
             max_concurrent=int(number("AI_MAX_CONCURRENT", 8, 1, 64)),

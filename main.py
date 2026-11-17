@@ -6,9 +6,12 @@ import time
 import threading
 import asyncio
 from discord.ext import commands, tasks
-from dotenv import load_dotenv
+from core.environment import load_environment
 from core.interaction_response import interaction_unavailable, report_error
 from services.lavalink import LavalinkConnection
+
+# Load credentials before importing services that inspect the environment.
+load_environment()
 
 # === Optional imports ===
 try:
@@ -37,7 +40,6 @@ except ImportError:
     MONGO_AVAILABLE = False
 
 # === Load env ===
-load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 # === Logging ===

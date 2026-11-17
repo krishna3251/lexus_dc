@@ -135,7 +135,7 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             return ""
         return result.text or "The AI engine could not complete that request."
 
-    @commands.command(name="aireload", help="Reload AI provider settings from the current process environment.")
+    @commands.command(name="aireload", help="Refresh AI provider credentials from the project .env and process environment.")
     @commands.is_owner()
     async def ai_reload(self, ctx: commands.Context) -> None:
         try:
@@ -144,11 +144,18 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
             return
         providers = self.engine.provider_names or ["none"]
+        configuration = self.engine.health()["provider_configuration"]
+        if not self.engine.providers.available:
+            reason = ("External AI is disabled by policy; changing that policy requires a restart."
+                      if not configuration.get("external_enabled", True) else
+                      "No Groq key was found in the process environment or project .env.")
+            await ctx.send("⚠️ Settings refreshed. " + reason, allowed_mentions=discord.AllowedMentions.none())
+            return
         jev_state = "enabled" if self.engine.health()["jev"]["available"] else "unavailable"
         await ctx.send(
             "✅ AI provider config reloaded. Providers: "
             + ", ".join(str(item) for item in providers)
-            + f" | Jev: {jev_state}"
+            + f" | Jev: {jev_state}", allowed_mentions=discord.AllowedMentions.none()
         )
 
     @commands.Cog.listener()
@@ -475,13 +482,18 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
         providers = self.engine.provider_names or ["none"]
         tools = len(self.engine.tools.names())
         health = self.engine.health()
+        configured = health["model_available"]
+        status, color = "STOPPED", discord.Color.red()
+        if self.engine.available:
+            status = "CONFIGURED" if configured else "LOCAL SKILLS ONLY"
+            color = discord.Color.green() if configured else discord.Color.orange()
         embed = discord.Embed(
             title="Lexus AI Engine",
-            color=discord.Color.green() if self.engine.available else discord.Color.red(),
+            color=color,
         )
         embed.add_field(
             name="Status",
-            value="READY" if self.engine.available else "NOT CONFIGURED",
+            value=status,
             inline=True,
         )
         embed.add_field(
@@ -501,6 +513,16 @@ class AIEngineCog(commands.Cog, name="AI Engine"):
             inline=False,
         )
         embed.add_field(name="Runtime instance", value=health["instance_id"], inline=True)
+        configuration = health["provider_configuration"]
+        if configuration:
+            embed.add_field(
+                name="Provider configuration",
+                value=(f"Groq key: {'detected' if configuration['groq_key_present'] else 'missing'}\n"
+                       f"Source: {configuration['groq_key_source']}\n"
+                       f"External AI: {'enabled' if configuration['external_enabled'] else 'disabled by policy'}\n"
+                       "Configured status does not verify authentication."),
+                inline=False,
+            )
 
         memory_value = (
             "✅ SQLite"

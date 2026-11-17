@@ -14,6 +14,7 @@ from typing import Any
 import discord
 from services.cache import TTLCache
 from services.report_formatting import format_research_report
+from core.environment import PROVIDER_ENV_NAMES, load_environment
 
 from .brain import BrainBusy, ConversationState, LocalSkills, RequestCapacity, ResponseStyle, bounded_turns
 from .config import BrainConfig
@@ -85,6 +86,8 @@ class AIEngine:
         self.local_skills = LocalSkills()
         self.pending_actions = TTLCache[str, tuple[tuple, ToolCall]](500, 60)
         self.instance_id = secrets.token_hex(4)
+        self._providers_reloading = False
+        self._next_provider_refresh = 0.0
 
     @property
     def available(self) -> bool:
@@ -119,21 +122,41 @@ class AIEngine:
             "research": self.research.health(),
             "jev": self.jev.health(),
             "provider_health": self.providers.health(),
+            "provider_configuration": self.providers.configuration() if isinstance(self.providers, ProviderManager) else {},
             "telemetry": self.telemetry.snapshot(),
             "orchestration": self.orchestrator.metrics(),
         }
 
     async def reload_providers(self) -> None:
-        """Reload provider credentials from the current process environment."""
-        if self.capacity.scopes:
+        """Refresh project-file credentials while preserving process settings and policy."""
+        if self.capacity.scopes or self._providers_reloading or self.capacity.closed:
             raise ProviderError("Wait for active AI requests to finish before reloading.")
-        old_manager = self.providers
-        self.providers = ProviderManager(self.config)
-        if isinstance(old_manager, ProviderManager):
-            self.providers.inherit_accounting(old_manager)
-        await self.research.reload(self.providers)
-        await self.jev.reload()
-        await old_manager.close()
+        self._providers_reloading = True
+        try:
+            load_environment(refresh=True, names=PROVIDER_ENV_NAMES)
+            old_manager = self.providers
+            manager = ProviderManager(self.config)
+            if isinstance(old_manager, ProviderManager):
+                manager.inherit_accounting(old_manager)
+            await self.research.reload(manager)
+            await self.jev.reload()
+            self.providers = manager
+            await old_manager.close()
+        finally:
+            self._providers_reloading = False
+
+    async def _refresh_missing_provider(self) -> None:
+        """Recover newly supplied credentials at most once per 30 seconds, when idle."""
+        if (not isinstance(self.providers, ProviderManager) or self.providers.available
+                or not self.config.external_enabled or self.capacity.closed
+                or self.capacity.scopes or self._providers_reloading
+                or time.monotonic() < self._next_provider_refresh):
+            return
+        self._next_provider_refresh = time.monotonic() + 30.0
+        try:
+            await self.reload_providers()
+        except (ProviderError, OSError, ValueError) as exc:
+            logger.warning("AI configuration refresh failed | type=%s", type(exc).__name__)
 
     async def close(self) -> None:
         await self.capacity.close()
@@ -154,6 +177,8 @@ class AIEngine:
         return await self.memory.clear_user(user_id, guild_id)
 
     async def confirm(self, token: str, context: ToolContext) -> AIResult:
+        if self._providers_reloading:
+            return AIResult(False, "AI settings are being refreshed. Try again shortly.", error="busy")
         pending = self.pending_actions.get(token)
         scope = (context.user.id, getattr(context.guild, "id", None), getattr(context.channel, "id", None))
         if not pending or pending[0] != scope:
@@ -191,6 +216,9 @@ class AIEngine:
         started = self.telemetry.start()
         scope = (request.user_id, request.guild_id, request.channel_id)
         try:
+            await self._refresh_missing_provider()
+            if self._providers_reloading:
+                raise BrainBusy("provider reload in progress")
             async with self.capacity.acquire(scope):
                 is_research = self.router.route(request.prompt).intent is AIIntent.SEARCH
                 timeout = self.config.research_timeout if is_research else self.config.request_timeout
@@ -276,12 +304,15 @@ class AIEngine:
             return AIResult(True, text, intent=route.intent)
 
         if not self.providers.available:
+            external_disabled = not self.config.external_enabled
             result = AIResult(
                 success=False,
-                text="The running bot has no configured conversation provider. The owner needs to set GROQ_API_KEY and reload with `lx aireload`.",
+                text=("External AI is disabled by the bot's policy. Local commands are still available."
+                      if external_disabled else
+                      "Conversation AI is unavailable. The bot owner can check `lx aistatus` for configuration details."),
                 intent=route.intent,
                 confidence=route.confidence,
-                error="no_provider",
+                error="external_disabled" if external_disabled else "no_provider",
             )
             self.telemetry.finish(
                 started,
