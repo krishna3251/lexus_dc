@@ -392,7 +392,7 @@ class Quarantine(commands.Cog):
                     f"🎉 {user.mention} has been released from quarantine! "
                     f"Welcome back to civilization! 🏙️"
                 )
-            except:
+            except Exception:
                 pass  # If we can't send follow-up, that's okay
                 
         except discord.Forbidden:
@@ -484,7 +484,7 @@ class Quarantine(commands.Cog):
                 await asyncio.sleep(10)
                 try:
                     await quarantine_msg.delete()
-                except:
+                except Exception:
                     pass
                 
                 # Update warning count
@@ -524,7 +524,7 @@ class Quarantine(commands.Cog):
                 await asyncio.sleep(10)
                 try:
                     await error_msg.delete()
-                except:
+                except Exception:
                     pass
                 self.logger.error(f"Forbidden to assign quarantine role in {message.guild.name}")
                 

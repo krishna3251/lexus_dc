@@ -8,9 +8,9 @@ Uses motor for async operations with discord.py.
 import os
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
-from dotenv import load_dotenv
+from core.environment import load_environment
 
-load_dotenv()
+load_environment()
 
 logger = logging.getLogger(__name__)
 

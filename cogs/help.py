@@ -317,7 +317,7 @@ class HelpView(discord.ui.View):
             )
             if hasattr(self, 'message') and self.message:
                 await self.message.edit(embed=embed, view=None)
-        except:
+        except Exception:
             pass
 
 # Main Help Commands — merged into the original class

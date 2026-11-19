@@ -1,3 +1,4 @@
+import datetime
 import os
 import discord
 import aiohttp
@@ -33,6 +34,7 @@ class YoutubeView(View):
         self.videos = videos
         self.current_index = 0
         self.author_id = author_id
+        self.next_button.disabled = len(videos) <= 1
         
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.gray, emoji="⬅️", disabled=True)
     async def previous_button(self, interaction: discord.Interaction, button: Button):

@@ -1,164 +1,157 @@
-"""
-Lockdown and panic defense engine for Lexus Security Engine.
-Provides targeted channel restriction, panic state containment, and reversible lockdown.
-"""
+"""Reversible lockdown with a durable journal of changed permission fields."""
 
 from __future__ import annotations
-import time
+
+import asyncio
 import logging
-from typing import Optional, Any
+from weakref import WeakValueDictionary
+
 import discord
-from security.models import SecurityState, ActionResult, SecurityActionType, GuildSecurityConfig
+from pymongo import ReturnDocument
+from pymongo.errors import PyMongoError
+
+import mongo_helper
 from core.logging import security_logger
-from services.cache import TTLCache
+from security.models import ActionResult, GuildSecurityConfig, SecurityActionType
 
 logger = logging.getLogger(__name__)
+LOCKED_FIELDS = (
+    "send_messages",
+    "send_messages_in_threads",
+    "create_public_threads",
+    "create_private_threads",
+)
 
 
 class LockdownManager:
-    """Manages server lockdowns, targeted channel freezes, and emergency panic state responses."""
+    """Preserve the original overwrite before editing Discord."""
 
     def __init__(self):
-        # Maps guild_id -> original @everyone overwrites for channels Lexus changed.
-        self._active_lockdowns: TTLCache[int, dict[int, discord.PermissionOverwrite]] = TTLCache(max_size=500, default_ttl=86400.0)
+        self._guild_locks: WeakValueDictionary[int, asyncio.Lock] = WeakValueDictionary()
 
-    def is_locked_down(self, guild_id: int) -> bool:
-        return self._active_lockdowns.contains(guild_id)
+    def _guild_lock(self, guild_id: int) -> asyncio.Lock:
+        return self._guild_locks.setdefault(guild_id, asyncio.Lock())
+
+    @staticmethod
+    def _journal():
+        return mongo_helper.get_collection("security_lockdowns")
+
+    async def status(self, guild_id: int) -> str:
+        journal = self._journal()
+        if journal is None:
+            return "Journal unavailable"
+        try:
+            entry = await journal.find_one({"guild_id": guild_id}, {"_id": 1})
+        except PyMongoError:
+            return "Journal unavailable"
+        return "Recovery pending" if entry else "Ready"
+
+    @staticmethod
+    def _result(*, reason=None, error=None):
+        return ActionResult(
+            success=error is None, action=SecurityActionType.LOCKDOWN,
+            reason=reason, error=error,
+        )
 
     async def lock_guild(
-        self,
-        guild: discord.Guild,
-        reason: str,
-        config: GuildSecurityConfig
+        self, guild: discord.Guild, reason: str, config: GuildSecurityConfig,
     ) -> ActionResult:
-        """Lock public channels for default role while leaving staff/protected channels functional."""
-        bot = guild.me
-        if not bot.guild_permissions.manage_channels:
-            return ActionResult(
-                success=False,
-                action=SecurityActionType.LOCKDOWN,
-                error="Bot lacks Manage Channels permission"
-            )
+        if not guild.me or not guild.me.guild_permissions.manage_roles:
+            return self._result(error="Bot lacks Manage Roles permission")
+        journal = self._journal()
+        if journal is None:
+            return self._result(error="Lockdown requires an available recovery journal")
 
-        original_overwrites: dict[int, discord.PermissionOverwrite] = {}
-        locked_channels = 0
+        locked_channels = failed = 0
         everyone = guild.default_role
-
-        for ch in guild.text_channels:
-            if ch.id in config.protected_channels or ch.id == config.security_log_channel_id:
-                continue
-
-            try:
-                current_ow = ch.overwrites_for(everyone)
-                if (
-                    current_ow.send_messages is False
-                    and current_ow.send_messages_in_threads is False
-                    and current_ow.create_public_threads is False
-                    and current_ow.create_private_threads is False
-                ):
+        async with self._guild_lock(guild.id):
+            for channel in guild.text_channels:
+                if channel.id in config.protected_channels or channel.id == config.security_log_channel_id:
                     continue
+                try:
+                    current = channel.overwrites_for(everyone)
+                    original = {
+                        name: getattr(current, name)
+                        for name in LOCKED_FIELDS if getattr(current, name) is not False
+                    }
+                    if not original:
+                        continue
+                    key = {"_id": str(channel.id)}
+                    entry = await journal.find_one_and_update(
+                        key,
+                        {"$setOnInsert": {"guild_id": guild.id, "channel_id": channel.id, "original": original}},
+                        upsert=True, return_document=ReturnDocument.AFTER,
+                    )
+                    changes = original.keys() & entry["original"].keys()
+                    if not changes:
+                        continue
+                    current.update(**dict.fromkeys(changes, False))
+                    await channel.set_permissions(everyone, overwrite=current, reason=f"Lexus Lockdown: {reason}")
+                    locked_channels += 1
+                except (discord.HTTPException, PyMongoError) as exc:
+                    logger.warning("Lockdown failed in guild %s channel %s (%s)", guild.id, channel.id, type(exc).__name__)
+                    failed += 1
 
-                original_overwrites[ch.id] = current_ow.copy()
-
-                locked_ow = current_ow.copy()
-                locked_ow.send_messages = False
-                locked_ow.send_messages_in_threads = False
-                locked_ow.create_public_threads = False
-                locked_ow.create_private_threads = False
-                await ch.set_permissions(everyone, overwrite=locked_ow, reason=f"Lexus Lockdown: {reason}")
-                locked_channels += 1
-            except Exception as e:
-                logger.warning(f"Could not lock channel {ch.name} in {guild.name}: {e}")
-
-        if locked_channels == 0:
-            security_logger.event(
-                incident_id="LOCKDOWN",
-                guild_id=guild.id,
-                actor_id=None,
-                event_type="LOCKDOWN_ACTIVE",
-                risk="CRITICAL",
-                score=95.0,
-                action="LOCKDOWN",
-                result="FAILED",
-                details="No eligible channels could be locked",
-            )
-            return ActionResult(
-                success=False,
-                action=SecurityActionType.LOCKDOWN,
-                error="No eligible channels could be locked",
-            )
-
-        self._active_lockdowns.set(guild.id, original_overwrites)
         security_logger.event(
-            incident_id="LOCKDOWN",
-            guild_id=guild.id,
-            actor_id=None,
-            event_type="LOCKDOWN_ACTIVE",
-            risk="CRITICAL",
-            score=95.0,
-            action="LOCKDOWN",
-            result="SUCCESS",
-            details=f"Locked {locked_channels} public channels: {reason}"
+            incident_id="LOCKDOWN", guild_id=guild.id, actor_id=None, event_type="LOCKDOWN_ACTIVE",
+            risk="CRITICAL", score=95.0, action="LOCKDOWN",
+            result="FAILED" if failed or not locked_channels else "SUCCESS",
+            details=f"Locked {locked_channels} channels, {failed} failed",
         )
+        if failed:
+            return self._result(error=f"Locked {locked_channels} channels. {failed} failed. Check the recovery journal before retrying.")
+        if not locked_channels:
+            return self._result(error="No eligible channels needed changes")
+        return self._result(reason=f"Lockdown activated across {locked_channels} channels")
 
-        return ActionResult(
-            success=True,
-            action=SecurityActionType.LOCKDOWN,
-            reason=f"Lockdown activated across {locked_channels} channels"
-        )
+    async def unlock_guild(self, guild: discord.Guild, config: GuildSecurityConfig) -> ActionResult:
+        if not guild.me or not guild.me.guild_permissions.manage_roles:
+            return self._result(error="Bot lacks Manage Roles permission")
+        journal = self._journal()
+        if journal is None:
+            return self._result(error="Lockdown recovery journal is unavailable")
 
-    async def unlock_guild(
-        self,
-        guild: discord.Guild,
-        config: GuildSecurityConfig
-    ) -> ActionResult:
-        """Restore normal channel permissions after lockdown is lifted."""
-        bot = guild.me
-        if not bot.guild_permissions.manage_channels:
-            return ActionResult(
-                success=False,
-                action=SecurityActionType.LOCKDOWN,
-                error="Bot lacks Manage Channels permission"
-            )
-
-        original_overwrites = self._active_lockdowns.get(guild.id) or {}
+        restored = pending = removed = 0
         everyone = guild.default_role
-        unlocked_count = 0
-
-        for channel_id, original_ow in original_overwrites.items():
-            ch = guild.get_channel(channel_id)
-            if not ch or not isinstance(ch, discord.TextChannel):
-                continue
-
+        async with self._guild_lock(guild.id):
             try:
-                await ch.set_permissions(
-                    everyone,
-                    overwrite=original_ow,
-                    reason="Lexus Security: Lockdown released"
-                )
-                unlocked_count += 1
-            except Exception as e:
-                logger.warning(f"Could not restore channel {ch.name} in {guild.name}: {e}")
-
-        self._active_lockdowns.delete(guild.id)
-
+                async for entry in journal.find({"guild_id": guild.id}):
+                    key = {"_id": entry["_id"]}
+                    try:
+                        channel = await guild.fetch_channel(entry["channel_id"])
+                        current = channel.overwrites_for(everyone)
+                        changes = {
+                            name: value for name, value in entry["original"].items()
+                            if getattr(current, name) is False
+                        }
+                        if changes:
+                            current.update(**changes)
+                            await channel.set_permissions(
+                                everyone, overwrite=None if current.is_empty() else current,
+                                reason="Lexus Security: Lockdown released",
+                            )
+                        await journal.delete_one(key)
+                        restored += 1
+                    except discord.NotFound:
+                        await journal.delete_one(key)
+                        removed += 1
+                    except (discord.HTTPException, PyMongoError) as exc:
+                        logger.warning("Lockdown restore failed in guild %s channel %s (%s)",
+                                       guild.id, entry["channel_id"], type(exc).__name__)
+                        pending += 1
+            except PyMongoError:
+                return self._result(error=f"Processed {restored} channels before the journal became unavailable. Retry release.")
         security_logger.event(
-            incident_id="LOCKDOWN",
-            guild_id=guild.id,
-            actor_id=None,
-            event_type="LOCKDOWN_RELEASED",
-            risk="CRITICAL",
-            score=0.0,
-            action="LOCKDOWN_RELEASE",
-            result="SUCCESS",
-            details=f"Restored {unlocked_count} channels to their pre-lockdown permissions"
+            incident_id="LOCKDOWN", guild_id=guild.id, actor_id=None, event_type="LOCKDOWN_RELEASED",
+            risk="CRITICAL", score=0.0, action="LOCKDOWN_RELEASE",
+            result="FAILED" if pending or not (restored or removed) else "SUCCESS",
+            details=f"Processed {restored} channels, {pending} pending, {removed} deleted",
         )
-        return ActionResult(
-            success=True,
-            action=SecurityActionType.LOCKDOWN,
-            reason=f"Lockdown released across {unlocked_count} channels"
-        )
+        if pending:
+            return self._result(error=f"Processed {restored} channels. {pending} still need recovery. Retry release.")
+        if not restored and not removed:
+            return self._result(error="No lockdown recovery entries were found")
+        return self._result(reason=f"Lockdown released. Processed {restored} channels and removed {removed} deleted channels.")
 
 
-# Global lockdown manager instance
 lockdown_manager = LockdownManager()

@@ -364,8 +364,8 @@ class ActionEngine:
     ) -> ActionResult:
         """Emergency lockdown: locks default send permissions on public text channels."""
         bot = bot_member or guild.me
-        if not bot.guild_permissions.manage_channels:
-            return ActionResult(success=False, action=SecurityActionType.LOCKDOWN, error="Missing Manage Channels")
+        if not bot.guild_permissions.manage_roles:
+            return ActionResult(success=False, action=SecurityActionType.LOCKDOWN, error="Missing Manage Roles")
 
         # Use the central LockdownManager so automatic lockdowns are reversible
         # through /security lockdown release as well as manual controls.

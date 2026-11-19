@@ -35,3 +35,11 @@ def get_stats(x_api_key: str | None = Header(None)):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness():
+    is_ready = getattr(app.state, "bot_readiness", None)
+    if is_ready is None or not is_ready():
+        raise HTTPException(status_code=503, detail="Discord bot is not ready")
+    return {"status": "ready"}

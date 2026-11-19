@@ -465,10 +465,12 @@ class LexusBot(commands.Cog):
             logger.info(f"Using {self.api_provider} API with model: {self.model_name}")
         
         # Schedule permission check
-        asyncio.create_task(self.check_permissions_on_load())
+        self._permission_task = asyncio.create_task(self.check_permissions_on_load())
 
     async def cog_unload(self):
         """Clean shutdown."""
+        self._permission_task.cancel()
+        await asyncio.gather(self._permission_task, return_exceptions=True)
         if self.session:
             await self.session.close()
     
@@ -553,7 +555,7 @@ class LexusBot(commands.Cog):
         
         try:
             await channel.send(embed=embed)
-        except:
+        except Exception:
             # Fallback to plain text if embeds don't work
             await channel.send(
                 f"⚠️ **Lexus Warning:** I'm missing these permissions: {', '.join(missing)}\n"
@@ -880,7 +882,7 @@ Remember: You're Lxeus, an AI Discord companion. Be natural, honest and brief.""
             logger.warning(f"Missing permissions in {message.channel.name}")
             try:
                 await message.add_reaction("⚠️")
-            except:
+            except Exception:
                 pass
             return
 
