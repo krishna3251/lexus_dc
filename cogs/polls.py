@@ -6,30 +6,13 @@ and optional auto-close after a duration.
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import re
 import time
+from pymongo.errors import PyMongoError
 import logging
 import mongo_helper
+from services.durations import parse_duration
 
 logger = logging.getLogger(__name__)
-
-# Inline parse_duration to avoid circular import with cogs.reminders
-_DURATION_RE = re.compile(r"(\d+)\s*(s|sec|m|min|h|hr|hour|d|day|w|week)", re.IGNORECASE)
-_UNIT_MAP = {
-    "s": 1, "sec": 1,
-    "m": 60, "min": 60,
-    "h": 3600, "hr": 3600, "hour": 3600,
-    "d": 86400, "day": 86400,
-    "w": 604800, "week": 604800,
-}
-
-def parse_duration(text: str) -> int | None:
-    """Parse a human duration string into seconds. Returns None on failure."""
-    total = 0
-    for match in _DURATION_RE.finditer(text):
-        val, unit = int(match.group(1)), match.group(2).lower()
-        total += val * _UNIT_MAP.get(unit, 0)
-    return total if total > 0 else None
 
 NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
@@ -67,6 +50,14 @@ class PollsCog(commands.Cog, name="Polls"):
         option5: str = None,
         duration: str = None,
     ):
+        seconds = parse_duration(duration) if duration is not None else None
+        col = mongo_helper.get_collection("polls") if seconds else None
+        if duration is not None and seconds is None:
+            await interaction.response.send_message("Invalid duration. Try 30m, 2h or 1d.", ephemeral=True)
+            return
+        if seconds and col is None:
+            await interaction.response.send_message("The database is unavailable for timed polls.", ephemeral=True)
+            return
         options = [o for o in [option1, option2, option3, option4, option5] if o]
 
         description_lines = []
@@ -84,23 +75,23 @@ class PollsCog(commands.Cog, name="Polls"):
         await interaction.response.send_message(embed=embed)
         msg = await interaction.original_response()
 
+        if col is not None:
+            try:
+                await col.insert_one({
+                    "message_id": msg.id,
+                    "channel_id": msg.channel.id,
+                    "guild_id": interaction.guild_id,
+                    "question": question,
+                    "options": options,
+                    "close_at": time.time() + seconds,
+                })
+            except PyMongoError:
+                await msg.delete()
+                await interaction.followup.send("I couldn't save the timed poll. Please try again.", ephemeral=True)
+                return
+
         for i in range(len(options)):
             await msg.add_reaction(NUMBER_EMOJIS[i])
-
-        # Save poll for auto-close if duration provided
-        if duration:
-            seconds = parse_duration(duration)
-            if seconds:
-                col = mongo_helper.get_collection("polls")
-                if col:
-                    await col.insert_one({
-                        "message_id": msg.id,
-                        "channel_id": msg.channel.id,
-                        "guild_id": interaction.guild_id,
-                        "question": question,
-                        "options": options,
-                        "close_at": time.time() + seconds,
-                    })
 
     # ── Auto-close loop ────────────────────────────────────────────
 
@@ -115,15 +106,13 @@ class PollsCog(commands.Cog, name="Polls"):
         expired = await cursor.to_list(length=20)
 
         for poll in expired:
-            channel = self.bot.get_channel(poll["channel_id"])
-            if not channel:
+            try:
+                channel = self.bot.get_channel(poll["channel_id"]) or await self.bot.fetch_channel(poll["channel_id"])
+                msg = await channel.fetch_message(poll["message_id"])
+            except discord.NotFound:
                 await col.delete_one({"_id": poll["_id"]})
                 continue
-
-            try:
-                msg = await channel.fetch_message(poll["message_id"])
-            except (discord.NotFound, discord.Forbidden):
-                await col.delete_one({"_id": poll["_id"]})
+            except discord.HTTPException:
                 continue
 
             # Tally votes
@@ -131,7 +120,7 @@ class PollsCog(commands.Cog, name="Polls"):
             for i, opt in enumerate(poll["options"]):
                 emoji = NUMBER_EMOJIS[i]
                 reaction = discord.utils.get(msg.reactions, emoji=emoji)
-                count = (reaction.count - 1) if reaction else 0  # subtract bot's reaction
+                count = (reaction.count - int(reaction.me)) if reaction else 0  # subtract bot's reaction
                 results.append((opt, count))
 
             results.sort(key=lambda x: x[1], reverse=True)
@@ -146,16 +135,23 @@ class PollsCog(commands.Cog, name="Polls"):
                 description="\n".join(lines),
                 color=discord.Color.gold(),
             )
-            if results:
-                embed.add_field(name="Winner", value=f"🏆 **{results[0][0]}**")
+            highest = results[0][1] if results else 0
+            winners = [option for option, count in results if count == highest]
+            if not highest:
+                embed.add_field(name="Result", value="No votes")
+            else:
+                embed.add_field(name="Winner" if len(winners) == 1 else "Tie", value=", ".join(winners))
 
             try:
                 await msg.edit(embed=embed)
-                await msg.clear_reactions()
-            except discord.Forbidden:
-                pass
+            except discord.HTTPException:
+                continue
 
             await col.delete_one({"_id": poll["_id"]})
+            try:
+                await msg.clear_reactions()
+            except discord.HTTPException:
+                logger.info("Could not clear reactions on closed poll %s", msg.id)
 
     @poll_closer.before_loop
     async def before_poll_closer(self):

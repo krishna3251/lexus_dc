@@ -12,8 +12,6 @@ class ServerStats(commands.Cog):
     async def update_stats(self):
         # Aggregate across ALL guilds the bot is in
         guilds = self.bot.guilds
-        if not guilds:
-            return
 
         server_stats["members"] = sum(g.member_count or 0 for g in guilds)
         server_stats["channels"] = sum(len(g.channels) for g in guilds)

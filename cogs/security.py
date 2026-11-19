@@ -97,13 +97,14 @@ class SecurityCog(commands.Cog, name="Security"):
         embed.add_field(name="Mode", value=f"`{cfg.security_mode.upper()}`", inline=True)
         embed.add_field(name="Profile", value=f"`{cfg.profile.value}`", inline=True)
 
+        lockdown_status = await lockdown_manager.status(guild.id)
         modules_text = (
             f"Anti-Spam: {'`Enabled`' if cfg.spam_enabled else '`Disabled`'}\n"
             f"Anti-Raid: {'`Enabled`' if cfg.raid_enabled else '`Disabled`'}\n"
             f"Anti-Nuke: {'`Enabled`' if cfg.antinuke_enabled else '`Disabled`'}\n"
             f"Join Gate: {'`Enabled`' if cfg.join_gate_enabled else '`Disabled`'}\n"
             f"Quarantine: {'`Ready`' if cfg.quarantine_role_id else '`Not configured`'}\n"
-            f"Lockdown: {'`Active`' if lockdown_manager.is_locked_down(guild.id) else '`Ready`'}\n"
+            f"Lockdown: `{lockdown_status}`\n"
             f"Audit Correlation: {'`Ready`' if guild.me and guild.me.guild_permissions.view_audit_log else '`Blocked`'}"
         )
         embed.add_field(name="Protection Modules", value=modules_text, inline=False)

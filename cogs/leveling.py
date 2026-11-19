@@ -10,6 +10,7 @@ import random
 import time
 import logging
 import mongo_helper
+from services.cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class LevelingCog(commands.Cog, name="Leveling"):
 
     def __init__(self, bot):
         self.bot = bot
-        self.cooldowns: dict[int, float] = {}  # user_id -> last_xp_time
+        self.cooldowns: TTLCache[tuple[int, int], float] = TTLCache(max_size=10000, default_ttl=60)
         self.XP_COOLDOWN = 60  # seconds between XP gains
         self.XP_MIN = 15
         self.XP_MAX = 25
@@ -40,9 +41,9 @@ class LevelingCog(commands.Cog, name="Leveling"):
         now = time.time()
 
         # Per-user cooldown
-        if now - self.cooldowns.get(user_id, 0) < self.XP_COOLDOWN:
+        if now - self.cooldowns.get((guild_id, user_id), 0) < self.XP_COOLDOWN:
             return
-        self.cooldowns[user_id] = now
+        self.cooldowns.set((guild_id, user_id), now, ttl=self.XP_COOLDOWN)
 
         xp_gain = random.randint(self.XP_MIN, self.XP_MAX)
 

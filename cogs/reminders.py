@@ -6,32 +6,15 @@ Persisted in MongoDB so reminders survive bot restarts.
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import re
 import time
 import logging
+from uuid import uuid4
+
+from pymongo.errors import PyMongoError
 import mongo_helper
+from services.durations import parse_duration
 
 logger = logging.getLogger(__name__)
-
-DURATION_RE = re.compile(r"(\d+)\s*(s|sec|m|min|h|hr|hour|d|day|w|week)", re.IGNORECASE)
-
-UNIT_MAP = {
-    "s": 1, "sec": 1,
-    "m": 60, "min": 60,
-    "h": 3600, "hr": 3600, "hour": 3600,
-    "d": 86400, "day": 86400,
-    "w": 604800, "week": 604800,
-}
-
-
-def parse_duration(text: str) -> int | None:
-    """Parse a human duration string into seconds. Returns None on failure."""
-    total = 0
-    for match in DURATION_RE.finditer(text):
-        val, unit = int(match.group(1)), match.group(2).lower()
-        total += val * UNIT_MAP.get(unit, 0)
-    return total if total > 0 else None
-
 
 class RemindersCog(commands.Cog, name="Reminders"):
     """Set timed reminders that DM you when they fire."""
@@ -52,12 +35,16 @@ class RemindersCog(commands.Cog, name="Reminders"):
         duration="When to remind you (e.g. 2h, 30m, 1d)",
         message="What to remind you about",
     )
-    async def remind(self, interaction: discord.Interaction, duration: str, message: str):
+    async def remind(self, interaction: discord.Interaction, duration: str, message: str, public_fallback: bool = False):
         seconds = parse_duration(duration)
         if not seconds:
             await interaction.response.send_message(
                 "❌ Invalid duration. Examples: `30m`, `2h`, `1d`", ephemeral=True
             )
+            return
+
+        if len(message) > 1900:
+            await interaction.response.send_message("Keep the reminder under 1,900 characters.", ephemeral=True)
             return
 
         fire_at = time.time() + seconds
@@ -72,12 +59,13 @@ class RemindersCog(commands.Cog, name="Reminders"):
             "guild_id": interaction.guild_id,
             "message": message,
             "fire_at": fire_at,
+            "public_fallback": public_fallback,
             "created_at": time.time(),
         })
 
         fire_ts = int(fire_at)
         await interaction.response.send_message(
-            f"⏰ Reminder set! I'll remind you <t:{fire_ts}:R>: **{message}**",
+            f"⏰ Reminder set for <t:{fire_ts}:R>.", ephemeral=True,
         )
 
     @app_commands.command(name="reminders", description="List your active reminders")
@@ -101,7 +89,7 @@ class RemindersCog(commands.Cog, name="Reminders"):
 
         embed = discord.Embed(
             title="⏰ Your Reminders",
-            description="\n".join(lines),
+            description="\n".join(lines)[:4096],
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -114,36 +102,48 @@ class RemindersCog(commands.Cog, name="Reminders"):
         if col is None:
             return
 
-        now = time.time()
-        cursor = col.find({"fire_at": {"$lte": now}})
-        fired = await cursor.to_list(length=50)
-
-        for r in fired:
-            user = self.bot.get_user(r["user_id"])
-            if not user:
-                try:
-                    user = await self.bot.fetch_user(r["user_id"])
-                except Exception:
-                    user = None
-
-            if user:
-                embed = discord.Embed(
-                    title="⏰ Reminder!",
-                    description=r["message"],
-                    color=discord.Color.gold(),
+        for _ in range(50):
+            now = time.time()
+            lease_id = uuid4().hex
+            try:
+                reminder = await col.find_one_and_update(
+                    {"fire_at": {"$lte": now}, "failed": {"$ne": True},
+                     "$or": [{"lease_until": {"$exists": False}}, {"lease_until": {"$lte": now}}]},
+                    {"$set": {"lease_id": lease_id, "lease_until": now + 300}},
+                    sort=[("fire_at", 1)],
                 )
+                if reminder is None:
+                    return
+                key = {"_id": reminder["_id"], "lease_id": lease_id}
                 try:
-                    await user.send(embed=embed)
-                except discord.Forbidden:
-                    # Try sending in the original channel
-                    ch = self.bot.get_channel(r.get("channel_id"))
-                    if ch:
-                        try:
-                            await ch.send(f"{user.mention} ⏰ Reminder: **{r['message']}**")
-                        except discord.Forbidden:
-                            pass
+                    await self._deliver(reminder)
+                except discord.HTTPException:
+                    attempts = reminder.get("attempts", 0) + 1
+                    await col.update_one(key, {
+                        "$set": {"attempts": attempts, "failed": attempts >= 3,
+                                 "lease_until": now + 60 * attempts},
+                        "$unset": {"lease_id": ""},
+                    })
+                    continue
+                await col.delete_one(key)
+            except PyMongoError as exc:
+                logger.warning("Reminder database operation failed (%s)", type(exc).__name__)
+                return
 
-            await col.delete_one({"_id": r["_id"]})
+    async def _deliver(self, reminder):
+        user = self.bot.get_user(reminder["user_id"]) or await self.bot.fetch_user(reminder["user_id"])
+        try:
+            await user.send(embed=discord.Embed(
+                title="⏰ Reminder!", description=reminder["message"], color=discord.Color.gold(),
+            ))
+        except discord.Forbidden:
+            if not reminder.get("public_fallback") or not reminder.get("channel_id"):
+                raise
+            channel = self.bot.get_channel(reminder["channel_id"]) or await self.bot.fetch_channel(reminder["channel_id"])
+            await channel.send(
+                f"{user.mention} ⏰ Reminder: {reminder['message']}",
+                allowed_mentions=discord.AllowedMentions(users=[user], roles=False, everyone=False),
+            )
 
     @check_reminders.before_loop
     async def before_check_reminders(self):

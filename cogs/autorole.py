@@ -4,7 +4,7 @@ All config stored in MongoDB guild_config.
 """
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import logging
 import mongo_helper
@@ -53,12 +53,25 @@ class AutoroleCog(commands.Cog, name="Autorole"):
 
     async def cog_load(self):
         """Re-register persistent reaction-role views from DB."""
+        if not await self.restore_role_views():
+            self.wait_for_role_storage.start()
+
+    async def restore_role_views(self):
         col = mongo_helper.get_collection("reaction_roles")
         if col is None:
-            return
+            return False
         async for doc in col.find():
             view = ReactionRoleView(doc.get("roles", []))
             self.bot.add_view(view, message_id=doc.get("message_id"))
+        return True
+
+    @tasks.loop(seconds=30)
+    async def wait_for_role_storage(self):
+        if await self.restore_role_views():
+            self.wait_for_role_storage.stop()
+
+    async def cog_unload(self):
+        self.wait_for_role_storage.cancel()
 
     # ── Auto-assign on join ────────────────────────────────────────
 
@@ -135,7 +148,7 @@ class AutoroleCog(commands.Cog, name="Autorole"):
 
         # Persist for re-registration on restart
         col = mongo_helper.get_collection("reaction_roles")
-        if col:
+        if col is not None:
             await col.insert_one({
                 "message_id": msg.id,
                 "channel_id": msg.channel.id,

@@ -31,7 +31,11 @@ class AntiNukeCog(commands.Cog):
     
     async def cog_load(self):
         """Schedule loading whitelists from MongoDB on startup."""
-        asyncio.create_task(self._init_guild_antinuke())
+        self._init_task = asyncio.create_task(self._init_guild_antinuke())
+
+    async def cog_unload(self):
+        self._init_task.cancel()
+        await asyncio.gather(self._init_task, return_exceptions=True)
 
     async def _init_guild_antinuke(self):
         """Wait until bot is ready and load guild configs."""

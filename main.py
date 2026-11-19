@@ -5,6 +5,7 @@ import sys
 import time
 import threading
 import asyncio
+from pathlib import Path
 from discord.ext import commands, tasks
 from core.environment import load_environment
 from core.interaction_response import interaction_unavailable, report_error
@@ -87,6 +88,10 @@ def _update_server_stats():
     server_stats["roles"]    = sum(len(g.roles)         for g in bot.guilds)
 
 
+class RequiredCogError(RuntimeError):
+    """A required Discord extension did not load."""
+
+
 class Bot(commands.Bot):
     def __init__(self):
         super().__init__(
@@ -101,6 +106,7 @@ class Bot(commands.Bot):
         self.processing_commands = set()
         self.lavalink = LavalinkConnection(wavelink) if WAVELINK_AVAILABLE else None
         self.commands_synced = False
+        self.required_cogs_loaded = False
         self.ready_lock = asyncio.Lock()
 
     async def setup_hook(self):
@@ -113,10 +119,8 @@ class Bot(commands.Bot):
             except Exception as e:
                 logging.error(f"❌ MongoDB error: {e}")
 
-        if not os.path.exists("cogs"):
-            os.makedirs("cogs")
-
-        cog_files = [f for f in os.listdir("cogs") if f.endswith(".py") and f != "__init__.py"]
+        cog_root = Path(__file__).resolve().parent / "cogs"
+        cog_files = sorted(path.name for path in cog_root.glob("*.py") if path.name != "__init__.py")
         priority  = [f for f in cog_files if f.startswith(("security", "ai_engine", "help", "admin", "core"))]
         rest      = [f for f in cog_files if f not in priority]
 
@@ -142,29 +146,28 @@ class Bot(commands.Bot):
             for fname, exc_type, err_msg in failed:
                 logging.error(f"   ❌ {fname} | {exc_type}: {err_msg}")
 
-        # Lexus V3 Security Engine Startup Report
-        try:
-            from security.engine import security_engine
-            health = security_engine.get_health_status()
-            logging.info("🛡️  Lexus Security Engine:")
-            logging.info(f"   Engine:           {'Ready' if health['security_ready'] else 'Failed'}")
-            logging.info("   Anti-Spam:        Ready")
-            logging.info("   Anti-Raid:        Ready")
-            logging.info("   Anti-Nuke:        Ready")
-            logging.info("   Permission Guard: Ready")
-            logging.info("   Bot Guard:        Ready")
-            logging.info("   Webhook Guard:    Ready")
-            logging.info(f"   Quarantine:       {'Ready' if health['quarantine_ready'] else 'Not Ready'}")
-            logging.info("   Lockdown:         Ready")
-            logging.info(f"   Recovery:         {'Ready' if health['recovery_ready'] else 'Not Ready'}")
-        except Exception as e:
-            logging.warning(f"Security startup status report unavailable: {e}")
+        required = {"security.py", "ai_engine.py", "help.py"}
+        self.required_cogs_loaded = required.issubset(loaded)
+        if not self.required_cogs_loaded:
+            raise RequiredCogError(f"Required Discord modules failed: {', '.join(sorted(required.difference(loaded)))}")
 
         self.status_rotation.start()
+        if MONGO_AVAILABLE and mongo_helper and mongo_helper.get_db() is None:
+            self.connect_database.start()
+
+    @tasks.loop(seconds=30)
+    async def connect_database(self):
+        if await mongo_helper.connect() is not None:
+            self.connect_database.stop()
+
+    @connect_database.before_loop
+    async def before_connect_database(self):
+        await self.wait_until_ready()
 
     async def close(self):
         logging.info("🛑 Closing bot session...")
         self.status_rotation.cancel()
+        self.connect_database.cancel()
         brain = getattr(self, "ai_engine", None)
         if brain is not None:
             try:
@@ -227,6 +230,8 @@ class Bot(commands.Bot):
 
 
 bot = Bot()
+if fastapi_app is not None:
+    fastapi_app.state.bot_readiness = lambda: bot.is_ready() and bot.required_cogs_loaded
 
 
 async def connect_lavalink():
@@ -370,10 +375,11 @@ async def _start_with_retries():
         try:
             logging.info(f"🚀 Starting bot (attempt {attempt}/5)")
             await bot.start(TOKEN)
-            break
-        except discord.LoginFailure:
-            logging.critical("❌ Invalid token — check DISCORD_TOKEN env var.")
             return
+        except RequiredCogError:
+            raise
+        except discord.LoginFailure:
+            raise RuntimeError("Discord login failed. Check DISCORD_TOKEN.") from None
         except discord.HTTPException as e:
             wait = min(30 * attempt, 300)
             logging.warning(f"⚠️ HTTP {e.status} — retrying in {wait}s")
@@ -382,6 +388,7 @@ async def _start_with_retries():
             wait = min(10 * attempt, 60)
             logging.error(f"❌ {e} — retrying in {wait}s")
             await asyncio.sleep(wait)
+    raise RuntimeError("Discord startup retries exhausted")
 
 
 if __name__ == "__main__":
@@ -397,3 +404,4 @@ if __name__ == "__main__":
         logging.info("🛑 Shutdown initiated by user.")
     except Exception as e:
         logging.critical(f"💥 Fatal error: {e}", exc_info=True)
+        sys.exit(1)

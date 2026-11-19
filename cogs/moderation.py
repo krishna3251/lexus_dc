@@ -5,12 +5,13 @@ import asyncio
 import json
 import logging  # FIX 1: was missing, caused NameError in save_mod_roles()
 import os
+import tempfile
+from pathlib import Path
 import datetime
 from typing import Optional, Union
 
 # File to store mod role IDs per guild
 MOD_ROLES_FILE = os.path.join(os.path.dirname(__file__), "mod_roles.json")
-OWNER_ID = 486555340670894080  # Your Discord user ID
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +29,25 @@ def load_mod_roles():
 
 
 def save_mod_roles(mod_roles):
-    """Save mod roles to file (atomic-safe)."""
+    """Replace the previous guild settings only after the new file is written."""
+    temp_path = None
     try:
-        with open(MOD_ROLES_FILE, 'w') as f:
-            json.dump(mod_roles, f, indent=2)
-    except OSError as e:
-        logger.error(f"Failed to save mod_roles: {e}")
+        with tempfile.NamedTemporaryFile(mode="w", dir=os.path.dirname(MOD_ROLES_FILE), delete=False) as fp:
+            temp_path = fp.name
+            json.dump(mod_roles, fp, indent=2)
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(temp_path, MOD_ROLES_FILE)
+        return True
+    except OSError as exc:
+        logger.error("Failed to save mod roles (%s)", type(exc).__name__)
+        return False
+    finally:
+        if temp_path:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove temporary moderation settings")
 
 
 class ModerationCog(commands.Cog):
@@ -55,13 +69,13 @@ class ModerationCog(commands.Cog):
 
     async def cog_check(self, ctx):
         """Check if user has permission to use moderation commands."""
-        if ctx.author.id == OWNER_ID:
+        if await self.bot.is_owner(ctx.author):
             return True
         return self.check_mod_role(ctx.author, ctx.guild.id)
 
     async def has_mod_role_or_owner(self, interaction: discord.Interaction):
         """Check if user has mod role or is the owner for app commands."""
-        if interaction.user.id == OWNER_ID:
+        if await self.bot.is_owner(interaction.user):
             return True
         return self.check_mod_role(interaction.user, interaction.guild_id)
 
@@ -71,13 +85,16 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_setmodrole(self, ctx, role: discord.Role):
         """Set a role as the moderation role (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
         guild_id = str(ctx.guild.id)
-        self.mod_roles[guild_id] = role.id
-        save_mod_roles(self.mod_roles)
+        updated = {**self.mod_roles, guild_id: role.id}
+        if not save_mod_roles(updated):
+            await ctx.send("I couldn't save the moderation role.")
+            return
+        self.mod_roles = updated
 
         embed = discord.Embed(
             title="Mod Role Set",
@@ -90,7 +107,7 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_givemod(self, ctx, user: discord.Member):
         """Give a user the mod role (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
@@ -151,7 +168,7 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_kick(self, ctx, user: discord.Member, *, reason: str = "No reason provided"):
         """Kick a user from the server (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
@@ -217,7 +234,7 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_ban(self, ctx, user: discord.Member, delete_days: Optional[int] = 1, *, reason: str = "No reason provided"):
         """Ban a user from the server (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
@@ -285,7 +302,7 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_timeout(self, ctx, user: discord.Member, duration: int, *, reason: str = "No reason provided"):
         """Timeout a user for a specified duration (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
@@ -353,7 +370,7 @@ class ModerationCog(commands.Cog):
     @commands.guild_only()
     async def p_moderate(self, ctx, user: discord.Member):
         """Open moderation panel for a user (prefix version)."""
-        if ctx.author.id != OWNER_ID and not self.check_mod_role(ctx.author, ctx.guild.id):
+        if not await self.bot.is_owner(ctx.author) and not self.check_mod_role(ctx.author, ctx.guild.id):
             await ctx.send("You don't have permission to use this command.")
             return
 
